@@ -1,6 +1,6 @@
 # Linux 运行说明（正式 CLI）
 
-版本：0.1.0｜日期：2026-09-11｜状态：本阶段交付的运行手册。文中命令在 2026-09-11 的 Linux 环境实际执行，原始输出见
+版本：0.1.0｜日期：2026-09-11｜状态：本阶段交付的运行手册。原始阶段二命令在 Linux 环境执行；本轮按源码更正安装与配置传递说明，未重新执行全部示例。历史原始输出见
 [证据日志](evidence/logs/t027-cli.txt)；命令只包装既有采集管线，不改变来源边界、robots、限速或质量阈值。
 
 正式入口是已安装的控制台命令 `crawl`（源码 `src/crawler/cli.py`，等价入口 `python -m crawler`）。
@@ -31,8 +31,8 @@
 从交付副本（含 `pyproject.toml`、`uv.lock`、`.python-version`、`src/`、`tests/`、`specs/`）开始：
 
 ```bash
-uv python install 3.9
-uv python pin 3.9
+uv python install 3.9.25                    # 仅缺少已固定解释器时；先确认解释器获取方式
+# 保留仓库 .python-version，不执行 uv python pin 3.9 改写固定补丁版本
 uv sync --locked --no-python-downloads        # 复现锁定依赖并安装 crawl 命令
 test -e .env || cp .env.example .env          # 只复制样例，不覆盖已有 .env
 uv run --locked --no-python-downloads crawl --help
@@ -88,16 +88,15 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 └── logs/crawler.log, metrics.json, metrics_history.jsonl   运行日志与计数
 ```
 
-`crawl check` 校验前五项是否齐全、契约字段是否合法、documents/blocks 是否 100% 可追溯到原件，并拒绝数据根内出现采集阶段禁止的派生成果（切片、向量、索引等）。
+`crawl check` 校验包含 logs/ 在内的六项成果是否齐全、契约字段是否合法、documents/blocks 是否 100% 可追溯到原件，并拒绝数据根内出现采集阶段禁止的派生成果（切片、向量、索引等）。
 
 ## 7. 常见操作
 
 开发数据根（示例为 `.env` 中的相对路径）：
 
 ```bash
-uv run --locked --no-python-downloads --env-file .env crawl collect --source DEMO --config data/dev-sources.yaml --max-items 5
-uv run --locked --no-python-downloads --env-file .env crawl plan
-uv run --locked --no-python-downloads --env-file .env crawl resume --source DEMO
+uv run --locked --no-python-downloads --env-file .env crawl sources --config specs/001-public-knowledge-collection/examples/pilot-cn08-sources.yaml
+uv run --locked --no-python-downloads --env-file .env crawl plan --source CN-08 --config specs/001-public-knowledge-collection/examples/pilot-cn08-sources.yaml
 uv run --locked --no-python-downloads --env-file .env crawl check
 ```
 
@@ -124,7 +123,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | 同日重复运行 | 账本按来源与日期续号，`crawl_id` 不复用；失败补抓按 `crawl_id` 定位原件 |
 
 ## 9. 已知限制
-- `crawl check` 需要工程源码树中的 `specs/001-public-knowledge-collection/contracts/`；仅安装 wheel、没有源码树时，命令以退出码 2 报“无法从源码位置识别工程根，不能定位 contracts/”，这是有意的显式失败，不静默跳过契约校验。
+- `crawl sources` 的契约校验和 `crawl check` 需要工程源码树中的 `specs/001-public-knowledge-collection/contracts/`；仅安装 wheel、没有源码树时，命令以退出码 2 报“无法从源码位置识别工程根，不能定位 contracts/”，这是有意的显式失败，不静默跳过契约校验。
 - 随包来源注册表只有禁用的 DEMO；真实来源接入待 Q12/Q13。
 - 无后台调度/守护进程与并发采集，CLI 为单进程同步执行；旧式 DOC/XLS 转换需要系统 LibreOffice（本机尚未安装，见 NEXT-04 记录）。
 
@@ -137,3 +136,11 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 
 本说明不把工程夹具通过当作正式业务验收；业务用例状态与来源启用范围仍以
 [验收规范](acceptance.md)、[待决事项](clarifications.md) 和 [阶段续作说明](continuation.md) 为准。
+
+## 本轮更正与阶段三限制
+
+上述 sources/plan 为读取配置和失败计划，不发起站点请求；check 需要数据根已有成果，空新目录不应宣称交付通过。CN-08 配置只供工程试点。collect 与 resume 必须传入与 plan 同一份 --config 和同一数据根；不能省略配置让默认 DEMO 注册表处理 CN-08。正文缺口和正式启用范围尚未解决。
+
+当前 max-items/max-tasks 不限制全部 HTTP 请求或运行时间，CLI 尚无统一预算参数；runbook 的 Retry-After 超预算停止是后续要求，不能当作现有功能。按 stage-three.md NEXT-06 实现并验证后，再将真实参数和完整在线命令更新到这里。在此之前不照抄历史试点命令扩大线上运行。
+
+契约资源仍依赖源码根，至少 sources（调用 load_contract）和 check（调用 validate_delivery）受影响；当前请使用完整源码交付副本。wheel 元数据存在不代表这些命令在源码外可用，NEXT-08 将补齐随包契约。运行期只允许一个写进程使用同一数据根；跨进程序号续接不等于多进程写入互斥。

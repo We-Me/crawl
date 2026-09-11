@@ -84,3 +84,7 @@ CRAWL_DATA_DIR=/tmp/cn08-pilot uv run --locked --no-python-downloads crawl check
 - [试点执行日志](evidence/logs/t026-pilot-cn08.txt)
 - [试点证据与任务关系](evidence/T026-pilot-cn08.md)
 - [五轮受限核验](evidence/logs/t026-realsite-smoke.txt)
+
+## 阶段二复核补充
+
+本页命令与 3 请求结果是历史记录，不是强制预算已实现的证明。当前程序没有统一 10 请求/5 分钟限额，扩展线上验证前按 [阶段三计划](stage-three.md) NEXT-06 落实。正文含相关阅读是已知工程缺陷，NEXT-07 可在现有测试授权内离线修复，不必等待正式生产启用。原始 /tmp/cn08-pilot 可能未随仓库迁移，先核对原件可用性，缺失时如实记录；不能拿摘要或全文末尾当作完整原件。

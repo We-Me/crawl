@@ -4,13 +4,13 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
 
 ## 开发约束
 
 - DEV-001：业务程序使用 Python 开发。配置、文档、数据契约及辅助脚本可使用适合其用途的格式或语言；不得据此将业务程序改用其他语言。
 - DEV-002：首先用 Python 3.9 构建完整环境，记录实际补丁版本。只有明确证明必需依赖或平台能力在 3.9 下无法满足要求，且合理的兼容依赖组合仍无法解决时，才尝试 3.10；仍失败再尝试 3.11，依次逐个次版本提高，找到最低可行版本即停止。不得因本机版本较高、偏好新语法、单个最新库不兼容或临时网络故障直接升级。不要删减已选需求来维持低版本；完整环境的判定和升级记录见 tech-stack.md。
-- DEV-003：使用 uv 管理 Python、项目虚拟环境和依赖。采集框架、HTTP 库、解析/OCR 库、调度和测试框架仍待选定；优先评估满足需求的 Python 3.9 兼容组合。没有框架也是可比较的方案；不默认创建 Web 服务或引入超出范围的架构。
+- DEV-003：使用 uv 管理 Python、项目虚拟环境和依赖。当前采集范围已按 tech-stack.md 选型；复用已有 Python 3.9 兼容组合，只有新能力或实际不兼容才重开相关选型。没有框架也是可比较的方案；不默认创建 Web 服务或引入超出范围的架构。
 - DEV-004：先按 T002 完成当前模块所需选型：核实候选版本的官方支持情况、目标平台与依赖兼容性，用固定样本验证，再在 tech-stack.md 记录结论、依据和限制。可在授权范围内自主作出有依据的工程选择，不必为每个库单独请求批准；业务范围改变仍需处理相关待决项。原型试验不等于生产选型已完成。
 - DEV-005：相关环境验证完成后再初始化依赖它的业务模块。使用 uv 的项目 .venv、pyproject.toml、uv.lock 和 .python-version；Python 版本约束与固定解释器保持一致，运行和测试使用 uv run。复现安装使用 uv sync --locked，并启用当前交付需要的依赖组/可选项；不得以全局 pip 手装或手改 uv.lock 绕过依赖声明。不提交或复制 .venv，不使用开发者绝对路径作为项目契约。
 - DEV-006：按 tasks.md 依赖顺序实施，每项任务完成后运行对应验收并记录证据再勾选；变更选型时同步 tech-stack.md、project-startup.md、uv-template.md、plan.md、依赖声明和受影响用例。不得重跑初始文档生成脚本覆盖已经评审的规格。
@@ -25,5 +25,5 @@
 ## 阶段续作约束
 
 - DEV-010：每轮选择明确交付物，按 continuation.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
-- DEV-011：下一阶段按 continuation.md 的 NEXT-01 起推进正式操作入口、运行说明与有限试点，部分完成和正式验收分开记录；业务待决只阻断受影响工作，不触发泛化加固循环。
+- DEV-011：下一阶段按 continuation.md 与 stage-three.md 的当前状态从 NEXT-06 起推进预算执行、正文修复与随包契约；NEXT-01/02 已完成，不重新开发，部分完成和正式验收分开记录；业务待决只阻断受影响工作，不触发泛化加固循环。
 - DEV-012：用户已授权遵守网站规则的真实站点测试，无需逐轮重复请求该授权。每次测试先登记目的、来源和有限请求预算，遵守 robots、站点条款、访问边界、限速及 Retry-After；遇登录、验证码、明确拒绝或访问限制停止，不绕过。优先已有原件离线验证；遵循 continuation.md 的线上测试停止条件，授权不等于启用全站持续采集或冻结业务范围。工具权限要求仍按实际规则处理。

@@ -76,3 +76,7 @@ NEXT-01/NEXT-02 完成：正式业务 CLI `crawl`（sources/collect/plan/resume/
 ## 后续开发入口
 
 优先阅读 [阶段续作说明](specs/001-public-knowledge-collection/continuation.md)：已有工程证据直接复用，先做正式业务操作入口和运行说明，不以反复全量测试作为默认工作。T012/T019 更正为部分完成，详见 tasks.md；历史记录中的完成表述按此限定。用户已授权遵守网站规则的有限真实测试，无需逐轮重复确认。继续现有项目时须携带 src/、tests/、pyproject.toml、uv.lock、.python-version 及现有工具与证据；上面的文档复制清单仅用于新建规格项目。
+
+## 阶段二后续开发
+
+阶段二提交 4f07c6f 已交付正式 CLI 和单站试点；不再重复 NEXT-01/02。从 [阶段三计划](specs/001-public-knowledge-collection/stage-three.md) NEXT-06 开始，处理程序预算、正文质量和随包契约三个具体缺口。325 passed 为历史结果；本轮仅复核文件并修订后续文档。

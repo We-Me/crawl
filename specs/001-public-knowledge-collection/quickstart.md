@@ -5,7 +5,7 @@
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
-当前工作区交付的是 SDD 文档、虚构契约样例与固定夹具上的采集实现。尚无正式业务 CLI、索引或边缘软件；已有受限真实站点核验记录，不能与正式业务任务混同。以下步骤先用于审查，再用于后续开发交接。
+当前工作区交付的是 SDD 文档、虚构契约样例与固定夹具上的采集实现。正式业务 CLI crawl 与 Linux 运行说明已交付；尚无索引或边缘软件。已有有限真实站点工程试点，不能与正式业务验收混同。以下步骤先用于审查，再用于后续开发交接。
 
 2026-09-11 状态：采集范围 T003—T019 已实现并通过 310 项测试（无 CLI、无真实站点任务；AT-014/AT-024 因 Q11 未决保持 blocked），领域与真实来源任务仍待相应 Q 项决策。任务勾选见 [tasks.md](tasks.md)，证据索引见 [evidence/README.md](evidence/README.md)。
 
@@ -62,3 +62,7 @@
 ## Linux 上使用 Codex CLI 与强制镜像
 
 新版起步步骤、模板复制命令和可直接粘贴的开发指令见 [uv 镜像模板与 Linux 使用说明](uv-template.md)。复制包必须包含 templates/。Linux 基础文档校验可执行 python3 tools/verify_sdd_documents.py；完整 Schema 正反例仍需 PowerShell 7.5+，执行 pwsh -File tools/verify_sdd_documents.ps1 -PythonPath python3。
+
+## 阶段二复核后的续作入口
+
+阶段二基线为 4f07c6f：正式 crawl CLI、运行说明和 CN-08 有限试点已交付；历史全量日志记录 325 passed。当前从 [阶段三计划](stage-three.md) NEXT-06 开始，依次处理运行预算、CN-08 正文边界和随包契约。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
