@@ -15,11 +15,11 @@
 | 项目 | 候选设计或已知事实 | 状态 |
 | --- | --- | --- |
 | 工程形态 | 可批处理的采集程序，来源配置与站点适配器分开；不预设 Web 服务 | 设计建议 |
-| 语言 | Python 3.9 优先；完整环境不成立才逐个次版本提高 | TD-01/T002 记录兼容性证据与最终补丁版本 |
-| 环境与包管理 | 使用 uv 管理 Python、.venv、pyproject.toml、uv.lock、.python-version | 工具选择已明确，实际工具版本与环境待验证 |
-| 框架及依赖 | 采集框架、HTTP、解析/OCR、调度和测试库待选；包管理工具已确定使用 uv | TD-02/T002 按当前模块选型，见 tech-stack.md |
-| HTTP 和 HTML | 采用支持超时、重定向控制、流式下载与 DOM 定位的库 | 具体库/版本待技术验证 |
-| 文档解析 | 按 HTML、文本 PDF、扫描 PDF/OCR、DOC/DOCX、XLS/XLSX/CSV、JSON/XML 分适配接口 | 支持能力来自 S1；库及旧格式路线待验证 |
+| 语言 | Python 3.9 优先；完整环境不成立才逐个次版本提高 | TD-01 已选 CPython 3.9.25（2026-09-11），当前范围无升级证据 |
+| 环境与包管理 | 使用 uv 管理 Python、.venv、pyproject.toml、uv.lock、.python-version | 已验证：uv 0.11.28；三份配置与 dev 组已交付（T003） |
+| 框架及依赖 | HTTP、HTML、YAML、测试与构建后端已选；PDF/OCR/Office、调度待在对应模块选型 | TD-02 部分选定，见 tech-stack.md 的 T002 已执行记录 |
+| HTTP 和 HTML | requests 2.32.5；beautifulsoup4 + lxml 解析 | 样本验证通过（T002），运行依赖在 T006/T008 引入 |
+| 文档解析 | 按 HTML、文本 PDF、扫描 PDF/OCR、DOC/DOCX、XLS/XLSX/CSV、JSON/XML 分适配接口 | HTML 已选；PDF/OCR/Office 库及旧格式路线待在 T011/T012 验证 |
 | 存储与接口 | 原文件与 UTF-8 JSONL；必要的内部运行状态存储独立于交付契约 | 原文件/JSONL 来自 S1，状态存储为建议 |
 | 调度 | 来源配置包含类型更新策略、周期与触发；运行参数按域生效 | 来源支持、实现方式待选 |
 | 验证 | 固定原件夹具、类型检查、跨文件关系检查、故障注入和实际来源验收 | 基于原文质量目标的设计展开 |
@@ -114,7 +114,7 @@ raw_path 相对于配置解析后的数据根，例如 raw/…；开发默认为
 
 已满足文档级检查：原文可定位、block/chunk 区分、版本不覆盖、候选设计标注、领域要求不遗漏。仍未满足实施基线：Q01 阶段选择、Q03—Q10 数据契约关键语义、Q11/Q13 验收范围和参数。不是全部工作必须停止，而是相关实现不能默默采用未批准假设。
 
-实施按 tasks.md：先规格/契约与样本，再最小 HTML 加附件闭环，再扩展格式、增量恢复、全量追溯验收和入选站点验证。领域对象可使用固定文档样本独立开发，但须先解决其范围和模型决策。检索/图谱/设备部署先形成独立规格，当前不承诺未知方案。
+实施按 tasks.md：先规格/契约与样本，再最小 HTML 加附件闭环，再扩展格式、增量恢复、全量追溯验收和入选站点验证。2026-09-11：采集侧 T003—T019 全部完成并通过夹具级验收（最小 HTML 加附件闭环、多格式解析、去重与版本、增量与失败恢复、日志对账、交付布局与 CFG-01—CFG-09）；同日按 FR-001/S3 C02 补上 robots.txt 规则执行（按主机缓存、最长匹配、4xx 放行 / 5xx 与网络失败保守拒绝，拒绝项按跳过或 `final_action=skip` 记录），全量 310 passed（含 AT 子句补强后新增的三类增量场景、来源级限速/超时/重试生效、AT-005 的正文分页与接口正文还原、AT-006/007/023 的身份保留与速率/并发分别建模、真实页面缺陷修复后的 2 项回归用例、T026 适配规则的 15 项用例与配置/契约漂移校验）；同日按用户许可分批对 4 个首批来源及其他 9 个权威来源做最小请求量核验（五轮共 69 请求、18 个登记来源均完成浅层核验，遵守 robots 与逐来源限速），记录 robots 判定、条件请求退化与站点约束（CN-03 全站 Disallow、CN-05/06/07 的 robots 508、IN-04/IN-07/IN-08/IN-09 的 robots 获取失败均保守拒绝，IN-03 域名别名，IN-10 空正文按 partial 记录，CN-04 空标题缺陷与本地重解析），见 [evidence/logs/t026-realsite-smoke.txt](evidence/logs/t026-realsite-smoke.txt) 与 [evidence/logs/t008-cn04-defect-fix.txt](evidence/logs/t008-cn04-defect-fix.txt)；并按 DEV-009 复核交付态：当前 uv.lock 40 个 registry 包与 202 条制品 URL 全部为登记清华镜像，在干净副本中以空缓存 `uv sync --locked` 成功并跑通测试（见 [evidence/logs/t019-lock-provenance.txt](evidence/logs/t019-lock-provenance.txt)），证据汇总见 evidence/。T026 的机制部分（逐来源适配规则：列表链接选择器/正则、分页终止条件、正文范围选择器）已在固定夹具与真实原件上实现并验证（见 [evidence/logs/t026-adapter-mechanism.txt](evidence/logs/t026-adapter-mechanism.txt)），逐来源取值与启用仍待 Q12/Q13。T020—T027 的其余部分仍受 Q01/Q12/Q13 等业务待决阻塞，尚未启动。领域对象可使用固定文档样本独立开发，但须先解决其范围和模型决策。检索/图谱/设备部署先形成独立规格，当前不承诺未知方案。
 
 ## 风险与处理
 

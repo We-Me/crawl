@@ -1,0 +1,50 @@
+# 来源配置（T004 基线）。
+# 仅含虚构示例来源且默认 enabled: false；真实来源在 Q12/Q13 选定后按 T026 逐站核验接入。
+# 访问边界只允许本文件登记的域与路径；未登记域名、协议与路径一律拒绝。
+version: "0.1.0"
+sources:
+  - source_id: DEMO
+    source_name: 虚构示例来源
+    base_domain: example.invalid
+    allowed_domains:
+      - example.invalid
+    entry_urls:
+      - https://example.invalid/list
+    country: XX
+    authority_level: B
+    categories: [A, B]
+    allowed_paths: []
+    blocked_paths: [/login, /admin]
+    crawl_mode: list
+    # update_interval 仍是可读说明；正式周期以 update_policy 为准（KR-012 建议值，Q13 未决）。
+    update_interval: daily
+    resource_kind: news
+    update_policy:
+      key: B          # KR-012 建议：B 每日；启用真实来源前按 Q13 复核
+      period_days: 1
+      triggers: []
+    parser_type: html
+    language: zh
+    stance_default: NEUTRAL
+    # 客户端默认获取并执行 robots.txt（Disallow/Allow 最长匹配，不可用按保守策略）；
+    # 本字段记录该站已核验的 robots/条款结论，逐站核验属 T026。
+    robots_policy: 虚构来源，仅本地回环夹具；真实站点核验属 T026
+    seed_terms: [印度, 中印, 边界, 合作]
+    supplement_terms: [虚构机制名]
+    exclude_terms: []
+    search_url_template: https://example.invalid/search?q={query}
+    # 可选的逐来源适配规则（T026 机制；未配置即使用通用发现/正文规则）。
+    # 选择器与正则在加载期校验；规则未命中时显式记录（列表页记跳过、
+    # 详情页记 adapter_selector_miss 失败并保留原件），不静默回退。
+    # adapter:
+    #   list_link_selector: "ul.doc-list li a"
+    #   list_link_pattern: "^/news/\\d+/.*\\.html$"
+    #   pagination_selector: "a.next-page"
+    #   max_pages: 5
+    #   content_selector: "div.article-body"
+    request_rate_per_second: 1.0
+    max_concurrency: 1
+    connect_timeout_seconds: 5
+    read_timeout_seconds: 15
+    max_retries: 2
+    enabled: false

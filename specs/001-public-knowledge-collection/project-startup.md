@@ -1,6 +1,6 @@
 # 项目起步与运行目录配置
 
-状态：用户已确定业务代码放在 src/、开发结果目录与 src/ 同级，且需要可配置的正式运行目录。本文将其具体化为项目约束；业务代码和实际环境尚未创建。
+状态：用户已确定业务代码放在 src/、开发结果目录与 src/ 同级，且需要可配置的正式运行目录。本文将其具体化为项目约束；2026-09-11 已初始化 src/crawler 与起步环境，settings 接口按本文实现并通过 CFG-01—CFG-09 全部验证（CFG-01—CFG-05、CFG-09 见 [evidence/T003-environment.md](evidence/T003-environment.md)，CFG-06—CFG-08 见 [evidence/T019-acceptance.md](evidence/T019-acceptance.md)）。
 
 ## 实现方式与依据
 
@@ -97,4 +97,13 @@ uv run --locked --env-file .env python -c "import os; print(os.environ.get('CRAW
 | CFG-08 | 注入越界 raw_path 或指向根外的符号链接 | 拒绝越界读取或写入，不修改根外文件 | T019 |
 | CFG-09 | 可编辑安装与普通安装后从工程外导入 | 正常导入业务包；不能依赖 PYTHONPATH 或源码 cwd | T003/T019 |
 
-本次只检查文档、示例和追踪一致性。后续实现这些配置场景，才能报告应用运行目录切换功能通过。
+2026-09-11 执行结果：CFG-01—CFG-09 全部 PASS（CFG-01—CFG-05 与 CFG-09 见
+[evidence/T003-environment.md](evidence/T003-environment.md)，CFG-06—CFG-08 与逐项复核见
+[evidence/T019-acceptance.md](evidence/T019-acceptance.md) 与 [logs/t019-cfg.txt](evidence/logs/t019-cfg.txt)）。
+CFG-06 用工程外绝对数据根完成一次真实夹具采集，raw/manifest/document/block/log 全部来自同一根；
+CFG-07 搬迁后相对 raw_path 不变、引用与哈希校验通过；CFG-08 的绝对路径、``..`` 与符号链接越界均被拒绝。
+CFG-09 除可编辑安装外，另按交付态 wheel 做普通安装复核（工程外导入、无源码根时的报错与显式绝对路径
+行为、随包默认 sources.yaml 加载），见 [logs/t019-installed-wheel.txt](evidence/logs/t019-installed-wheel.txt)。
+
+以上 PASS 是固定夹具与临时目录上的工程验证，不代表业务验收：acceptance.md 的业务用例状态保持
+NOT RUN；真实来源与运行参数待 Q12/Q13，成果目录的仓库与发布策略待 Q14 剩余部分。

@@ -1,0 +1,401 @@
+"""采集验收用例登记（T019）。
+
+acceptance.md 的 37 项用例在这里登记可执行状态：implemented（夹具级验收已实现）、
+blocked（阈值或处置未决，禁止判通过）、not_selected（领域/来源任务未选中）。
+build_acceptance_report 会把实际执行结果并入登记表，并强制 blocked 用例不得记为 passed。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Mapping, Tuple
+
+
+@dataclass(frozen=True)
+class AcceptanceCase:
+    case_id: str
+    title: str
+    requirement: str
+    task: str
+    status: str
+    blocked_by: Tuple[str, ...] = ()
+    note: str = ""
+
+
+ACCEPTANCE_CASES: Tuple[AcceptanceCase, ...] = (
+    AcceptanceCase(
+        case_id="AT-001",
+        title="公开访问与域名边界",
+        requirement="FR-001",
+        task="T004",
+        status="implemented",
+        blocked_by=('Q13',),
+        note="夹具级验收已实现；真实来源与站点规则待 Q12/Q13",
+    ),
+    AcceptanceCase(
+        case_id="AT-002",
+        title="来源配置与适配器",
+        requirement="FR-002",
+        task="T004",
+        status="implemented",
+        blocked_by=('Q10', 'Q13'),
+        note="夹具级验收已实现；真实来源与站点规则待 Q12/Q13",
+    ),
+    AcceptanceCase(
+        case_id="AT-003",
+        title="页面发现策略",
+        requirement="FR-003",
+        task="T005",
+        status="implemented",
+        blocked_by=('Q12',),
+        note="夹具级验收已实现；真实来源与站点规则待 Q12/Q13",
+    ),
+    AcceptanceCase(
+        case_id="AT-004",
+        title="宽泛关键词与候选标签",
+        requirement="FR-004",
+        task="T005",
+        status="implemented",
+        blocked_by=('Q02',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-005",
+        title="详情页与正文完整获取",
+        requirement="FR-005",
+        task="T006",
+        status="implemented",
+        blocked_by=('Q06',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-006",
+        title="附件独立下载与关系",
+        requirement="FR-006",
+        task="T006",
+        status="implemented",
+        blocked_by=('Q05', 'Q07'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-007",
+        title="原始资源保真归档",
+        requirement="FR-007",
+        task="T007",
+        status="implemented",
+        blocked_by=('Q05',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-008",
+        title="抓取账本",
+        requirement="FR-008",
+        task="T007",
+        status="implemented",
+        blocked_by=('Q03', 'Q15'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-009",
+        title="完整文档数据",
+        requirement="FR-009",
+        task="T009",
+        status="implemented",
+        blocked_by=('Q03', 'Q04', 'Q06', 'Q08', 'Q09'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-010",
+        title="原始结构块",
+        requirement="FR-010",
+        task="T010",
+        status="implemented",
+        blocked_by=('Q09',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-011",
+        title="PDF 与 OCR 定位",
+        requirement="FR-011",
+        task="T011",
+        status="implemented",
+        blocked_by=('Q04', 'Q11'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-012",
+        title="Office 与结构数据解析",
+        requirement="FR-012",
+        task="T012",
+        status="implemented",
+        blocked_by=('Q08',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-013",
+        title="保真清洗与标准化",
+        requirement="FR-013",
+        task="T013",
+        status="implemented",
+        blocked_by=('Q06',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-014",
+        title="去重与来源关系",
+        requirement="FR-014",
+        task="T014",
+        status="blocked",
+        blocked_by=('Q04', 'Q05', 'Q11'),
+        note="精确重复与来源保留已实现；近似阈值与合并处置需 Q11/Q05 评审，未决前不得判定通过",
+    ),
+    AcceptanceCase(
+        case_id="AT-015",
+        title="历史版本与失效记录",
+        requirement="FR-015",
+        task="T014",
+        status="implemented",
+        blocked_by=('Q04', 'Q09'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-016",
+        title="分类增量更新",
+        requirement="FR-016",
+        task="T015",
+        status="implemented",
+        blocked_by=('Q13', 'Q15'),
+        note="夹具级验收已实现；真实来源与站点规则待 Q12/Q13",
+    ),
+    AcceptanceCase(
+        case_id="AT-017",
+        title="失败记录与补抓",
+        requirement="FR-017",
+        task="T016",
+        status="implemented",
+        blocked_by=('Q15',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-018",
+        title="运行日志与交付对账",
+        requirement="FR-018",
+        task="T017",
+        status="implemented",
+        blocked_by=('Q11', 'Q15'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-019",
+        title="采集成果文件交付",
+        requirement="FR-019",
+        task="T018",
+        status="implemented",
+        blocked_by=('Q01', 'Q14'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-020",
+        title="采集阶段边界",
+        requirement="FR-020",
+        task="T018",
+        status="implemented",
+        blocked_by=('Q01',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-021",
+        title="端到端可追溯",
+        requirement="NFR-001",
+        task="T019",
+        status="implemented",
+        blocked_by=('Q03',),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-022",
+        title="JSONL 与字段约束",
+        requirement="NFR-002",
+        task="T019",
+        status="implemented",
+        blocked_by=('Q06', 'Q08', 'Q09'),
+        note="夹具级验收已实现",
+    ),
+    AcceptanceCase(
+        case_id="AT-023",
+        title="请求控制参数",
+        requirement="NFR-003",
+        task="T006",
+        status="implemented",
+        blocked_by=('Q13',),
+        note="夹具级验收已实现；真实来源与站点规则待 Q12/Q13",
+    ),
+    AcceptanceCase(
+        case_id="AT-024",
+        title="内容与结构质量",
+        requirement="NFR-004",
+        task="T019",
+        status="blocked",
+        blocked_by=('Q11',),
+        note="样本集、分母与阈值由 Q11 冻结；未决前只登记缺陷，不能写已通过",
+    ),
+    AcceptanceCase(
+        case_id="AT-025",
+        title="来源等级与立场",
+        requirement="KR-001",
+        task="T020",
+        status="not_selected",
+        blocked_by=('Q01', 'Q10'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-026",
+        title="协定与机制组织",
+        requirement="KR-002",
+        task="T021",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q04', 'Q09'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-027",
+        title="政策立场与表述组织",
+        requirement="KR-003",
+        task="T021",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q10'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-028",
+        title="法律法规组织",
+        requirement="KR-004",
+        task="T021",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q04'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-029",
+        title="事件与证据关联",
+        requirement="KR-005",
+        task="T022",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q09'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-030",
+        title="内部材料受控导入",
+        requirement="KR-006",
+        task="T022",
+        status="not_selected",
+        blocked_by=('Q01', 'Q16'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-031",
+        title="文化知识区域化",
+        requirement="KR-007",
+        task="T023",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q09'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-032",
+        title="地名地图与来源视角",
+        requirement="KR-008",
+        task="T023",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q09', 'Q10'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-033",
+        title="多语术语实体",
+        requirement="KR-009",
+        task="T024",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q09'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-034",
+        title="领域切片与检索交接",
+        requirement="KR-010",
+        task="T025",
+        status="not_selected",
+        blocked_by=('Q01', 'Q02', 'Q04', 'Q17'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-035",
+        title="关键词验证与歧义控制",
+        requirement="KR-011",
+        task="T026",
+        status="not_selected",
+        blocked_by=('Q11', 'Q12', 'Q13'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-036",
+        title="七类更新与建设顺序",
+        requirement="KR-012",
+        task="T015",
+        status="not_selected",
+        blocked_by=('Q01', 'Q13'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+    AcceptanceCase(
+        case_id="AT-037",
+        title="来源专属规则保留",
+        requirement="KR-013",
+        task="T026",
+        status="not_selected",
+        blocked_by=('Q12', 'Q13'),
+        note="领域/来源任务未选中，保留追踪",
+    ),
+)
+
+
+def case_index() -> dict:
+    return {case.case_id: case for case in ACCEPTANCE_CASES}
+
+
+def build_acceptance_report(results: Mapping[str, str], *, executed_at: str = "") -> dict:
+    """把执行结果并入登记表；blocked/not_selected 用例永远不记为 passed。"""
+    rows = []
+    summary = {}
+    for case in ACCEPTANCE_CASES:
+        raw = str(results.get(case.case_id, "not_run"))
+        if case.status == "blocked":
+            status = "blocked"
+        elif case.status == "not_selected":
+            status = "not_applicable"
+        elif raw == "passed":
+            status = "passed"
+        elif raw == "failed":
+            status = "failed"
+        else:
+            status = "not_run"
+        summary[status] = summary.get(status, 0) + 1
+        rows.append(
+            {
+                "case_id": case.case_id,
+                "title": case.title,
+                "requirement": case.requirement,
+                "task": case.task,
+                "status": status,
+                "executed": raw if case.status == "implemented" else None,
+                "blocked_by": list(case.blocked_by),
+                "note": case.note,
+            }
+        )
+    assert {case.case_id for case in ACCEPTANCE_CASES} == {row["case_id"] for row in rows}
+    return {
+        "executed_at": executed_at,
+        "cases": rows,
+        "summary": dict(sorted(summary.items())),
+        "blocked_cases": [row["case_id"] for row in rows if row["status"] == "blocked"],
+    }

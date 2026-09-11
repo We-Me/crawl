@@ -1,0 +1,194 @@
+# T017 真实运行样本：本地夹具站点一次混合采集（成功 3、失败 1、跳过 1）
+
+## 运行计数（python 打印）
+counters: RunCounters(requests=6, resources=3, documents=2, blocks=16, failures=1, skipped=1, not_modified=0)
+
+## 数据根目录树
+logs
+logs/crawler.log
+logs/metrics.json
+logs/metrics_history.jsonl
+manifests
+manifests/crawl_manifest.jsonl
+manifests/failed_records.jsonl
+manifests/incremental_state.json
+normalized
+normalized/blocks.jsonl
+normalized/documents.jsonl
+raw
+raw/DEMO
+raw/DEMO/2026-09-11
+raw/DEMO/2026-09-11/attachment
+raw/DEMO/2026-09-11/attachment/notice.csv
+raw/DEMO/2026-09-11/html
+raw/DEMO/2026-09-11/html/detail_1.html
+raw/DEMO/2026-09-11/html/detail_2.html
+## 日志文件 logs/crawler.log（摘录）
+2026-09-11T15:50:09+0800 WARNING crawler.output.failures_writer 失败记录 stage=fetch url=http://127.0.0.1:34957/attachments/unavailable.pdf type=http_error message=HTTP 404
+2026-09-11T15:50:10+0800 INFO crawler.pipeline 运行汇总 kind=collect source=DEMO run_id=DEMO_20260911T155009 status=partial requests=6 resources=3 documents=2 blocks=16 failures=1 skipped=1 not_modified=0 reconciliation_ok=True
+
+## logs/metrics.json
+{
+  "run_id": "DEMO_20260911T155009",
+  "source_id": "DEMO",
+  "kind": "collect",
+  "started_at": "2026-09-11T15:50:09.938140+08:00",
+  "finished_at": "2026-09-11T15:50:09.998213+08:00",
+  "status": "partial",
+  "counting_rules": {
+    "requests": "HTTP 请求尝试次数（含重试与条件请求），不等于文档数",
+    "resources": "成功归档的原件资源数，等于本次 manifest 追加行数",
+    "documents": "本次新写入的逻辑文档数，等于 documents.jsonl 追加行数",
+    "blocks": "本次新写入的结构块数，等于 blocks.jsonl 追加行数",
+    "failures": "按操作记录的失败条数，等于本次 failed_records.jsonl 追加行数",
+    "skipped": "未产生新成果的跳过目标数（含 304 未变化与边界跳过）",
+    "success": "成功口径按资源数（resources），不按请求数"
+  },
+  "counters": {
+    "requests": 6,
+    "resources": 3,
+    "documents": 2,
+    "blocks": 16,
+    "failures": 1,
+    "skipped": 1,
+    "not_modified": 0
+  },
+  "status_counts": {
+    "success": 3,
+    "failed": 1,
+    "skipped": 1,
+    "not_modified": 0
+  },
+  "failures_by_stage": {
+    "fetch": 1
+  },
+  "failures_by_type": {
+    "http_error": 1
+  },
+  "skipped_by_reason": {
+    "domain_not_allowed:outside.invalid": 1
+  },
+  "duplicates": {
+    "policy": "keep_all_sources",
+    "scope_documents": 2,
+    "exact_bytes": {
+      "groups": 0
+    },
+    "exact_text": {
+      "groups": 0
+    },
+    "exact_groups": 0,
+    "duplicate_documents": 0,
+    "near_text": {
+      "status": "not_computed",
+      "reason": "Q11 未决：近似重复阈值必须显式提供，不自动判定"
+    }
+  },
+  "outputs": {
+    "crawl_manifest_rows": 3,
+    "documents_rows": 2,
+    "blocks_rows": 16,
+    "failed_rows": 1,
+    "raw_files": 3
+  },
+  "deltas": {
+    "blocks_rows": 16,
+    "crawl_manifest_rows": 3,
+    "documents_rows": 2,
+    "failed_rows": 1,
+    "raw_files": 3
+  },
+  "expected_deltas": {},
+  "reconciliation": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "资源数与账本追加行数一致",
+        "expected": 3,
+        "actual": 3,
+        "ok": true,
+        "detail": "resources 按成功归档资源计数，等于 crawl_manifest.jsonl 追加行数"
+      },
+      {
+        "name": "文档数与 documents 追加行数一致",
+        "expected": 2,
+        "actual": 2,
+        "ok": true,
+        "detail": "documents 按 logical document 计数"
+      },
+      {
+        "name": "块数与 blocks 追加行数一致",
+        "expected": 16,
+        "actual": 16,
+        "ok": true,
+        "detail": "blocks 按结构块计数"
+      },
+      {
+        "name": "失败数与失败账追加行数一致",
+        "expected": 1,
+        "actual": 1,
+        "ok": true,
+        "detail": "failures 按失败操作计数，不按文档计数"
+      },
+      {
+        "name": "失败阶段分布合计等于失败数",
+        "expected": 1,
+        "actual": 1,
+        "ok": true,
+        "detail": "按 discover/fetch/parse/normalize/validate 阶段分类"
+      },
+      {
+        "name": "异常类型分布合计等于失败数",
+        "expected": 1,
+        "actual": 1,
+        "ok": true,
+        "detail": "按 error_type 分类"
+      },
+      {
+        "name": "跳过原因分布合计等于跳过数",
+        "expected": 1,
+        "actual": 1,
+        "ok": true,
+        "detail": "跳过按原因分类，304 单列"
+      },
+      {
+        "name": "重复候选保留全部来源",
+        "expected": "keep_all_sources",
+        "actual": "keep_all_sources",
+        "ok": true,
+        "detail": "去重只报候选，不删除、不合并文档（Q05 候选）"
+      },
+      {
+        "name": "近似重复状态明确",
+        "expected": true,
+        "actual": true,
+        "ok": true,
+        "detail": "未显式给出 Q11 阈值时必须报 not_computed"
+      }
+    ],
+    "discrepancies": []
+  },
+  "notes": [
+    "跳过 domain_not_allowed:outside.invalid=1",
+    "失败阶段 fetch=1"
+  ]
+}
+
+
+## 增补（2026-09-11，AT-023 速率与并发分别建模）
+
+metrics 现在另含 `request_controls`，把请求控制参数与运行计数一并落盘；上面样本是字段加入前的快照。
+当前字段示例（同一夹具站点运行，速率 1000 为离线用例加速值）：
+
+```json
+"request_controls": {
+  "request_rate_per_second": 1000.0,
+  "max_concurrency_declared": 1,
+  "effective_concurrency": 1,
+  "note": "单进程同步执行；并发上限按来源声明，速率与并发分别建模"
+}
+```
+
+含义：速率按来源配置逐次请求执行；`max_concurrency_declared` 是来源声明的并发上限，
+`effective_concurrency` 是当前实现的生效并发（单进程同步恒为 1），两者不互相换算，
+也不把声明上限冒充成已实现的并发（Q13 未决，不将建议当合同阈值）。

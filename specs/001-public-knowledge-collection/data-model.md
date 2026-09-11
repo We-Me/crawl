@@ -45,7 +45,7 @@ document.sha256 在 S1 中允许正文或原文件哈希，基础 schema 保留�
 
 order 原文允许从 0 或 1 开始，基础 schema 只规定非负整数；候选统一起点 0 尚属 Q09。block_type 的 title/heading/paragraph/list_item/table/table_row/page_note/image_caption 等是示例，不封死其他原文结构。对 table/table_row，候选规则允许有非空 text，或有非空 structured_data；其他块必须有 text 字段。真实内容完整性不能只看字段存在。
 
-source_anchor 可记录 DOM selector、paragraph_index、page_no、article_no、sheet/range 等，但这些子字段并没有统一必填集合。原文对引用和页码的验收目标比部分字段的“建议”等级更强，按 NFR-001、FR-011 和入选 S2 条件检查，不能简单把所有 source_anchor 升成全对象必填。
+source_anchor 可记录 DOM selector、paragraph_index、page_no、article_no、sheet/range 等，但这些子字段并没有统一必填集合。HTML 正文分页合并时，候选实现用同一 page_no 记录正文部分序号（1..n，翻页控件不入正文）；这是本项目的实现约定，不是 S1 的字段新定义，若 Q09 冻结顺序语义需一并复核。原文对引用和页码的验收目标比部分字段的“建议”等级更强，按 NFR-001、FR-011 和入选 S2 条件检查，不能简单把所有 source_anchor 升成全对象必填。
 
 ### 失败记录
 
@@ -63,7 +63,7 @@ source_anchor 可记录 DOM selector、paragraph_index、page_no、article_no、
 
 ## 本次新增的候选字段
 
-document.crawl_ids、document.content_hash 以及附件对象的 doc_id/crawl_id/status 是为追溯和状态明确而提出的候选。基础 document schema 允许它们但不将其加入 S1 原始必填集合；若 Q03/Q04/Q07 采纳，需要冻结实施版本并把相关约束提升为正式契约。缺失理由可暂记运行质量报告，不强制新增一套未知业务状态。
+document.crawl_ids、document.content_hash 以及附件对象的 doc_id/crawl_id/status 是为追溯和状态明确而提出的候选。正文分页或接口正文部分获取失败时，候选实现不新增文档字段：原因写入 metadata_missing 标记（`pagination_*` / `body_api_*`）并把 parse_status 置为 partial，失败本身仍进失败账。基础 document schema 允许它们但不将其加入 S1 原始必填集合；若 Q03/Q04/Q07 采纳，需要冻结实施版本并把相关约束提升为正式契约。缺失理由可暂记运行质量报告，不强制新增一套未知业务状态。
 
 ## S2 来源和领域模型
 
@@ -71,7 +71,7 @@ document.crawl_ids、document.content_hash 以及附件对象的 doc_id/crawl_id
 
 | 对象 | 原文字段或组织键 | 引用与限制 |
 | --- | --- | --- |
-| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选 |
+| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner/adapter | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选。`robots_policy` 记录逐站核验结论（T026）；robots.txt 的获取与执行由客户端按 FR-001 自动完成，不依赖该文本字段。`adapter` 是 T026 机制部分新增的候选块（list_link_selector/list_link_pattern/pagination_selector/max_pages/content_selector），逐来源取值待 Q12/Q13；未配置时使用通用规则 |
 | 通用文档或片段 | doc_id/chunk_id/title/text/source_name/source_url/source_country/source_authority/document_type/topic/publication_date/event_date/effective_from/effective_to/version/is_current/language/jurisdiction/stance/citation_anchor/content_hash/supersedes/superseded_by/抓取时间 | S2 §3 为建议；不是要求每个 document 必须同时具有 chunk_id |
 | A 协定 | agreement_id，签署/生效、正式语言、条款、双方名称、引用锚点 | 一份协定的语言和版本分别保留；条款切片属领域对象 |
 | B 政策表述 | stance/speaker/organization/event_date/publication_date/issue_tags/related_agreement_ids | 发布机构、时间和立场按 S2 §18 强制保留；联合文件不因站点国别自动标单方 |

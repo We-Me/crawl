@@ -1,0 +1,61 @@
+# T026 机制部分：逐来源适配规则（2026-09-11，T026 仍未完成）
+
+本记录只覆盖 T026 的**机制**：把“列表页文档链接、分页终止条件、正文范围”变成逐来源显式配置。
+每个来源的具体规则值、规则版本核验日期、至少 10 词与歧义验证仍待 Q12/Q13，T026 保持未勾选。
+
+## 配置字段（候选，待 T002 冻结）
+
+`contracts/source-registry.schema.json` 新增可选 `adapter` 对象，`src/crawler/config/registry.py`
+在加载期校验（选择器用与解析器相同的 soupsieve 语法校验，正则预编译，`max_pages` 必须 ≥1）：
+
+| 字段 | 作用 | 未命中时的行为 |
+| --- | --- | --- |
+| `list_link_selector` | 列表页文档链接的 CSS 选择器（可命中 `<a>` 或包含链接的容器） | 跳过该入口并记 `adapter_list_selector_miss:<selector>`，停止翻页 |
+| `list_link_pattern` | 文档 URL 正则，在入边界判定前过滤链接 | 不匹配的链接不算文档（不计入跳过，避免噪声） |
+| `pagination_selector` | 下一页控件选择器（命中 `<a>`/`<link>` 或容器） | 控件不存在即停止翻页（该来源的分页终止条件） |
+| `max_pages` | 该来源列表分页上限 | 达到上限即停止 |
+| `content_selector` | 详情页正文范围选择器 | 记 `stage=parse`、`error_type=adapter_selector_miss` 失败：原件保留、不产出噪声文档，修正规则后可本地重解析 |
+
+设计原则：**规则未命中一律显式记录，不静默回退到通用规则**（与 DEV-008 的“禁止静默回退”一致）。
+命中时 `extraction_method` 记为 `bs4_lxml_selector`，未配置时仍为 `bs4_lxml_dom`。
+
+## 验证 1：固定夹具有用例（新增 15 项）
+
+```
+uv run --locked --no-python-downloads pytest -q
+# 310 passed（此前 294；新增：registry 校验 8、发现规则 4、正文选择器 2、管线失败+补抓 1、配置/契约漂移 1）
+```
+
+覆盖：适配规则解析与非法值拒绝；列表选择器收窄链接、未命中记录跳过；`max_pages` 与
+`pagination_selector` 作为分页终止条件；正文选择器收窄块范围并记录抽取方式；正文选择器未命中
+→ 失败账（`adapter_selector_miss`）+ 原件 sha256 不变 + 修正规则后 `resume_failures` 本地重解析成功。
+
+## 验证 2：真实原件离线复算（不联网、0 个新请求）
+
+对第四/五轮核验留下的原件直接复算：
+
+```
+# 列表规则：CN-08 栏目页（data/raw/CN-08/2026-09-11/html/index.html）
+# 通用规则：13 个目标，其中 10 个是导航（首页/基本情况/领导介绍/机构设置/产品服务/
+#           信息公开/光辉历程/加入我们/新华网/更多>>），只有 3 个是文章（*.c.html）
+# 适配规则: list_link_selector="div.newsTitle a" + list_link_pattern="news\.cn/.*\.html$"
+#           → 3 个文章链接（xinhuashe/20260907/…/c.html、politics/20260905/…、world/20260828/…）
+# 正文规则：CN-04 首页（data/raw/CN-04/2026-09-11/html/index.html）
+# 通用规则：145 块，正文以“首页 / | / 简 / | / 繁 / | / EN / 登录 …”导航开头
+# 适配规则: content_selector="#index_toutiao" → 2 块，正文为“习近平将赴印度出席…”，
+#           extraction_method=bs4_lxml_selector
+```
+
+结论：逐来源规则能把栏目页发现从“导航链接”收窄到文档条目，把正文从“站点导航”收窄到内容区；
+两类规则都在真实原件上可复现。
+
+## 依赖与锁文件
+
+不新增依赖：选择器校验用 `soupsieve`，它已是 `beautifulsoup4` 的传递依赖（`uv.lock` 中 2.8.4，
+制品 URL 为登记镜像）。本轮未改 `pyproject.toml`/`uv.lock`。
+
+## 限制与待办（仍属 T026，不改任务状态）
+
+- 逐来源规则值、允许/排除路径、字段定位（标题/日期选择器）、引用定位、失败行为与规则版本核验日期；
+- 至少 10 词与歧义验证；来源启用与否属 Q12/Q13；
+- 通用路径仍保留（未配置 adapter 的来源行为不变），避免在决策前改变任何来源语义。

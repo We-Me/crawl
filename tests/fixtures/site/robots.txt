@@ -1,0 +1,4 @@
+# 虚构夹具站点的 robots.txt（仅供本地回环测试；不指向任何真实站点）
+User-agent: *
+Disallow: /private/
+Allow: /private/public-note.html

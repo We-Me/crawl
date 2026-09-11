@@ -1,0 +1,53 @@
+# T002 解释器安装与校验记录（2026-09-11T16:41:49+08:00）
+
+$ uv --version
+uv 0.11.28 (x86_64-unknown-linux-gnu)
+
+$ uv python install 3.9
+Python 3.9 is already installed
+exit=0
+
+$ uv python list --only-installed   # 仅保留 3.9 行
+cpython-3.9.25-linux-x86_64-gnu     /home/zhou/.local/bin/python3.9 -> /home/zhou/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/bin/python3.9
+cpython-3.9.25-linux-x86_64-gnu     /home/zhou/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/bin/python3.9
+
+$ cat .python-version
+3.9.25
+
+$ cat .venv/pyvenv.cfg
+home = /home/zhou/.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/bin
+implementation = CPython
+uv = 0.11.28
+version_info = 3.9.25
+include-system-site-packages = false
+prompt = public-knowledge-collection
+
+$ uv run --locked --no-python-downloads python -c 'import sys; print(sys.version); print(sys.executable)'
+3.9.25 (main, Oct 31 2025, 23:00:23) 
+[Clang 21.1.4 ]
+/home/zhou/workspaces/crawl/.venv/bin/python3
+exit=0
+
+# 解释器来源核查：未配置 UV_PYTHON_INSTALL_MIRROR，使用 uv 内置默认解释器源（与 PyPI 包源无关）
+$ env | grep -F UV_PYTHON_INSTALL_MIRROR
+(未设置)
+
+$ grep -ao 'python-build-standalone/releases/download' "$(command -v uv)" | head -1
+python-build-standalone/releases/download
+
+## 复核（2026-09-11T18:50+08:00，用户要求“通过 uv python install 添加 python 3.9”）
+$ uv python install 3.9
+Python 3.9 is already installed
+exit=0
+
+$ uv python list --only-installed | grep -F 3.9
+cpython-3.9.25-linux-x86_64-gnu     /home/zhou/.local/bin/python3.9 -> /home/zhou/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/bin/python3.9
+cpython-3.9.25-linux-x86_64-gnu     /home/zhou/.local/share/uv/python/cpython-3.9-linux-x86_64-gnu/bin/python3.9
+
+$ uv run --locked --no-python-downloads python -c 'import sys; print(sys.version); print(sys.executable)'
+3.9.25 (main, Oct 31 2025, 23:00:23)
+[Clang 21.1.4 ]
+/home/zhou/workspaces/crawl/.venv/bin/python3
+
+# 说明：本次仍为幂等确认，无下载、无版本变更；.python-version 与 .venv/pyvenv.cfg 均指向该
+# uv 管理的 3.9.25。该命令写 uv 解释器目录，需在沙箱外执行（沙箱内 ~/.local/share/uv/python 只读）。

@@ -1,0 +1,1 @@
+{"source_id": "DEMO", "url": "https://example.invalid/attachments/unavailable.pdf", "time": "2026-09-11T10:30:00+08:00", "stage": "download", "error_type": "http_error", "message": "虚构 404 夹具：详情页第二个附件预期下载失败", "retry_count": 0, "final_action": "record_only"}

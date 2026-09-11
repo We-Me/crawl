@@ -1,0 +1,246 @@
+# T026 前置：真实来源受限连通性核验（2026-09-11T19:12+08:00）
+
+本记录不是 T026 完成证据，也不表示任何来源已启用：Q12/Q13 仍 OPEN，逐站条款核验、
+适配器、至少 10 词与歧义验证均未做。它只证明采集管线在最小请求量下可对真实站点工作，
+并登记真实站点暴露的站点专属约束，供 T026 使用。
+
+## 工具与配置
+
+- 工具：`tools/realsite_smoke.py`（开发工具，非业务程序；新增于本次）
+- 来源表：`data/dev-sources.yaml`（开发数据根内，不属于评审基线 `src/crawler/config/sources.yaml`）
+- 复跑命令：
+  `uv run --locked --no-python-downloads python tools/realsite_smoke.py --config data/dev-sources.yaml --max-items 1`
+
+## 本次约束（克制）
+
+- 每站至多 3 个请求：robots.txt、入口页（仅用于发现）、至多 1 个发现到的目标；
+- 遵守 robots.txt（HttpClient 默认开启），命中 Disallow 即停，不绕过登录/验证码/访问控制；
+- 限速、连接/读取超时、重试上限取自来源配置（本次 0.5 req/s、10s/20s、max_retries=0）；
+- 不下载附件、不并发、不递归；原件与账本写入统一数据根 `data/`。
+- 实际请求数：CN-01 4、CN-03 1、IN-01 5（含重定向跳数）、IN-06 3，合计 13；
+  另对 IN-06 入口页做 1 次只读诊断请求，总计 14 个请求。
+
+## 结果
+
+| 来源 | robots.txt | 请求 | 资源 | 文档 | 块 | 跳过 | 失败 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CN-01 外交部 | 无规则（groups=0 rules=0） | 4 | 1 | 1 | 5 | 138 | 0 | 入口页发现链接，采到 `https://www.mfa.gov.cn/eng/`（46,214 字节，sha256 4d1ff2f319c1c247…），document parse_status=ok、language=zh |
+| CN-03 法律法规数据库 | 3 组 4 规则，命中 `Disallow /` | 1 | 0 | 0 | 0 | 1 | 0 | 未请求页面：`robots_disallowed: Disallow /`，只取 robots.txt |
+| IN-01 MEA | 1 组 0 规则（允许） | 5 | 1 | 1 | 72 | 0 | 0 | 采到 `https://www.mea.gov.in/index`（81,767 字节，sha256 44fe22e2b97be7d9…），document parse_status=ok、language=en |
+| IN-06 PIB | 无规则（groups=0 rules=0） | 3 | 0 | 0 | 0 | 0 | 0 | 入口页重定向到 `index.aspx?reg=48&lang=2`，6,074 字节、`<a>` 标签 0 个 → 未发现目标 |
+
+## 真实站点暴露的约束（交给 T026）
+
+1. CN-01：入口页 138 条站外链接全部按 `domain_not_allowed` 跳过，其中包含同一部门的
+   `www.fmprc.gov.cn` 旧域名。是否需要域名别名、或改用当前站内栏目入口，属站点规则决策（Q12/KR-013）。
+2. CN-03：`robots.txt` 对当前通用 UA 全站 Disallow。管线按规则只取 robots.txt 并记录原因，
+   没有绕过；后续接入需按其规则申请允许的访问方式或使用其公开接口（Q12）。
+3. IN-06：首页返回 6 KB 静态壳、无 `<a>` 标签（前端渲染入口）。管线未引入浏览器兜底（Q12 未决），
+   后续适配应改用其“All Releases/Archives”列表入口或站点接口（KR-013）。
+4. IN-01：`china-in.htm` 入口可用，发现并采集成功；重定向跳数计入 requests，符合预期。
+
+## 与需求/验收的关系
+
+- FR-001：robots 规则对真实站点生效（CN-03 全站 Disallow 未请求页面），禁用路径与域外链接均记录原因。
+- FR-005/008/009：IN-01 与 CN-01 的采集链路产出原件、账本、document 与块，字段通过既有契约校验。
+- 未改变任何 AT 用例状态；AT-001 等仍为夹具级证据，真实来源验收仍待 T026 与 Q12/Q13。
+
+## 数据位置
+
+原件与账本写在开发数据根 `data/`（`raw/<source_id>/2026-09-11/html/`、`manifests/`、`normalized/`、
+`logs/`）与摘要 `data/realsite-smoke.json`；按 DEV-008 不复制进交付目录，也不提交到仓库。
+
+## 补充：第二轮回访与条件请求退化（2026-09-11T19:19+08:00）
+
+同一命令、同一来源表对 CN-01、IN-01 做第二轮回访（其余来源不再请求，保持克制），
+合计 9 个请求（CN-01 4、IN-01 5，含重定向跳数），0 失败：
+
+| 来源 | 状态码 | ETag / Last-Modified | 账本状态 | not_modified | sha256 变化 |
+| --- | --- | --- | --- | --- | --- |
+| CN-01 | 200 | 均缺失（状态记录 etag=null、last_modified=null） | updated | 0 | 与首轮一致（4d1ff2f319c1c247…），内容未变 |
+| IN-01 | 200 | 均缺失（etag=""、last_modified=null） | updated | 0 | 与首轮不同（首轮 44fe22e2b97be7d9…，本轮 4946403be37dab94…，页面含动态内容） |
+
+结论与影响：
+
+1. 两个真实服务器回访均返回 200 且不提供 ETag/Last-Modified，**条件请求退化为完整获取，未触发 304**
+   （`data/manifests/incremental_state.json` 中 not_modified=0）；304/not_modified 路径仍只有夹具级证据（AT-016），
+   真实来源上的增量收益目前只能来自内容哈希去重，而不是服务端校验器。
+2. 去重与版本行为在真实数据上成立：CN-01 相同内容未重复写入正文文件；IN-01 内容变化后新增
+   `raw/IN-01/2026-09-11/html/index-4946403b.html`（首轮 `index.html` 原样保留），原件只追加不覆盖。
+3. 该结论写入 T026 来源约束，供适配器选择入口（优先提供校验器或列表分页的栏目）参考；不改变
+   Q12/Q13 的待决状态，也不改变任何 AT 用例结论。
+
+复跑命令不变：
+`uv run --locked --no-python-downloads python tools/realsite_smoke.py --config data/dev-sources.yaml --max-items 1`
+
+## 补充：第三轮栏目入口探测（probe2，2026-09-11T19:53—19:54+08:00）
+
+第一轮用的入口是站点首页（`https://www.mfa.gov.cn/eng/`、`https://www.mea.gov.in/china-in.htm`），
+因此再以“栏目页”为入口做一轮最小核验，回答 T026 适配器需要的两个问题：
+IN-01 的 Bilateral Documents 栏目能否遍历出文档；CN-01 的英文“双边与地区事务”栏目（`/eng/wjbzhd/`）
+是否为站内可遍历栏目（首页 Countries and Regions 指向旧域 fmprc.gov.cn）。
+
+约束与前两轮一致：每站 robots.txt + 1 个入口页 + 至多 1 个发现到的目标，0.5 req/s、不重试、不并发、
+不下载附件；`allowed_domains` 不含 `fmprc.gov.cn`，本轮不访问旧域。
+
+```
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads \
+  python tools/realsite_smoke.py --config data/dev-sources-probe2.yaml \
+  --out data/realsite-probe2.json --max-items 1
+```
+
+| 来源（本轮入口） | robots.txt | 请求 | 资源 | 文档 | 块 | 跳过 | 失败 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| IN-01 `bilateral-documents` | 1 组 0 规则（允许） | 3 | 1 | 1 | 72 | 0 | 0 | 栏目页可达、robots 允许；但发现阶段按页面链接顺序选中的目标是站内首页 `https://www.mea.gov.in/`（81,767 字节，sha256 123964441f…，discovery_method=list，referrer=栏目页），栏目页自身未归档、也未发现文档条目 |
+| CN-01 `/eng/wjbzhd/` | 3 次加载均无规则（`www.mfa.gov.cn`、`http://cs.mfa.gov.cn`、`https://cs.mfa.gov.cn`） | 12 | 1 | 1 | 34 | 75 | 0 | 采到 `http://cs.mfa.gov.cn/` → 最终 `https://cs.mfa.gov.cn/`（106,218 字节，sha256 baef8eccff…，discovery_method=list，referrer=栏目页）；栏目导航的 75 条站外链接按域名边界跳过 |
+
+计数口径：`requests` 是 HTTP 尝试次数（含 robots.txt 获取与逐跳重定向，见 `data/logs/metrics.json` 的
+`counting_rules`），不等于页面数。本轮 CN-01 的 12 次中可确认 3 次是 robots.txt（三个 scheme+host 组合），
+其余为入口页发现与目标页获取及其重定向（含 `http` → `https` 跳转）；工具当前未按用途逐条留痕，
+逐 URL 请求明细由 T026 的正式核验补齐。IN-01 的 3 次 = robots.txt + 栏目页 + 首页目标。
+
+CN-01 跳过域名分布（共 75）：`www.fmprc.gov.cn` 67、`english.www.gov.cn` 3、
+`ipc.fmprc.gov.cn` / `english.mofcom.gov.cn` / `en.ndrc.gov.cn` / `en.nia.gov.cn` / `bszs.conac.cn` 各 1。
+
+### 站点约束结论（交给 T026 适配器）
+
+1. CN-01：`/eng/wjbzhd/` 栏目页的导航绝大多数指向旧域 `www.fmprc.gov.cn`（67 条，覆盖 `/eng/wjb/`、
+   `/eng/xw/`、`/eng/zy/`、`/eng/zwjg/` 等子栏目），在当前 `allowed_domains: [mfa.gov.cn, www.mfa.gov.cn]`
+   下全部被跳过；页内唯一进入边界的可采目标落在 `cs.mfa.gov.cn`（领事服务子域），与“双边与地区事务”
+   栏目主题不一致。适配器需要**栏目级路径白名单**（例如只接受 `/eng/wjbzhd/` 下的文章路径并给出分页
+   终止条件）和/或**显式域名别名策略**（旧域 `fmprc.gov.cn` 与新域 `mfa.gov.cn` 的关系）。两者都属
+   Q12/Q13 决策，本次不自行改写注册表，也不访问旧域。
+2. IN-01：栏目页本身可访问且 robots 允许，但 `max_items=1` 时通用发现（取页面顺序第一个站内链接）
+   选中的是首页而不是文档条目——说明适配器必须提供栏目级链接选择器/路径规则与分页终止条件
+   （KR-013），否则采到的是导航页。栏目名与 S2 记录的“双边文件”对应，字段定位仍待 T026。
+3. 前两轮结论不变：CN-03 全站 `Disallow /`（只取 robots.txt）、IN-06 首页为前端壳无 `<a>`、
+   CN-01/IN-01 无 ETag/Last-Modified 导致条件请求退化为完整获取。
+
+### 与需求/验收的关系
+
+- FR-002/FR-003：边界与发现策略在真实站点上按配置生效（75 条域外链接未请求、栏目入口可达），
+  但“从栏目精确发现文档条目”尚未实现，属 T026 适配器范围。
+- KR-013：本轮补齐 CN-01/IN-01 的栏目入口可达性、域名构成与发现行为记录；逐站规则版本、
+  至少 10 词与歧义验证仍未做。
+- 不改变任何 AT 用例状态，也不改变 Q12/Q13 的待决状态。
+
+### 数据位置
+
+摘要 `data/realsite-probe2.json`；原件 `data/raw/CN-01/2026-09-11/html/index-baef8ecc.html`（106,218 字节）、
+`data/raw/IN-01/2026-09-11/html/index-12396444.html`（81,767 字节）；账本 `data/manifests/`、运行指标
+`data/logs/metrics.json`、运行摘要 `data/logs/crawler.log`。均按 DEV-008 留在开发数据根内，不复制、不提交。
+
+## 补充：第四轮其余权威来源浅层可达性核验（probe3，2026-09-11T19:55—20:00+08:00）
+
+新增来源表 `data/dev-sources-probe3.yaml`（开发数据根内，不是 `src/crawler/config/sources.yaml` 的启用决定），
+对 9 个尚未核验的来源做“robots.txt + 入口页 + 至多 1 个发现到的目标”的浅层核验，为 Q12/Q13 的入选决策与
+T026 适配器提供事实依据。约束与前三轮一致：每站至多 3 个目标请求、0.5 req/s、不重试、不并发、不下载附件。
+
+```
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads \
+  python tools/realsite_smoke.py --config data/dev-sources-probe3.yaml \
+  --out data/realsite-probe3.json --max-items 1
+```
+
+| 来源（本轮入口） | robots.txt | 请求 | 资源 | 文档 | 块 | 跳过 | 失败 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CN-02 `treaty.mfa.gov.cn` | 404 → 视为无规则 | 2 | 0 | 0 | 0 | 0 | 0 | 入口可达；页面未产出可发现链接（无站内 `<a>` 或前端渲染），需按其检索参数与 `detail1.jsp` 详情形态核验 |
+| CN-04 `www.gov.cn/zhengce/` | 已加载（1 组 23 规则） | 3 | 1 | 0→1 | 0→145 | 0 | 1 | 入口可达；选中的目标是 gov.cn 首页；真实页面触发解析缺陷（空标题块），修复后从原件重解析成功（补记见下） |
+| CN-05 `www.xizang.gov.cn` | 508 → 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 只取 robots.txt 即停，未请求页面 |
+| CN-06 `wsb.xizang.gov.cn` | 508 → 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 同上 |
+| CN-07 `mw.xizang.gov.cn` | 508 → 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 同上 |
+| IN-02 `mea.gov.in/treatylist-generic.htm` | 已加载（1 组 0 规则） | 4 | 1 | 1 | 72 | 0 | 0 | 条约列表入口可达；通用发现再次选中站内首页（目标为 `https://www.mea.gov.in/`），列表页自身未归档 |
+| IN-03 `www.indiacode.nic.in` | 404 → 视为无规则 | 2 | 0 | 0 | 0 | 1 | 0 | 入口可达；页面发现到的目标是另一域名 `https://indiacode.gov.in`，按当前边界跳过 |
+| IN-04 `egazette.gov.in` | 获取失败（status=None）→ 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 只尝试 robots.txt，未请求页面 |
+| IN-05 `www.mha.gov.in` | `www.mha.gov.in` 404 → 视为无规则；`https://mha.gov.in`（同站无 www）获取失败 → 保守拒绝 | 7 | 0 | 0 | 0 | 69 | 0 | 68 条站外链接跳过、1 条因 robots 保守拒绝；未归档页面 |
+
+`requests` 仍是 HTTP 尝试次数（含 robots.txt、重定向跳数与重试），IN-05 的 7 次即含 http/https 跳转与三次 robots 判定。
+
+### 站点约束结论（交给 T026）
+
+1. **CN-05/CN-06/CN-07**：三站的 `robots.txt` 一致返回 HTTP 508，管线按“robots 不可用保守拒绝”处理，
+   只取 robots.txt 即停（各 1 个请求）；接入需先按其规则申请/确认允许的访问方式（Q12），不得绕过。
+2. **IN-04**：`robots.txt` 在连接/证书层失败（status 缺失），同样保守拒绝，未请求页面。
+   **IN-05**：`https://mha.gov.in` 的 robots 获取失败（保守拒绝），`http(s)://www.mha.gov.in` 的 robots 为 404
+   （视为无规则）；该站首页大量链接指向其他域名（68 条跳过），是否纳入附件/别名域属 Q12/Q13。
+3. **IN-03**：入口可达但站内链接指向 `indiacode.gov.in`（与 `indiacode.nic.in` 不同域），域名关系需在
+   Q12/Q13 中明确后才能配置 `allowed_domains`。
+4. **CN-02**：入口可达、robots 无规则，但通用发现拿不到链接（前端渲染/无站内链接），说明该站适配
+   必须按其检索参数与详情页形态实现，不能依赖首页遍历。
+5. **IN-02**：与 IN-01 同主机，条约列表入口可达；通用发现仍选中首页，栏目级规则的必要性再次被证实。
+6. **CN-04**：入口可达且 robots 允许；真实页面暴露“内容为空的装饰性标题块导致块校验失败”的解析缺陷，
+   已修复并从已归档原件重解析成功（0 个新请求），详见 `logs/t008-cn04-defect-fix.txt`。
+
+### 与需求/验收的关系
+
+- FR-001/FR-002：robots 不可用（508、连接失败）一律保守拒绝，边界策略在 9 个来源上均按配置生效。
+- FR-003/KR-013：本轮补齐 9 个来源的入口可达性、robots 结论与发现行为；逐站规则版本、字段定位、
+  至少 10 词与歧义验证仍属 T026。
+- FR-009/FR-013：CN-04 的真实页面缺陷已按“原件保留 + 失败账 + 本地重解析”路径修复闭环。
+- 不改变任何 AT 用例状态，也不改变 Q12/Q13 的待决状态。
+
+### 数据位置
+
+摘要 `data/realsite-probe3.json`；原件 `data/raw/{CN-04,IN-02}/2026-09-11/html/index.html`；
+失败与处置 `data/manifests/failed_records.jsonl`；账本 `data/manifests/crawl_manifest.jsonl`；
+运行指标 `data/logs/metrics.json`、运行摘要 `data/logs/crawler.log`。均按 DEV-008 留在开发数据根内。
+
+## 补充：第五轮剩余 5 个登记来源浅层核验（probe4，2026-09-11T20:11—20:12+08:00）
+
+补齐最后 5 个尚未核验的登记来源（CN-08、IN-07、IN-08、IN-09、IN-10），至此 18 个登记来源
+都至少完成一轮最小请求量核验。约束与前四轮一致：每站至多 3 个目标请求、0.5 req/s、不重试、
+不并发、不下载附件。
+
+```
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads \
+  python tools/realsite_smoke.py --config data/dev-sources-probe4.yaml \
+  --out data/realsite-probe4.json --max-items 1
+```
+
+| 来源（本轮入口） | robots.txt | 请求 | 资源 | 文档 | 块 | 跳过 | 失败 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CN-08 `www.news.cn` | 已加载（1 组 1 规则） | 3 | 1 | 1 | 12 | 183 | 0 | 首页可达；选中的目标是 `/xinhuashe/` 栏目页（4,550 字节，sha256 `707ff336cf5d…`，parse_status=ok、language=zh、正文 138 字）；183 条站外链接（xinhuanet.com、mrdx.cn 等）跳过 |
+| IN-07 `censusindia.gov.in` | 获取失败（status=None）→ 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 只尝试 robots.txt，未请求页面 |
+| IN-08 `ladakh.gov.in/culture-department/` | 获取失败（status=None）→ 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 同上 |
+| IN-09 `culture.sikkim.gov.in` | 获取失败（status=None）→ 保守拒绝 | 1 | 0 | 0 | 0 | 1 | 0 | 同上 |
+| IN-10 `onlinemaps.surveyofindia.gov.in` | 404 → 视为无规则 | 3 | 1 | 1 | 0 | 6 | 0 | 首页可达；选中的目标是 `Home.aspx`（54,936 字节，sha256 `8870813d7339…`）；页面无可提取正文块（document parse_status=partial、metadata_missing=[publication_date]、full_text 为空） |
+
+### 结论（交给 T026 / Q12、Q13）
+
+1. **覆盖情况**：18 个登记来源均已完成浅层核验。可访问并产出 document 的：CN-01、CN-04（本地重解析后）、
+   CN-08、IN-01、IN-02、IN-10；因 robots 或网络原因按策略保守拒绝的：CN-03（全站 Disallow）、
+   CN-05/CN-06/CN-07（robots 508）、IN-04、IN-07、IN-08、IN-09（robots 获取失败）以及 IN-05 的无 www 主机；
+   入口可达但未产出文档的：CN-02（无可发现链接）、IN-03（唯一链接指向别名域）、IN-05（边界+robots）、IN-06（前端壳）。
+2. **IN-10**：页面无正文块，管线按 `parse_status=partial` + `metadata_missing=[publication_date]` 记录
+   （没有静默当作完整文档）；“空正文文档是否算成功”属质量阈值决策（Q11/AT-024），本轮不判定。
+3. **CN-08**：作为 B 级补充来源可遍历，但栏目页正文仅 138 字，接入需要文章级选择器（T026）。
+4. 前置约束不变：CN-03 需按其规则申请允许访问方式，CN-05/06/07 与 IN-04/07/08/09 需先解决可达性
+   （robots 508 或获取失败），域名别名（IN-03 的 `indiacode.gov.in`、CN-01 的旧域）与栏目级规则属 Q12/Q13。
+
+### 数据位置
+
+摘要 `data/realsite-probe4.json`；原件 `data/raw/{CN-08,IN-10}/2026-09-11/html/`；
+账本与文档 `data/manifests/`、`data/normalized/`。均按 DEV-008 留在开发数据根内。
+
+### 五轮合计
+
+| 轮次 | 来源 | 请求 |
+| --- | --- | --- |
+| 第一轮 | CN-01、CN-03、IN-01、IN-06（+IN-06 诊断 1 次） | 14 |
+| 第二轮 | CN-01、IN-01 回访 | 9 |
+| 第三轮 | CN-01、IN-01 栏目入口 | 15 |
+| 第四轮 | CN-02、CN-04、CN-05、CN-06、CN-07、IN-02、IN-03、IN-04、IN-05 | 22 |
+| 第五轮 | CN-08、IN-07、IN-08、IN-09、IN-10 | 9 |
+| 合计 | 18 个登记来源 | 69 |
+
+### 五轮核验后的交付校验（开发数据根，不联网）
+
+```
+uv run --locked --no-python-downloads python -c "validate_delivery(Path('data')); trace_delivery(Path('data'))"
+# validate_delivery：ok=True、errors=0（manifest/document/block/attachment/failure 逐条契约校验）
+# trace_delivery：ok=True、document_rate=1.0、block_rate=1.0、problems=0
+```
+
+说明：真实站点原件、账本与文档留在开发数据根 `data/`（DEV-008，gitignore），
+校验只读该目录，不复制进交付目录、不代表 T026 的逐站验收已完成。
+失败账当前保留 CN-04 的 1 条历史失败 + 1 条处置行（本地重解析 recovered）。

@@ -1,12 +1,12 @@
 # uv 镜像环境模板与 Linux 使用说明
 
-状态：已提供可复制的环境模板，业务依赖和完整环境尚未选定或验证。用户明确项目必须使用镜像源；附件 pyproject.toml 仅作为配置参考，其模型项目名称、Python 3.10 下限、PyTorch/CUDA、TensorFlow 等依赖不属于本项目需求。
+状态：模板已于 2026-09-11 合并进业务工程并完成起步环境验证，记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md)；当前范围依赖（含 PDF/OCR/Office/结构数据）已选定并锁定，调度与监控依赖待对应任务选定，见 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。用户明确项目必须使用镜像源；附件 pyproject.toml 仅作为配置参考，其模型项目名称、Python 3.10 下限、PyTorch/CUDA、TensorFlow 等依赖不属于本项目需求。
 
 ## 模板内容
 
 复制 [pyproject.toml 模板](../../templates/uv/pyproject.toml) 到新项目根目录。已有 pyproject.toml 时合并配置，禁止覆盖。模板保留 Python >=3.9,<3.10、空运行及开发依赖、正式稳定版本策略和清华镜像；不引用不存在的 README，不虚构锁文件或已验证补丁版本。
 
-模板的 package=false 用于 T002 环境选型起步，不安装项目自身；它不是最终业务打包方案。T003 选择兼容构建后端并配置 src 包发现后，移除 package=false，验证可编辑安装及常规安装，再报告业务包可导入。空环境同步成功不等于完整环境通过。
+模板的 package=false 用于 T002 环境选型起步，不安装项目自身；它不是最终业务打包方案。T003 已选择 hatchling 并配置 src 包发现、移除 package=false，可编辑安装与普通安装均验证通过，见 [evidence/T003-environment.md](evidence/T003-environment.md)。空环境同步成功不等于完整环境通过。
 
 ## 必须使用镜像的规则 DEV-009
 
@@ -60,9 +60,10 @@ codex
 按任务依赖继续开发，每项完成后验收并记录证据，不重跑初始文档生成脚本。
 ```
 
-4. T002 确定可用解释器和当前范围依赖后执行锁定与同步；无锁文件时先 lock，不能直接 sync --locked。下面假定已经有 Python 3.9，不允许自动下载替代解释器：
+4. T002 确定可用解释器和当前范围依赖后执行锁定与同步；无锁文件时先 lock，不能直接 sync --locked。若目标机器没有可用的 Python 3.9，先用 uv 安装并交给 uv 管理；2026-09-11 已按用户指令在本机执行 `uv python install 3.9`（结果 3.9.25，证据见 [evidence/logs/t002-python-install.txt](evidence/logs/t002-python-install.txt)）。该命令走 uv 默认解释器源（python-build-standalone 目录结构，非 PyPI 镜像），与 PyPI 包源是两件事，来源校验按上文分别进行；后续 lock/sync/run 加 `--no-python-downloads`，避免自动下载替代解释器：
 
 ```bash
+uv python install 3.9
 uv python pin 3.9
 uv lock --python 3.9 --no-python-downloads
 uv sync --locked --no-python-downloads
@@ -81,4 +82,8 @@ uv run --locked --env-file .env python -c "import os; print(os.environ.get('CRAW
 
 ## 环境验收记录
 
-T002/T003 记录镜像名称/URL、uv 版本、Python 实际补丁版本、目标平台、依赖组、锁文件来源和验证命令。需证明：项目配置未被外部源覆盖；使用登记镜像完成实际必要依赖解析与安装；镜像失败不回退；干净环境可通过锁文件复现；src 包安装及代表性业务样本通过。当前这些运行验收均未执行，模板静态检查不替代环境验收。
+T002/T003 记录镜像名称/URL、uv 版本、Python 实际补丁版本、目标平台、依赖组、锁文件来源和验证命令。需证明：项目配置未被外部源覆盖；使用登记镜像完成实际必要依赖解析与安装；镜像失败不回退；干净环境可通过锁文件复现；src 包安装及代表性业务样本通过。
+
+2026-09-11 执行结果：登记镜像 tsinghua（`https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/`）；uv 0.11.28；CPython 3.9.25；平台 linux-x86_64-gnu；dev 组 pytest（运行依赖当前为空）；锁文件与制品 URL 全部登记镜像来源，独立空缓存解析与安装；可编辑及普通安装后从工程外导入通过；固定样本 11 项与项目测试 38 项通过。证据见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md)。后续新增真实业务依赖时按同一流程复核来源后再报告完整环境。
+
+2026-09-11 交付态复核：T010—T013 引入 PDF/OCR/Office 运行依赖后，上段数字已不代表当前锁文件，故重做来源核查与空缓存复现。当前 `uv.lock` 的 40 个 registry 包与 202 条制品 URL 全部指向登记清华镜像，无 git/path/URL 依赖；在只含交付文件（排除 .venv、.git、data）的干净副本中用 `/tmp/crawl-repro-cache` 空缓存执行 `uv sync --locked --no-python-downloads` 成功（下载日志出现 112 条清华索引 URL、0 次 pypi.org），解释器为 uv 管理的 3.9.25，随后 `uv run --locked --no-python-downloads pytest -q` 得 262 passed。证据见 [evidence/logs/t019-lock-provenance.txt](evidence/logs/t019-lock-provenance.txt)。后续再增依赖时按同一流程复核。

@@ -1,0 +1,89 @@
+# T018 交付检查样本：夹具站点完整包 + 禁令注入
+
+数据来源：本地夹具站点一次混合采集（T017 样本数据根的副本），不含真实站点内容。
+
+## 交付目录树
+logs/
+logs/crawler.log
+logs/metrics.json
+logs/metrics_history.jsonl
+manifests/
+manifests/crawl_manifest.jsonl
+manifests/failed_records.jsonl
+manifests/incremental_state.json
+normalized/
+normalized/blocks.jsonl
+normalized/documents.jsonl
+raw/
+raw/DEMO/
+raw/DEMO/2026-09-11/
+raw/DEMO/2026-09-11/attachment/
+raw/DEMO/2026-09-11/attachment/notice.csv
+raw/DEMO/2026-09-11/html/
+raw/DEMO/2026-09-11/html/detail_1.html
+raw/DEMO/2026-09-11/html/detail_2.html
+
+## inspect_delivery：完整包
+{
+  "data_dir": "<校验副本>/data",
+  "ok": true,
+  "deliverables": [
+    {
+      "name": "raw/",
+      "path": "raw",
+      "kind": "dir",
+      "present": true
+    },
+    {
+      "name": "manifests/crawl_manifest.jsonl",
+      "path": "manifests/crawl_manifest.jsonl",
+      "kind": "file",
+      "present": true
+    },
+    {
+      "name": "normalized/documents.jsonl",
+      "path": "normalized/documents.jsonl",
+      "kind": "file",
+      "present": true
+    },
+    {
+      "name": "normalized/blocks.jsonl",
+      "path": "normalized/blocks.jsonl",
+      "kind": "file",
+      "present": true
+    },
+    {
+      "name": "manifests/failed_records.jsonl",
+      "path": "manifests/failed_records.jsonl",
+      "kind": "file_optional_if_empty",
+      "present": true
+    },
+    {
+      "name": "logs/",
+      "path": "logs",
+      "kind": "dir",
+      "present": true
+    }
+  ],
+  "missing": [],
+  "counts": {
+    "manifest_rows": 3,
+    "document_rows": 2,
+    "block_rows": 16,
+    "failure_rows": 1,
+    "raw_files": 3
+  },
+  "forbidden_artifacts": [],
+  "path_issues": [],
+  "notes": []
+}
+
+## inspect_delivery：注入 normalized/chunks.jsonl 与 vectors/index.faiss 后
+{
+  "ok": false,
+  "forbidden_artifacts": [
+    "normalized/chunks.jsonl",
+    "vectors",
+    "vectors/index.faiss"
+  ]
+}

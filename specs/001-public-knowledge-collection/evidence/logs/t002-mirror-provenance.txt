@@ -1,0 +1,17 @@
+# T002 选型工程：登记镜像来源证据（2026-09-11）
+# 隔离工程 /tmp/t002-select，独立空缓存 /tmp/t002-select/uv-cache，命令 uv lock --python 3.9 --no-python-downloads -v
+
+## uv.lock 中的 registry 来源计数
+     18 registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+
+## uv.lock 中的制品 URL 主机计数
+    115 https://mirrors.tuna.tsinghua.edu.cn/
+
+## 解析日志中的索引主机计数
+     72 https://mirrors.tuna.tsinghua.edu.cn/
+
+## 解析结果（uv 输出）
+Resolved 19 packages in 8.45s
+
+## 空缓存规模
+31M	/tmp/t002-select/uv-cache

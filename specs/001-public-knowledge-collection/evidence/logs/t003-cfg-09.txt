@@ -1,0 +1,25 @@
+# CFG-09 安装行为验证（2026-09-11）
+
+## 可编辑安装：从 /tmp 导入，无 PYTHONPATH
+crawler 0.1.0 /home/zhou/workspaces/crawl/src/crawler/__init__.py
+settings /home/zhou/workspaces/crawl/src/crawler/config/settings.py
+
+## 构建
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/public_knowledge_collection-0.1.0.tar.gz
+Successfully built dist/public_knowledge_collection-0.1.0-py3-none-any.whl
+
+## wheel 内容
+File Name                                             Modified             Size
+crawler/__init__.py                            2020-02-02 00:00:00           66
+crawler/config/__init__.py                     2020-02-02 00:00:00          255
+crawler/config/settings.py                     2020-02-02 00:00:00         5756
+public_knowledge_collection-0.1.0.dist-info/METADATA 2020-02-02 00:00:00          168
+public_knowledge_collection-0.1.0.dist-info/WHEEL 2020-02-02 00:00:00           87
+public_knowledge_collection-0.1.0.dist-info/RECORD 2020-02-02 00:00:00          504
+
+## 普通安装：全新 venv 安装 wheel 后从 /tmp 导入，无 PYTHONPATH
+crawler 0.1.0 /tmp/cfg09-venv/lib/python3.9/site-packages/crawler/__init__.py
+settings /tmp/cfg09-venv/lib/python3.9/site-packages/crawler/config/settings.py
+python 3.9.25

@@ -2,7 +2,7 @@
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
-一行映射一条需求到原文、场景、设计模块、主要任务和验收用例。公共前置任务及最终收口见 tasks.md。范围待定不等于漏项，条件需求仍保留追踪。全部实现任务未完成，验收未执行。
+一行映射一条需求到原文、场景、设计模块、主要任务和验收用例。公共前置任务及最终收口见 tasks.md。范围待定不等于漏项，条件需求仍保留追踪。2026-09-11：采集闭环 T003—T009、多格式解析 T010—T013、去重与版本 T014、增量调度 T015、失败补抓 T016 、运行日志/计数对账 T017、交付目录组织 T018 与采集验收 T019 已完成夹具级验证，记录见 [evidence/T004-T009-collection.md](evidence/T004-T009-collection.md)、[evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)、[evidence/T014-dedup-versioning.md](evidence/T014-dedup-versioning.md)、[evidence/T015-schedule.md](evidence/T015-schedule.md)、[evidence/T016-recovery.md](evidence/T016-recovery.md) 、[evidence/T017-logs-metrics.md](evidence/T017-logs-metrics.md) 、[evidence/T018-delivery.md](evidence/T018-delivery.md) 与 [evidence/T019-acceptance.md](evidence/T019-acceptance.md)；同日按 FR-001/S3 C02 补上 robots.txt 规则执行（Disallow/Allow 最长匹配、不可用保守策略，见 [evidence/T004-T009-collection.md](evidence/T004-T009-collection.md)），夹具验收报告见 [evidence/logs/t019-acceptance-report.json](evidence/logs/t019-acceptance-report.json)，AT-014/AT-024 因 Q11 保持 blocked；附件在管线中的独立文档化随 Q07 处理。2026-09-11 另按 FR-005 补上正文分页与接口正文还原（内容区 rel=next/翻页文案、JSON alternate 正文端点；部分失败标 partial 并写失败账），见 [evidence/T004-T009-collection.md](evidence/T004-T009-collection.md)；同日按用户许可对 CN-01/CN-03/IN-01/IN-06 做了一轮最小请求量真实站点核验（14 个请求，遵守 robots 与来源限速），并对 CN-01/IN-01 做第二轮回访确认条件请求在真实站点退化为完整获取，第三轮以栏目页入口核验发现行为（IN-01 栏目页可访问但通用发现选中首页，CN-01 栏目页 75 条链接指向旧域或子域），记录见 [evidence/logs/t026-realsite-smoke.txt](evidence/logs/t026-realsite-smoke.txt)；同日第四轮对另外 9 个权威来源做浅层可达性核验（CN-05/06/07 的 robots 508 与 IN-04 及部分主机的 robots 获取失败均按保守拒绝处理、IN-03 链接指向别名域、CN-02 无可发现站内链接），并据此修复真实页面暴露的空标题块解析缺陷与补抓来源过滤缺陷（新增 2 项回归用例，见 [evidence/logs/t008-cn04-defect-fix.txt](evidence/logs/t008-cn04-defect-fix.txt)）；同日实现 T026 机制部分：逐来源适配规则（列表链接选择器/正则、分页终止条件、正文范围选择器，未命中显式记录、不静默回退），在固定夹具与真实原件上验证（CN-08 栏目发现 13→3、CN-04 正文 145→2），并以契约 schema 校验随包来源配置防漂移，全量 310 passed，见 [evidence/logs/t026-adapter-mechanism.txt](evidence/logs/t026-adapter-mechanism.txt)；第五轮补齐 CN-08/IN-07—IN-10，18 个登记来源均完成浅层可达性/robots 核验（IN-07/08/09 获取失败与 CN-05/06/07 的 508 保守拒绝、IN-10 空正文按 partial 记录）；完整真实来源验收（Q12/Q13）、T026 适配器与领域任务仍未执行。
 
 | 需求 | 原文定位 | 场景 | 模块 | 主要任务 | 验收 | 待决 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -72,6 +72,6 @@
 
 ## 开发约束独立追踪
 
-用户后续目录指令 → DEV-008 → [项目起步说明](project-startup.md) → T003/T004/T018/T019 → CFG-01—CFG-09。业务来源的 37 条需求及 AT 映射保持不变；Q14 目录部分已明确，仓库和发布策略仍 OPEN。
+用户后续目录指令 → DEV-008 → [项目起步说明](project-startup.md) → T003/T004/T018/T019 → CFG-01—CFG-09（已全部执行：CFG-01—CFG-05、CFG-09 见 [evidence/T003-environment.md](evidence/T003-environment.md)，CFG-06—CFG-08 见 [evidence/T019-acceptance.md](evidence/T019-acceptance.md) 与 [logs/t019-cfg.txt](evidence/logs/t019-cfg.txt)）。业务来源的 37 条需求及 AT 映射保持不变；Q14 目录部分已明确，仓库和发布策略仍 OPEN。
 
-DEV-009：用户镜像要求 → [uv 模板说明](uv-template.md) 与 templates/uv/pyproject.toml → T002/T003 → 镜像来源及环境复现验收（未执行）。
+DEV-009：用户镜像要求 → [uv 模板说明](uv-template.md) 与 templates/uv/pyproject.toml → T002/T003 → 镜像来源及环境复现验收（起步环境已执行，见 [evidence/T002-selection.md](evidence/T002-selection.md)；新增运行依赖时按同一流程复核）。

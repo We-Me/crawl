@@ -1,0 +1,77 @@
+# 交付态 wheel 普通安装行为验证（CFG-09 补充，2026-09-11）
+#
+# 目的：T003 时期的 CFG-09 只验证了当时仅含 settings 的 wheel；本记录对交付态 wheel
+# （含 T004—T019 全部模块与 crawler/config/sources.yaml）做普通安装后的行为验证。
+# 全程离线；构建使用登记镜像缓存中的 hatchling 1.27.0（无官方 PyPI 回退）。
+
+## 1. 构建（离线）
+
+仓库内 dist/ 是 T003 时期的本地构建产物（已被 .gitignore 忽略，只含当时的少量模块）；
+本次验证使用 /tmp/crawl-wheel-test 的新构建，不修改 dist/。
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv build --offline --out-dir /tmp/crawl-wheel-test
+# Building source distribution...
+# Building wheel from source distribution...
+# Successfully built /tmp/crawl-wheel-test/public_knowledge_collection-0.1.0.tar.gz
+# Successfully built /tmp/crawl-wheel-test/public_knowledge_collection-0.1.0-py3-none-any.whl
+
+## 2. wheel 内容（64 条目 = crawler 包 61 + dist-info 3）
+
+crawler 文件 61 个：60 个 .py 模块 + 1 个包数据 crawler/config/sources.yaml
+（含 config/ discover/ fetch/ parser/ normalize/ output/ dedup/ schedule/ versioning/
+monitor/ validate/ util/ 与 pipeline.py；完整清单见 wheel 内 RECORD）
+
+同次构建的 sdist（189 条目）包含 pyproject.toml、uv.lock、.python-version、.env.example、
+.gitignore、src/、tests/（含全部夹具）、tools/、templates/、AGENTS.md、SDD文档说明.md、
+docs/ 四份输入、specs/ 全套（含 evidence/logs 与 examples/data）；不含真实 .env、.venv 或开发 data/。
+
+## 3. 普通安装（全新 venv，站点包，无源码树）
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv venv --python 3.9.25 /tmp/crawl-installed-venv
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv pip install --python /tmp/crawl-installed-venv/bin/python \
+  --no-deps --offline /tmp/crawl-wheel-test/public_knowledge_collection-0.1.0-py3-none-any.whl
+# Installed 1 package in 1ms
+#  + public-knowledge-collection==0.1.0 (from file:///tmp/crawl-wheel-test/...)
+# 说明：本次只验证本包行为，故 --no-deps；沙箱内默认 uv 缓存只读，pyyaml 6.0.3（与 uv.lock
+# 一致）从本机缓存复制进该 venv，仅为让 crawler.config.registry 可导入，不影响结论。
+
+## 4. 行为结果（cwd=/tmp/crawl-installed-cwd，未设置 CRAWL_ENV/CRAWL_DATA_DIR）
+
+python: 3.9.25
+crawler: /tmp/crawl-installed-venv/lib/python3.9/site-packages/crawler/__init__.py version: 0.1.0
+detect_project_root(): None
+dev/未设置目录(无源码根): ConfigurationError: 未配置 CRAWL_DATA_DIR，且当前安装中无法识别源码工程根；请显式配置数据根
+dev/相对路径(无源码根): ConfigurationError: CRAWL_DATA_DIR 为相对路径，但当前安装中无法识别源码工程根；请改用绝对路径或从源码工程运行
+dev/显式绝对路径: OK -> mode=development data_dir=/tmp/crawl-installed-data default=False root=None
+prod/缺少目录: ConfigurationError: 生产模式必须显式配置 CRAWL_DATA_DIR 绝对路径
+prod/相对路径: ConfigurationError: 生产模式 CRAWL_DATA_DIR 必须是绝对路径，当前为 'relative/dir'
+prod/绝对路径: OK -> mode=production data_dir=/tmp/crawl-installed-prod default=False root=None
+created: True True
+default registry: [('DEMO', False)] digest: 05d6d8d2b2b6
+
+## 结论
+
+- 交付态 wheel 可普通安装并从工程外导入，不依赖 PYTHONPATH 或源码 cwd（CFG-09）。
+- 无源码工程根时，未配置或相对数据根明确报错、不猜测 site-packages 附近为工程根；显式绝对路径
+  在开发与生产模式均可用（与 project-startup.md 第 54—56 行的契约一致）。
+- 随包发布的默认 sources.yaml 可从站点包加载，示例来源仍是 enabled=false 的虚构条目。
+
+## 复验（2026-09-11，AT-009/017/018 与 AT-005/006/007/023 代码变更后）
+
+上面记录基于当时的交付态 wheel；此后 src/ 与 tests/ 有变更（正文分页/接口正文、request_controls、
+来源级请求参数等）。为保证 CFG-09 证据仍对应当前源码，按同一流程重新构建并复核：
+
+- 构建（联网仅取构建后端，来源为登记镜像）：`UV_CACHE_DIR=/tmp/crawl-uv-cache uv build --out-dir /tmp/crawl-wheel-test2`
+  成功；缓存索引仅一个来源（`simple-v22/index/` 单目录，其 hatchling 条目的缓存文件中为
+  `mirrors.tuna.tsinghua.edu.cn`），无官方 PyPI 回退。构建后端 hatchling 1.27.0。
+- wheel：`public_knowledge_collection-0.1.0-py3-none-any.whl`，64 条目 = crawler 60 个 .py +
+  `crawler/config/sources.yaml` + dist-info 3；sha256 前缀 `5e153a8bd77de8d2`。
+- sdist：199 条目（较上次 189 增加 10，全部来自本轮新增夹具与 evidence 记录），包含
+  `tests/fixtures/site/detail_paged_3.html` 等新夹具与 evidence/；仍不含真实 .env、.venv 或开发 data/。
+- 安装与行为：`uv venv --python 3.9.25 /tmp/crawl-installed-venv2` +
+  `uv pip install --python ... --no-deps --offline <wheel>`（pyyaml 6.0.3 从 .venv 复制，仅供导入），
+  在 cwd=/tmp/crawl-installed-cwd2 且未设置 CRAWL_ENV/CRAWL_DATA_DIR 下复跑全部 CFG-09 检查，
+  结果与上次逐条一致：detect_project_root()=None；dev 未配置/相对路径明确报错、显式绝对路径
+  OK（data_dir_from_default=False）；prod 缺目录/相对路径报错、绝对路径 OK；目录随加载创建；
+  随包 sources.yaml 可加载（[('DEMO', False)]，digest 05d6d8d2b2b6，与 T003 时一致）。
+- 结论：交付态 wheel 的 CFG-09 结论在当前源码与当前夹具下仍然成立，证据已更新到本轮构建。

@@ -1,16 +1,66 @@
 # Python 开发约束与技术选型登记
 
-状态：Python 与 uv 已由用户明确，Python 3.9 为首选基线；完整环境尚未构建验证，最终补丁版本、框架及依赖组合待确定。本文补充四份业务文档，不改变原始需求来源。
+状态：Python 与 uv 已由用户明确，Python 3.9 为首选基线；2026-09-11 T002/T003 完成起步环境，T011/T012 完成 PDF/OCR 与 Office 解析选型（TD-08 已选定），记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md) 与 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。业务待决 Q 项未改变，完整交付环境仍随未完成模块推进。本文补充四份业务文档，不改变原始需求来源。
 
 ## 当前基线
 
 | 项目 | 当前结论 | 实施前需要记录 |
 | --- | --- | --- |
 | 业务开发语言 | Python，已明确 | 对应根目录 AGENTS.md 的 DEV-001 |
-| TD-01 Python 版本 | OPEN，优先 3.9，等待完整环境验证 | 记录实际补丁版本；仅在有失败证据时按 3.9 → 3.10 → 3.11 → … 逐个次版本尝试 |
-| TD-02 框架与依赖 | OPEN，未选定 | 采集方式、HTTP、HTML/PDF/Office/OCR、调度、测试各项选择；包管理已确定使用 uv；不需要的组件明确写不采用 |
-| 项目环境 | uv 管理的 .venv；pyproject.toml + uv.lock + .python-version | uv 工具版本、解释器版本、依赖组、系统依赖及干净环境验证 |
+| TD-01 Python 版本 | SELECTED（2026-09-11）：CPython 3.9.25；当前已选范围在 3.9 下锁定、同步、导入与样本测试通过 | 实际补丁版本已写入 `.python-version` 与 `requires-python`；T014/T015 等新模块若冲突，按失败证据从 3.9 起逐个次版本重开 |
+| TD-02 框架与依赖 | SELECTED（当前范围）：HTTP、HTML、YAML、PDF、OCR、Office/结构数据、测试与构建后端、调度机制（TD-09）、运行监控与日志（TD-10）、契约校验（TD-11）均已选；无需再引入框架组件 | 分项决定见下方 T002/TD-08/TD-09/TD-10/TD-11 已执行记录；包管理使用 uv；不引入调度框架、日志框架、指标系统或 JSON Schema 库 |
+| 项目环境 | 已建立（T003，T011/T012 扩充）：uv 0.11.28 管理 `.venv`；pyproject.toml + uv.lock + .python-version（3.9.25）；运行依赖含 HTTP/HTML/YAML/PDF/OCR/Office，开发组 dev(pytest) | 已验证锁定、同步、导入、可编辑与普通安装；样本解析与测试见 evidence/T003-environment.md、evidence/T010-T013-parsers.md |
 | 文档校验环境 | 现有工具要求 PowerShell 7.5+、Python 3.9+ | 仅供文档校验；业务另按 3.9 优先策略验证，不将校验通过当作完整环境通过 |
+
+## T002 已执行记录（2026-09-11）
+
+当前模块所需选型已在隔离工程按 Python 3.9 验证，完整记录与镜像来源证据见
+[evidence/T002-selection.md](evidence/T002-selection.md)。业务待决 Q 项未因此关闭。
+
+| 编号 | 决定 | 版本或工具 | 引入时机 |
+| --- | --- | --- | --- |
+| TD-01 | 采用 CPython 3.9.25，无需次版本升级 | `.python-version`、`requires-python` | 已生效 |
+| TD-03 | 构建后端 hatchling，`src/crawler` 包发现 | hatchling | 已生效（T003）；交付态 wheel/sdist 复核见 [evidence/logs/t019-installed-wheel.txt](evidence/logs/t019-installed-wheel.txt) |
+| TD-04 | 测试框架 pytest | `>=8.4,<9`，解析 8.4.2 | 已生效（dev 组） |
+| TD-05 | HTTP 客户端 requests | `>=2.32,<3`，解析 2.32.5 | T006 实现时加入运行依赖 |
+| TD-06 | HTML 解析 beautifulsoup4 + lxml | `>=4.13,<5`、`>=5.3,<7`，解析 4.15.0、6.1.3 | T008/T010 实现时加入 |
+| TD-07 | 来源配置解析 PyYAML，仅 `safe_load` | `>=6.0.2,<7`，解析 6.0.3 | T004 注册表实现时加入 |
+| TD-08 | PDF、OCR、Office、结构数据解析选型 | SELECTED（2026-09-11）：pypdf 6.18.0、rapidocr-onnxruntime 1.4.4 + pypdfium2 4.30.0、python-docx 1.2.0、openpyxl 3.1.5、defusedxml 0.7.1；CSV/JSON 用标准库 | T011/T012 实现时加入，见下方 TD-08 已执行记录 |
+
+未引入：调度框架、数据库、Web 框架、向量库；标准库可满足的环节不新增依赖。
+
+## TD-08 已执行记录（2026-09-11，T011—T013）
+
+完整证据、样本结果、夹具哈希与限制见 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。
+所有包经登记清华镜像 `uv add` 安装，`prerelease=disallow`，未回退官方 PyPI，Python 3.9 未升级。
+
+| 编号 | 决定 | 候选与不采用原因 | 版本与传递依赖 | 验证 |
+| --- | --- | --- | --- | --- |
+| TD-08a | 文本 PDF 解析 pypdf | 候选 PyMuPDF（AGPL，许可风险）、pdfminer.six（维护较缓）；pypdf 纯 Python、维护活跃、无系统组件 | `>=5,<7` → 6.18.0；传递仅 typing-extensions | 两页文本 PDF 页码/段落/表格样本通过 |
+| TD-08b | OCR rapidocr-onnxruntime | 系统 tesseract 仅库无可执行文件；paddleocr 依赖重；RapidOCR 纯 pip、自带模型、接口稳定 | `>=1.3,<2` → 1.4.4；传递 numpy 2.0.2、onnxruntime 1.19.2（coloredlogs/flatbuffers/protobuf/sympy/packaging）、opencv-python 5.0.0.93、pillow 11.3.0、shapely 2.0.7、pyclipper、six、tqdm | PNG/扫描 PDF 识别与置信度、部分失败、全失败状态用例通过 |
+| TD-08c | 扫描 PDF 栅格化 pypdfium2 | pdf2image 需系统 poppler；PyMuPDF 许可风险；pypdfium2 自带 PDFium、无传递依赖 | `>=4.30,<5` → 4.30.0 | 扫描 PDF 逐页 OCR 页码映射通过 |
+| TD-08d | DOCX 解析 python-docx | 不解析二进制 DOC；样式/表格接口稳定、复用已有 lxml | `>=1.1,<2` → 1.2.0 | 标题/段落/列表/表格夹具通过 |
+| TD-08e | XLSX 解析 openpyxl | 只读模式内存可控；pandas/openpyxl 组合超出当前需求 | `>=3.1,<4` → 3.1.5；传递 et-xmlfile 2.0.0 | sheet/表头/行号/单位与空 sheet 状态用例通过 |
+| TD-08f | CSV/JSON 标准库、XML defusedxml | pandas 属不必要大依赖；defusedxml 已在锁文件，本任务首次使用 | csv/json 标准库；defusedxml 0.7.1 | 编码/分隔符/路径/实体炸弹用例通过 |
+| TD-08g | 旧式 DOC/XLS 路线 | 无成熟纯 Python 解析器；路线为 OLE2 识别 + 系统 LibreOffice headless 转换，转换器可注入 | 不新增依赖；本机无 soffice，缺组件时 `LegacyFormatError` 明确报错 | 路线与显式失败路径单测通过；实机转换未验证 |
+
+## TD-09 已执行记录（2026-09-11，T015）
+
+| 编号 | 决定 | 候选与不采用原因 | 版本与传递依赖 | 验证 |
+| --- | --- | --- | --- | --- |
+| TD-09 | 增量与频率不引入调度框架，用标准库实现策略表、状态文件与条件请求 | 候选 APScheduler/Celery 属常驻调度与分布式范围，超出当前单进程同步采集；周期、启用类别与触发源仍属 Q01/Q13 待决，标准库足够 | 不新增依赖；状态写入 `manifests/incremental_state.json` | 七类频率判定、增量计划、304 端到端复用与配置校验用例通过，见 evidence/T015-schedule.md |
+
+## TD-10 已执行记录（2026-09-11，T017）
+
+| 编号 | 决定 | 候选与不采用原因 | 版本与传递依赖 | 验证 |
+| --- | --- | --- | --- | --- |
+| TD-10 | 运行日志与指标用标准库 logging + json，指标原子写入 `logs/metrics.json` 并追加 `logs/metrics_history.jsonl` | 候选 structlog/loguru（结构化日志）与 prometheus-client（指标服务）超出当前单进程采集范围；Q15 未定日志保留与轮转策略，先不引入轮转框架 | 不新增依赖 | 计数口径、重复与异常统计、对账差异检出、304 不产生虚假文档与夹具混合运行用例通过，见 [evidence/T017-logs-metrics.md](evidence/T017-logs-metrics.md) |
+
+## TD-11 已执行记录（2026-09-11，T019）
+
+| 编号 | 决定 | 候选与不采用原因 | 版本与传递依赖 | 验证 |
+| --- | --- | --- | --- | --- |
+| TD-11 | 交付校验用标准库实现 JSON Schema 子集 + 追溯检查 | 候选 jsonschema 库功能完整，但本次只需契约实际使用的关键字（type/required/items/enum/const/pattern/format/allOf/anyOf/if-then-else 等）；DEV-007 先查标准库与现有依赖，避免为单次校验引入新依赖 | 不新增依赖 | 契约正反例、语法/类型/必填/引用错误定位、悬挂块检出与追溯率 100%/空集 N/A 用例通过，见 [evidence/T019-acceptance.md](evidence/T019-acceptance.md) |
 
 ## 选型过程与任务关系
 
@@ -26,7 +76,7 @@ TD-01/TD-02 的状态使用 OPEN / SELECTED / SUPERSEDED。SELECTED 必须有实
 
 ## 依赖与环境交付
 
-项目使用 uv：在 pyproject.toml 声明 Python 支持范围及依赖，用 uv.lock 锁定解析结果，用 .python-version 固定已验证的解释器，在 .venv 安装。运行、测试与可选解析组件明确依赖组和安装条件；三份配置需随代码交付，.venv 不复制。当前只更新开发说明，尚未创建这些业务配置或安装依赖。
+项目使用 uv：在 pyproject.toml 声明 Python 支持范围及依赖，用 uv.lock 锁定解析结果，用 .python-version 固定已验证的解释器，在 .venv 安装。运行、测试与可选解析组件明确依赖组和安装条件；三份配置需随代码交付，.venv 不复制。2026-09-11 更新：T003 已创建并交付这三份配置与 dev 依赖；运行依赖按 DEV-007 在对应模块实现时引入。
 
 版本和框架选择不会关闭 Q01 等业务待决事项。未选业务范围不得因某个框架自带能力而自动纳入开发。
 
@@ -51,10 +101,11 @@ TD-01/TD-02 的状态使用 OPEN / SELECTED / SUPERSEDED。SELECTED 必须有实
 
 以下为后续 T002/T003 的操作说明，本次未执行环境创建。先依据 [uv 官方安装指南](https://docs.astral.sh/uv/getting-started/installation/) 安装适合目标平台的 uv，并记录 uv --version。项目与锁文件操作参见 [项目指南](https://docs.astral.sh/uv/guides/projects/) 和 [锁定与同步](https://docs.astral.sh/uv/concepts/projects/sync/)；解释器选择参见 [Python 版本管理](https://docs.astral.sh/uv/concepts/python-versions/)。
 
-先按 [uv 镜像模板说明](uv-template.md) 将模板复制为根目录 pyproject.toml；已有工程合并配置，不覆盖。准备好解释器后执行下列命令，不再用 uv init 生成缺少镜像配置的另一份文件：
+先按 [uv 镜像模板说明](uv-template.md) 将模板复制为根目录 pyproject.toml；已有工程合并配置，不覆盖。准备好解释器后执行下列命令，不再用 uv init 生成缺少镜像配置的另一份文件；目标机器没有可用 Python 3.9 时先用 `uv python install 3.9` 安装 uv 管理的解释器（2026-09-11 已在本机执行，得到 3.9.25，记录见 [evidence/logs/t002-python-install.txt](evidence/logs/t002-python-install.txt)；解释器来源是 uv 内置默认源 `github.com/astral-sh/python-build-standalone`，不经过 PyPI 镜像，需与本项目包源分别核查）：
 
 ```powershell
 uv --version
+uv python install 3.9
 uv python pin 3.9
 ```
 
@@ -106,7 +157,7 @@ uv sync --locked
 
 一次变更尽量聚焦一项能力或一组必须共同调整的依赖。完成同步、导入、相关解析样本与适用测试后再继续下一项，发现无关大范围更新时先查明原因。失败时根据已保留的声明和锁文件恢复环境，不手工篡改锁文件或全局补装包。无需为每个正常工程选型额外申请批准，但必须保留依据；业务范围变化仍按原有待决流程处理。
 
-本节仅规定后续开发规则。本次没有添加业务依赖、指定具体框架版本或创建业务锁文件，Python 3.9 优先与逐个次版本保守升级规则继续适用。
+本节规定后续开发规则，Python 3.9 优先与逐个次版本保守升级规则继续适用。2026-09-11 更新：T002/T003 已创建业务锁文件，并选定构建后端、测试框架及后续模块的候选运行依赖版本；HTTP、HTML、YAML 运行依赖按 DEV-007 推迟到对应任务引入，见 T002 已执行记录。
 
 ## 源码布局与 uv 环境配置
 
@@ -114,4 +165,4 @@ uv sync --locked
 
 ## 强制镜像源与起步模板
 
-执行 DEV-009 和 [uv 镜像模板说明](uv-template.md)。已提供模板，不代表根目录业务环境已经初始化。默认清华镜像替换内置 PyPI，禁止失败回退；核查环境覆盖、专用源、锁文件制品地址和空缓存安装证据。模板 package=false 仅供选型起步，T003 配置构建后端后必须移除并验证 src 包安装。
+执行 DEV-009 和 [uv 镜像模板说明](uv-template.md)。默认清华镜像替换内置 PyPI，禁止失败回退；核查环境覆盖、专用源、锁文件制品地址和空缓存安装证据。模板 package=false 已于 T003 移除，hatchling 与 src 包发现已配置，可编辑与普通安装验证见 [evidence/T003-environment.md](evidence/T003-environment.md)。

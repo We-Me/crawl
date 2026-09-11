@@ -1,0 +1,75 @@
+# 真实页面缺陷定位与修复：CN-04 空标题块（2026-09-11T19:59—20:04+08:00）
+
+来源：T026 前置第四轮真实站点核验（`data/realsite-probe3.json`）。下文的 `python -c` 为简化形式，等价脚本可在同一仓库状态用 `uv run --locked --no-python-downloads` 复跑。
+不改变任何 AT 用例状态，也不改变 Q12/Q13 的待决状态。
+
+## 现象
+
+对 `https://www.gov.cn/zhengce/` 入口核验时，管线按预期完成获取与归档：
+`raw/CN-04/2026-09-11/html/index.html`（67,451 字节，sha256 `1510673a5a6245d2630c21e7109402114793818fff82c6386f33b183b2a50dcd`），
+随后在标准化阶段失败：
+
+```
+{"source_id":"CN-04","url":"https://www.gov.cn/","stage":"normalize","error_type":"normalization_error",
+ "message":"非表格块缺少 text：CN-04_20260911_0001_B0049","final_action":"record_only",
+ "crawl_id":"CN-04_20260911_0001","referrer_url":"https://www.gov.cn/zhengce/"}
+```
+
+即：原件与账本已落盘，文档未写入，失败账记录了原因（FR-009/FR-014 的“不静默丢弃”生效）。
+
+## 根因
+
+用同一原件离线复现（不联网）：
+
+```
+uv run --locked --no-python-downloads python -c "parse_html → build_blocks(data/raw/CN-04/.../index.html)"
+# 修复前：blocks=147；build_blocks 抛 BlockValidationError: 非表格块缺少 text：T_B0049
+```
+
+`B0049` 是页面中内容为空的装饰性 `<h2>`（仅图标/空白）。`parse_html` 对 `p`、`li` 有 `if text:` 保护，
+标题分支没有，于是产出了 `text=''` 的 `heading` 块；块契约要求非表格块必须有 `text`
+（`src/crawler/normalize/block_schema.py`），校验因此失败，整个文档进入失败账。
+
+## 修复（根因处，最小改动）
+
+`src/crawler/parser/html_parser.py`：
+
+1. 标题块：先取 `_clean_text(element)`，为空则不产出块（与 `p`/`li` 一致）；
+2. 文档标题：改为取**首个非空** `h1/h2`，避免装饰性空标题把标题置空（进而误报 `metadata_missing`）。
+
+回归用例：`tests/test_html_parser.py::test_empty_headings_are_skipped_and_do_not_blank_the_title`
+（空 `h2`、空白 `h2`、仅图片 `h2` + 真实标题），断言解析结果与 `build_blocks` 均通过。
+
+修复后同一原件离线复算：`blocks=145`、`build_blocks` 通过、标题仍为页面真实标题。
+
+## 真实原件重解析（补抓走本地阶段，0 个网络请求）
+
+```
+uv run --locked --no-python-downloads python -c "pipeline.resume_failures('CN-04')"
+# 计划：[(CN-04, reparse, normalize, https://www.gov.cn/)]
+# 结果：recovered=[{'action':'reparse','crawl_id':'CN-04_20260911_0001','resolution':'recovered',...}]
+#      counters: requests=0 resources=0 documents=1 blocks=145 failures=0
+```
+
+失败账保留历史行并追加处置行（`error_type=resolved`、`final_action=recovered`、`retry_count=1`），
+原件字节与 sha256 未变；`data/normalized/documents.jsonl` 写入 `doc_id=CN-04_20260911_0001`，
+`title=习近平将赴印度出席金砖国家领导人第十八次会晤`，`full_text` 1,913 字。
+
+## 附带修复：补抓不串来源
+
+`resume_failures(source_id)` 原先对 `recovery_plan()` 的**全部**未关闭失败执行补抓，会把其他来源的
+失败按当前来源的配置处理（写入错误的 `source_id`/领域字段）。已改为按 `task.source_id == source_id`
+过滤；新增 `tests/test_recovery.py::test_resume_failures_only_handles_requested_source`
+（两个来源各一条失败，断言只处理请求的来源，另一条仍在计划中）。
+
+## 复跑命令与结果
+
+```
+uv run --locked --no-python-downloads pytest -q     # 294 passed（当次；新增 2 项回归用例）
+```
+
+## 遗留观察（属 T026，不自行判定）
+
+- gov.cn 首页的通用抽取仍以导航项开头（`首页 | 简 | 繁 | EN | 登录 …`），说明该类站点需要
+  栏目级内容选择器；本轮只修“空块导致整页失败”，不改动正文抽取策略。
+- 该站 `robots.txt` 已加载（1 组 23 规则），规则版本与条款核验仍属 T026。

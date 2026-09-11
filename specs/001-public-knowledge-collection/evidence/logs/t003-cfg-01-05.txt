@@ -1,0 +1,30 @@
+# CFG-01/02/03 实机验证（2026-09-11）
+
+## CFG-01 开发默认根（工程根执行，未设置变量）
+mode=development data_dir=/home/zhou/workspaces/crawl/data default=True
+
+## uv --env-file .env 变量注入检查
+CRAWL_DATA_DIR='./data' CRAWL_ENV='development'
+
+## CFG-02 进程变量优先于 .env（.env 为 ./data，进程变量为 /tmp/cfg02-process）
+data_dir=/tmp/cfg02-process
+
+## CFG-03 从 /tmp 以 ./data 执行
+cwd=/tmp data_dir=/home/zhou/workspaces/crawl/data
+## CFG-04 生产模式校验
+- cfg-04a:
+ConfigurationError: 生产模式必须显式配置 CRAWL_DATA_DIR 绝对路径
+- cfg-04b:
+ConfigurationError: CRAWL_DATA_DIR 显式为空；请删除该变量以使用开发默认值，或给出有效路径
+- cfg-04c:
+ConfigurationError: 生产模式 CRAWL_DATA_DIR 必须是绝对路径，当前为 './data'
+- cfg-04d:
+OK data_dir=/tmp/cfg04-prod-abs
+
+## CFG-05 目录校验
+- cfg-05a:
+OK data_dir=/tmp/cfg05-valid
+- cfg-05b:
+ConfigurationError: 数据根已存在但不是目录：/tmp/cfg05-file
+- cfg-05c:
+ConfigurationError: 无法创建数据根 /tmp/cfg05-locked/data：[Errno 13] Permission denied: '/tmp/cfg05-locked/data'

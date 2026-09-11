@@ -1,0 +1,66 @@
+# 交付态依赖来源与干净复现复核（DEV-009 / uv-template 环境验收）
+# 生成：2026-09-11T16:47:52+08:00；执行：Codex
+# 背景：T010—T013 新增 PDF/OCR/Office 依赖后，t003-lock-sync.txt（当时仅 dev 组）不足以代表当前锁文件，故重做来源核查与空缓存复现。
+
+## uv.lock 来源统计（工作区当前锁文件）
+package 数：41
+registry 来源：
+  40  https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/
+非 registry 来源： [('public-knowledge-collection', '0.1.0', {'editable': '.'})]
+制品 URL 主机：
+  202  mirrors.tuna.tsinghua.edu.cn
+sdist/wheel URL 总数： 202
+
+## 干净复现环境
+复现目录：/tmp/crawl-repro-1620（仓库副本，排除 .venv/.git/data/.pytest_cache/dist，不随仓库交付）
+独立空缓存：/tmp/crawl-repro-cache
+解释器：3.9.25（uv 管理）
+uv：uv 0.11.28 (x86_64-unknown-linux-gnu)
+
+## 进程环境（不应存在未登记索引变量）
+(以上为空即无 UV_/PIP_ 变量)
+
+## uv sync --locked --no-python-downloads -v（空缓存）
+$ cd /tmp/crawl-repro-1620 && UV_CACHE_DIR=/tmp/crawl-repro-cache uv sync --locked --no-python-downloads -v
+[摘要；完整日志含大量 DEBUG reflink 回退，已过滤]
+Resolved 41 packages in 0.68ms
+Prepared 39 packages in 23.85s
+Installed 39 packages in 39ms
+...
+ + pytest==8.4.2
+ + python-docx==1.2.0
+ + pyyaml==6.0.3
+ + rapidocr-onnxruntime==1.4.4
+ + requests==2.32.5
+ + shapely==2.0.7
+ + six==1.17.0
+ + soupsieve==2.8.4
+ + sympy==1.14.0
+ + tomli==2.4.1
+ + tqdm==4.70.0
+ + typing-extensions==4.16.0
+ + urllib3==2.6.3
+命令退出码：0
+
+同步日志下载主机计数（仅统计 http(s) URL）：
+    112 https://mirrors.tuna.tsinghua.edu.cn/
+日志中 pypi.org 出现次数：0
+缓存体积：408M
+
+## 复现环境内运行交付测试
+$ cd /tmp/crawl-repro-1620 && UV_CACHE_DIR=/tmp/crawl-repro-cache uv run --locked --no-python-downloads pytest -q
+# 时点：robots 规则执行增补之前；该副本只用于验证依赖复现，不含 .git 之外的后续改动
+........................................................................ [ 27%]
+........................................................................ [ 54%]
+........................................................................ [ 82%]
+..............................................                           [100%]
+262 passed in 5.63s
+
+## 结论
+PASS：当前 uv.lock 的 40 个 registry 包、202 条制品 URL 全部指向登记清华镜像，无 git/path/URL 依赖，空缓存下载日志无 pypi.org；在仅含交付文件的干净副本中用锁文件同步成功并跑通 262 项测试。
+
+## 工作区 .venv 与锁一致性（交付态）
+$ UV_CACHE_DIR=/tmp/crawl-uv-cache uv sync --locked --no-python-downloads
+Resolved 41 packages in 0.81ms
+Checked 39 packages in 0.28ms
+# 无新增/变更/移除；工作区环境由锁文件复现，未使用全局 pip 手装包。

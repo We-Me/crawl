@@ -1,0 +1,31 @@
+# T003 复核：固定样本确定性重建与 .env 注入解析（2026-09-11）
+#
+# 平台：当前 Linux（uv 0.11.28，CPython 3.9.25）；命令均在工程根执行，全程离线。
+
+## 1. 二进制夹具确定性重建（tests/fixtures/README.md 的确定性声明）
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python tools/make_fixture_binaries.py
+# 脚本直接写入 tests/fixtures/（无输出目录参数）；重建前先备份其中一个文件用于逐字节比对。
+
+重建前后 SHA-256 完全一致（十六进制摘要相同，未产生任何字节变化）：
+99d011b6fccab27db904353dafb9b4d3f08716d873bbefcd652d635de41e4b87  tests/fixtures/ocr/scanned_notice.png
+e1618689234713b9a924109a9d62432f3d36d904daf0ef33f1a5e323f1e8d6d1  tests/fixtures/ocr/scanned_notice.pdf
+3223c9df5d05174fc45b24e0507819d97f071e8def008d086e7e1cb87bd61782  tests/fixtures/attachments/notice.pdf
+65da833b0864734c4b4ff21422a8542ab63d986239eae1cacc5f534a4525af79  tests/fixtures/office/notice.docx
+d2e61aa457ea7d4a57a5143e662e2aa76b30295deef29998b999057eeb175f92  tests/fixtures/office/notice.xlsx
+# cmp 逐字节比对 PNG 备份与重建结果：identical
+# 说明：脚本以固定 core properties 时间（2026-09-10T00:00:00Z）、归一化 zip 条目时间
+# （1980-01-01）与固定随机种子（random.Random(20260911)）保证可重复；重建后 git 工作树无夹具差异。
+
+## 2. .env 显式加载与配置解析（project-startup.md 起步顺序第 5 步）
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads --env-file .env \
+  python -c "import os; print('CRAWL_ENV=', os.environ.get('CRAWL_ENV')); print('CRAWL_DATA_DIR=', os.environ.get('CRAWL_DATA_DIR'))"
+# CRAWL_ENV= development
+# CRAWL_DATA_DIR= ./data
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads --env-file .env \
+  python -c "from crawler.config.settings import load_settings; s = load_settings(); print('resolved:', s.mode, s.data_dir)"
+# resolved: development /home/zhou/workspaces/crawl/data
+# 结论：uv 显式加载的 .env 使变量进入 os.environ；相对 ./data 按工程根解析（非当前工作目录），
+# 与 CFG-02/CFG-03 的既有结论一致。本命令只验证注入与解析，不启动爬虫。

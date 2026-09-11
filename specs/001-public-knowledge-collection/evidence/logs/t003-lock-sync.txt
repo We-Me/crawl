@@ -1,0 +1,53 @@
+# T003 项目锁定：uv lock --no-python-downloads -v（2026-09-11，独立空缓存 /tmp/crawl-uv-cache）
+
+DEBUG Adding direct dependency: public-knowledge-collection:dev==0.1.0
+DEBUG Adding direct dependency: pytest>=8.4, <9
+DEBUG Adding transitive dependency for pytest==8.4.2: colorama{sys_platform == 'win32'}>=0.4
+DEBUG Adding transitive dependency for pytest==8.4.2: exceptiongroup{python_full_version < '3.11'}>=1
+DEBUG Adding transitive dependency for pytest==8.4.2: iniconfig>=1
+DEBUG Adding transitive dependency for pytest==8.4.2: packaging>=20
+DEBUG Adding transitive dependency for pytest==8.4.2: pluggy>=1.5, <2
+DEBUG Adding transitive dependency for pytest==8.4.2: pygments>=2.7.2
+DEBUG Adding transitive dependency for pytest==8.4.2: tomli{python_full_version < '3.11'}>=1
+DEBUG Adding transitive dependency for colorama==0.4.6: colorama==0.4.6
+DEBUG Adding transitive dependency for colorama==0.4.6: colorama{sys_platform == 'win32'}==0.4.6
+DEBUG Adding transitive dependency for exceptiongroup==1.3.1: exceptiongroup==1.3.1
+DEBUG Adding transitive dependency for exceptiongroup==1.3.1: exceptiongroup{python_full_version < '3.11'}==1.3.1
+DEBUG Adding transitive dependency for exceptiongroup==1.3.1: typing-extensions{python_full_version < '3.13'}>=4.6.0
+DEBUG Adding transitive dependency for exceptiongroup==1.3.1: typing-extensions{python_full_version < '3.13'}>=4.6.0
+DEBUG Adding transitive dependency for tomli==2.4.1: tomli==2.4.1
+DEBUG Adding transitive dependency for tomli==2.4.1: tomli{python_full_version < '3.11'}==2.4.1
+DEBUG Adding transitive dependency for typing-extensions==4.16.0: typing-extensions==4.16.0
+DEBUG Adding transitive dependency for typing-extensions==4.16.0: typing-extensions{python_full_version < '3.13'}==4.16.0
+Resolved 10 packages in 4.03s
+
+## uv.lock registry 来源计数
+      9 registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+
+## uv.lock 制品 URL 主机计数
+     27 https://mirrors.tuna.tsinghua.edu.cn/
+# T003 同步：uv sync --locked --no-python-downloads -v
+
+ + exceptiongroup==1.3.1
+ + iniconfig==2.1.0
+ + packaging==26.3
+ + pluggy==1.6.0
+ + public-knowledge-collection==0.1.0 (from file:///home/zhou/workspaces/crawl)
+ + pygments==2.21.0
+ + pytest==8.4.2
+ + tomli==2.4.1
+ + typing-extensions==4.16.0
+
+## 解释器
+Python 3.9.25
+
+## 测试：uv run --locked --no-python-downloads pytest -q
+......................................                                   [100%]
+38 passed in 0.06s
+
+## 来源配置核查（2026-09-11）
+- 进程环境无 UV_INDEX / UV_DEFAULT_INDEX / UV_INDEX_URL / UV_EXTRA_INDEX_URL / PIP_INDEX_URL
+- 项目根与上级目录无 uv.toml 冲突；使用 uv 默认缓存前缀，仅本次验证显式设置 UV_CACHE_DIR
+- pyproject.toml 索引：tsinghua default=true（无其他索引、无官方回退）
+- tool.uv: prerelease=disallow, index-strategy=first-index, package 键已移除
+- uv lock --check：Resolved 10 packages（9 个 registry + 本地项目）

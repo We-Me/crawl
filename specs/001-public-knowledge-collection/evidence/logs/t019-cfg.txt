@@ -1,0 +1,13 @@
+tests/acceptance/test_cfg_environment.py::test_cfg_01_default_development_data_root PASSED [ 11%]
+tests/acceptance/test_cfg_environment.py::test_cfg_02_process_environment_wins PASSED [ 22%]
+tests/acceptance/test_cfg_environment.py::test_cfg_03_relative_path_is_project_root_based PASSED [ 33%]
+tests/acceptance/test_cfg_environment.py::test_cfg_04_production_requires_absolute_explicit_root PASSED [ 44%]
+tests/acceptance/test_cfg_environment.py::test_cfg_05_directory_validation PASSED [ 55%]
+tests/acceptance/test_cfg_environment.py::test_cfg_06_production_root_outside_repository PASSED [ 66%]
+tests/acceptance/test_cfg_environment.py::test_cfg_07_relocation_keeps_relative_paths_and_hashes PASSED [ 77%]
+tests/acceptance/test_cfg_environment.py::test_cfg_08_out_of_root_paths_are_rejected PASSED [ 88%]
+tests/acceptance/test_cfg_environment.py::test_cfg_09_import_from_outside_project PASSED [100%]
+============================== 9 passed in 0.98s ===============================
+
+## 命令
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads pytest tests/acceptance/test_cfg_environment.py -v

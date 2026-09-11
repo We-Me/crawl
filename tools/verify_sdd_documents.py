@@ -55,8 +55,10 @@ def main():
         check(r["task"] in task_ids, f"task not found: {r['id']}")
         check(set(r["issues"].split()) <= q_ids, f"issue not found: {r['id']}")
         check(bool(r["source"]) and bool(r["action"]) and bool(r["expected"]), f"incomplete scenario: {r['id']}")
+    # 2026-09-11：开始实施后允许任务勾选为 [x]；仍要求每项恰好出现一次，且状态只能是 [ ] 或 [x]。
     for tid in task_ids:
-        check(tasks.count(f"- [ ] {tid} ") == 1, f"task missing, duplicate or marked completed: {tid}")
+        occurrences = tasks.count(f"- [ ] {tid} ") + tasks.count(f"- [x] {tid} ")
+        check(occurrences == 1, f"task missing, duplicate or invalid checkbox state: {tid}")
     for qid in q_ids:
         check(issues.count(f"## {qid} ") == 1, f"question missing: {qid}")
     # Planned numeric dependencies form a DAG. Textual decision gates remain prose.

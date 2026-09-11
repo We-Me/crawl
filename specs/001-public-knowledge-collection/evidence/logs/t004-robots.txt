@@ -1,0 +1,65 @@
+# FR-001 robots.txt 规则执行证据（T004/T006 增补）
+# 生成：2026-09-11T17:25:54+08:00；执行：Codex；夹具站点/固定样本，未访问真实站点
+
+## 夹具 robots.txt（tests/fixtures/site/robots.txt）
+# 虚构夹具站点的 robots.txt（仅供本地回环测试；不指向任何真实站点）
+User-agent: *
+Disallow: /private/
+Allow: /private/public-note.html
+
+## 离线解析与判定（fixture 规则 + 不可用状态策略）
+
+$ UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python - <<'PY'
+from crawler.fetch.robots import parse_robots, rules_for_unavailable
+UA = "public-knowledge-collection/0.1 (fixture-driven development)"
+r = parse_robots(open("tests/fixtures/site/robots.txt").read())
+print("blocked(保守拒绝) =", r.blocked)
+for path in ("/detail_1.html", "/private/secret.html", "/private/secret.csv", "/private/public-note.html"):
+    allowed, reason = r.decision(path, UA)
+    print(f"{path:32s} allowed={allowed}  reason={reason}")
+for status in (404, 410, 503, None):
+    allowed, reason = rules_for_unavailable(status).decision("/x", UA)
+    print(f"robots 不可用 status={status!s:4s} allowed={allowed}  reason={reason}")
+PY
+blocked(保守拒绝) = False
+/detail_1.html                   allowed=True  reason=没有匹配的 Allow/Disallow 规则
+/private/secret.html             allowed=False  reason=Disallow /private/
+/private/secret.csv              allowed=False  reason=Disallow /private/
+/private/public-note.html        allowed=True  reason=Allow /private/public-note.html
+robots 不可用 status=404  allowed=True  reason=robots.txt 返回 404，视为无规则
+robots 不可用 status=410  allowed=True  reason=robots.txt 返回 410，视为无规则
+robots 不可用 status=503  allowed=False  reason=robots.txt 返回 503，保守拒绝
+robots 不可用 status=None allowed=False  reason=robots.txt 获取失败，保守拒绝
+
+## robots 用例（tests/test_robots.py：解析/判定/缓存/最长匹配/管线跳过与失败口径/补抓关闭）
+............                                                             [100%]
+12 passed in 0.93s
+
+## 采集管线演示日志（夹具站点：运行汇总与失败记录）
+INFO     crawler.fetch.http_client:http_client.py:263 robots.txt 已加载 host=http://127.0.0.1:33427 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO     crawler.fetch.http_client:http_client.py:263 robots.txt 已加载 host=http://127.0.0.1:33427 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO     crawler.fetch.http_client:http_client.py:263 robots.txt 已加载 host=http://127.0.0.1:33427 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO     crawler.fetch.http_client:http_client.py:263 robots.txt 已加载 host=http://127.0.0.1:33427 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260911_0001 status=200 raw_path=raw/TESTSRC/2026-09-11/html/public-note.html
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260911_0002 status=200 raw_path=raw/TESTSRC/2026-09-11/html/robots_detail.html
+WARNING  crawler.output.failures_writer:failures_writer.py:55 失败记录 stage=fetch url=http://127.0.0.1:33427/private/secret.csv type=robots_disallowed message=robots.txt 拒绝访问：Disallow /private/
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=3
+INFO     crawler.pipeline:pipeline.py:246 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260911T100000 status=partial requests=4 resources=2 documents=2 blocks=5 failures=1 skipped=1 not_modified=0 reconciliation_ok=True
+WARNING  crawler.output.failures_writer:failures_writer.py:55 失败记录 stage=fetch url=http://127.0.0.1:33427/private/secret.html type=request_error message=模拟早先抓取失败
+INFO     crawler.fetch.http_client:http_client.py:263 robots.txt 已加载 host=http://127.0.0.1:33427 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO     crawler.pipeline:pipeline.py:246 运行汇总 kind=recovery source=TESTSRC run_id=TESTSRC_20260911T100000 status=ok requests=1 resources=0 documents=0 blocks=0 failures=0 skipped=1 not_modified=0 reconciliation_ok=True
+============================== 12 passed in 1.01s ==============================
+
+## 全量测试（含 robots 增补）
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 78%]
+..........................................................               [100%]
+274 passed in 5.09s
+
+## 结论
+PASS：每个主机首次请求前获取并缓存 robots.txt（同走访问边界与限速，不写账本）；Disallow 页面记为 skipped（reason 前缀 robots_disallowed），Disallow 附件记 failure 且 final_action=skip、不重试；更长 Allow 规则放行；4xx 视为无规则放行，5xx/网络失败保守拒绝；补抓再遇 robots 拒绝时追加 skip 处置行关闭该失败，补抓指标对账 ok=True。采集夹具运行对账 reconciliation_ok=True，全量 274 passed。
+
+2026-09-11 后续：新增 fetch 超时用例与 AT-023 补齐后，全量测试为 276 passed，见
+[t019-pytest.txt](t019-pytest.txt)；本文件上半部分保留 robots 验证当次的 274 passed 输出。

@@ -1,0 +1,35 @@
+# T019 schema 与追溯校验输出（对夹具交付数据根）
+
+## 命令
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python - <<'PY'
+from crawler.validate import validate_delivery, trace_delivery
+print(validate_delivery("<夹具数据根>").as_row()["ok"])
+print(trace_delivery("<夹具数据根>").as_row())
+PY
+
+## 结果（完整夹具交付包）
+schema ok = True（crawl_manifest.jsonl / documents.jsonl / blocks.jsonl / failed_records.jsonl 全部通过契约）
+trace  = {"ok": true, "documents": {"total": 2, "traceable": 2, "rate": 1.0},
+          "blocks": {"total": 16, "traceable": 16, "rate": 1.0}, "problems": []}
+
+## 负例
+- documents.jsonl 追加语法错误行 → 报错定位到具体行号（file=documents.jsonl, line=N）。
+- 追加引用未知 doc_id 的块 → 追溯报“悬挂块”并给出 block_id。
+- 删除必填字段 / 把 http_status 改为字符串 → 分别报“缺少必填字段”“类型应为”。
+
+## 交叉核对：评审阶段的虚构示例交付包（2026-09-11）
+
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python - <<'PY'
+from pathlib import Path
+from crawler.validate import validate_delivery, trace_delivery
+root = Path("specs/001-public-knowledge-collection/examples/data").resolve()
+print(validate_delivery(root).as_row())
+print(trace_delivery(root).as_row())
+PY
+
+# {'ok': True, 'error_count': 0, 'by_file': {}, 'errors': []}
+# {'ok': True, 'documents': {'total': 2, 'traceable': 2, 'rate': 1.0},
+#  'blocks': {'total': 3, 'traceable': 3, 'rate': 1.0}, 'problems': []}
+#
+# 说明：文档评审阶段手工维护的契约示例未偏离实现后的校验器；schema 与追溯两个方向都与
+# 夹具交付包结论一致（后者见本文件上半部分）。
