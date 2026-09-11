@@ -18,6 +18,9 @@ dependencies = [
     "requests>=2.32,<3",
 ]
 
+[project.scripts]
+crawl = "crawler.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8.4,<9"]
 

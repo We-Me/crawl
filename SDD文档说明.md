@@ -45,6 +45,9 @@
 | [来源登记](specs/001-public-knowledge-collection/sources.md) | 四份输入的指纹和 Word 结构转录 |
 | [来源适配输入](specs/001-public-knowledge-collection/source-adapters.md) | S2 的 18 个首批来源及专站规则登记 |
 | [质量检查表](specs/001-public-knowledge-collection/checklists/requirements.md) | 已核查的文档项和后续实施/验收门槛 |
+| [运行说明](specs/001-public-knowledge-collection/runbook.md) | Linux 安装、配置、`crawl` 命令、故障处理与已知限制 |
+| [CN-08 试点卡](specs/001-public-knowledge-collection/pilot-cn08.md) | NEXT-03 的来源候选参数与受限试点结果 |
+| [阶段交付决策请求](specs/001-public-knowledge-collection/decision-requests.md) | 收口前需要业务确认的 6 项决定与影响 |
 | [交接指南](specs/001-public-knowledge-collection/quickstart.md) | 阅读顺序、文档校验和后续开发使用方式 |
 | [一致性核验](specs/001-public-knowledge-collection/analysis.md) | 本次实际检查结果及仍未解决的业务问题 |
 
@@ -65,6 +68,10 @@ S1 V1.1 明确采集阶段不做 RAG 切片和索引，S2 V1.3 确实包含七�
 项目 Python 包必须使用镜像源，复制项目时包含 templates/。从 [uv 镜像模板与 Linux 使用说明](specs/001-public-knowledge-collection/uv-template.md) 开始，先复制或合并配置，再由 Codex 按任务推进；当前模板无业务依赖，不是已完成的业务环境。
 
 2026-09-11 进展：已按 DEV-009 合并模板，并完成 T002 起步选型与 T003 工程初始化（CPython 3.9.25、uv 0.11.28，锁文件与制品均来自登记镜像，CFG-01—CFG-09 通过）；采集范围 T004—T019 已在固定夹具上实现（来源边界与 robots 规则、发现、获取、归档账本、HTML/PDF/OCR/Office/结构数据解析、去重与版本、增量调度、失败补抓、日志对账、交付目录与采集验收），全量 310 项测试通过（含真实站点核验暴露的空标题解析缺陷与补抓来源过滤缺陷的回归用例），其中 AT-014/AT-024 因 Q11 未决在报告中保持 blocked，业务用例状态仍为 NOT RUN。同日在用户许可下分批对 18 个登记来源完成五轮最小请求量核验（共 69 个请求，遵守 robots 与逐来源限速），记录条件请求退化、robots 保守拒绝与域名别名等站点约束，见 [T026 前置核验](specs/001-public-knowledge-collection/evidence/logs/t026-realsite-smoke.txt)。业务契约冻结（T001/T002 契约部分）、真实来源接入与领域任务 T020—T027 仍待相应 Q 项决策；记录见 [T002 选型验证](specs/001-public-knowledge-collection/evidence/T002-selection.md)、[T003 环境验证](specs/001-public-knowledge-collection/evidence/T003-environment.md) 与 [T004—T019 证据索引](specs/001-public-knowledge-collection/evidence/README.md)。
+
+## 阶段进展（2026-09-11 续作）
+
+NEXT-01/NEXT-02 完成：正式业务 CLI `crawl`（sources/collect/plan/resume/check，退出码 0/1/2）与 Linux 运行说明已交付，本机回环闭环与 `--env-file .env` 命令均实际执行（见 [运行说明](specs/001-public-knowledge-collection/runbook.md)、[CLI 证据](specs/001-public-knowledge-collection/evidence/T027-cli-runbook.md)）；闭环中发现并修复同日多次运行 `crawl_id` 重复导致补抓指向错误原件的缺陷，全量回归 325 passed。NEXT-03 产出 [CN-08 试点卡](specs/001-public-knowledge-collection/pilot-cn08.md) 并完成一次 3 请求的受限真实试点；NEXT-04 记录目标 Linux 的 LibreOffice 权限阻塞。任务状态仍以 tasks.md 与 acceptance.md 为准。
 
 ## 后续开发入口
 

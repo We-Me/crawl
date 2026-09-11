@@ -108,6 +108,8 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
 
   证据（2026-09-11）：DOCX/XLSX/CSV/JSON/XML 结构夹具通过，分派器按内容与扩展名选择解析器；旧式 DOC/XLS 经 OLE2 识别 + LibreOffice 转换路线验证（本机无 soffice，缺组件时明确报错），见 `evidence/T010-T013-parsers.md`；历史记录中的“完成”仅覆盖已有工程验证；本次按完整完成标准更正为部分完成，剩余项见下方续作说明。
 
+  证据（2026-09-11，环境核实）：目标 Linux（Ubuntu 24.04.4 LTS）未安装 LibreOffice，apt 候选 `libreoffice-writer`/`libreoffice-calc` 4:24.2.7 可用（Ubuntu 镜像），但 sudo 需密码、无 root 授权，本轮未安装；缺组件时 `parse_legacy` 显式抛出 `LegacyFormatError`，不静默回退，见 `evidence/logs/t012-libreoffice-env.txt`。
+
 - [x] T013 [US2] 统一清洗、日期、URL、语言和不改写约束，复核各解析器全文一致性。
 
   依赖：T011 T012。角色：数据开发。计划路径：`src/crawler/normalize/metadata_normalizer.py`。需求：FR-013。
@@ -216,7 +218,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
 
   完成标准：每个来源有规则版本、样本和结果；未接入来源明确列出，不报告全站点完成。
 
-  证据（2026-09-11，部分）：已按用户许可分批对 CN-01/CN-03/IN-01/IN-06 及其余 9 个权威来源做最小请求量核验（五轮共 69 个请求：14 + 9 + 15 + 22 + 9，18 个登记来源均完成浅层核验，遵守 robots、逐来源限速、不重试），记录 robots 判定、发现与解析结果、条件请求退化（无 ETag/Last-Modified）及站点约束——CN-03 全站 Disallow、IN-06 首页为前端壳、IN-01 栏目页可访问但通用发现选中首页、CN-01 栏目页 75 条链接指向旧域/子域、CN-05/06/07 的 robots 508 保守拒绝、IN-03 链接指向别名域、IN-04/部分主机 robots 获取失败——其中 CN-04 的真实页面缺陷已定位修复并本地重解析闭环（见 `evidence/logs/t008-cn04-defect-fix.txt`），完整记录见 `evidence/logs/t026-realsite-smoke.txt`；同日实现 T026 的机制部分（逐来源适配规则：列表链接选择器/正则、分页终止条件、正文范围选择器；未命中显式记录，不静默回退），在固定夹具与真实原件上验证（CN-08 栏目发现 13→3 条文档链接、CN-04 正文 145→2 块），见 `evidence/logs/t026-adapter-mechanism.txt`；五轮核验后的开发数据根交付校验通过（`validate_delivery` ok=True/errors=0、追溯 doc_rate=block_rate=1.0）；适配器（栏目级路径规则/域名别名）、至少 10 词与歧义验证仍待 Q12/Q13，本任务保持未勾选。
+  证据（2026-09-11，部分）：已按用户许可分批对 CN-01/CN-03/IN-01/IN-06 及其余 9 个权威来源做最小请求量核验（五轮共 69 个请求：14 + 9 + 15 + 22 + 9，18 个登记来源均完成浅层核验，遵守 robots、逐来源限速、不重试），记录 robots 判定、发现与解析结果、条件请求退化（无 ETag/Last-Modified）及站点约束——CN-03 全站 Disallow、IN-06 首页为前端壳、IN-01 栏目页可访问但通用发现选中首页、CN-01 栏目页 75 条链接指向旧域/子域、CN-05/06/07 的 robots 508 保守拒绝、IN-03 链接指向别名域、IN-04/部分主机 robots 获取失败——其中 CN-04 的真实页面缺陷已定位修复并本地重解析闭环（见 `evidence/logs/t008-cn04-defect-fix.txt`），完整记录见 `evidence/logs/t026-realsite-smoke.txt`；同日实现 T026 的机制部分（逐来源适配规则：列表链接选择器/正则、分页终止条件、正文范围选择器；未命中显式记录，不静默回退），在固定夹具与真实原件上验证（CN-08 栏目发现 13→3 条文档链接、CN-04 正文 145→2 块），见 `evidence/logs/t026-adapter-mechanism.txt`；五轮核验后的开发数据根交付校验通过（`validate_delivery` ok=True/errors=0、追溯 doc_rate=block_rate=1.0）；适配器（栏目级路径规则/域名别名）、至少 10 词与歧义验证仍待 Q12/Q13；同日按 NEXT-03 完成 CN-08 单站受限试点（试点卡 `pilot-cn08.md`，3 个请求完成栏目发现→文章获取→交付校验，见 `evidence/logs/t026-pilot-cn08.txt` 与 `evidence/T026-pilot-cn08.md`），本任务保持未勾选。
 
 ## G8 交付收口
 
@@ -225,6 +227,8 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   依赖：T019 T026；所有被选中的领域任务。角色：交付负责人。计划路径：`specs/001-public-knowledge-collection/acceptance.md；运行说明及实际验收报告`。需求：规格治理或支撑任务，见说明。
 
   完成标准：需求、任务、测试、成果四者对应；只对真实完成项目勾选任务。
+
+  证据（2026-09-11，部分）：正式业务 CLI（`crawl`，子命令 sources/collect/plan/resume/check，退出码 0/1/2）与 Linux 运行说明已完成并实际执行，命令输出见 `evidence/logs/t027-cli.txt`，说明见 `runbook.md`，汇总见 `evidence/T027-cli-runbook.md`；闭环中发现并修复“同日同来源多次运行 crawl_id 重复、补抓指向错误原件”的缺陷（回归见 `tests/test_pipeline.py::test_crawl_ids_continue_across_runs`）；阶段候选全量回归 325 passed（`evidence/logs/t027-full-pytest.txt`），锁文件未变、wheel 含 `crawl` 入口（`evidence/logs/t027-lock-wheel.txt`）。本任务保持未勾选：T019/T026 正式验收与来源决定仍未完成。
 
 ## 里程碑与独立交付
 
@@ -250,3 +254,5 @@ T002 按 [uv 模板说明](uv-template.md) 核验登记镜像、依赖兼容性�
 以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01 正式业务 CLI → NEXT-02 操作说明；NEXT-03 可整理决策卡并在用户已授权的网站规则范围内作有限线上工程测试；NEXT-04 补真实旧格式转换；NEXT-05 在业务决定后正式收口。NEXT 是现有任务子项，不改变 27 个 T 编号。
 
 T012：DOCX/XLSX/结构格式及旧格式接口已有证据，真实 LibreOffice DOC/XLS 转换尚缺，故部分完成。T019：夹具级验证已完成，AT-014/AT-024 及正式业务验收尚缺，故部分完成。取消勾选不表示删除代码或重做既有有效测试。T003 依赖 T002 的已验证环境部分；T013 及后续已有工程结果在已验证格式上继续有效。T026 工程机制和有限探测可使用 T019 已有工程证据；正式来源验收仍依赖有关业务决定。T027 的 CLI 与交接准备可提前实施，但总体验收保留原依赖。
+
+2026-09-11 续作进展：NEXT-01/NEXT-02 完成（正式 CLI 与 Linux 运行说明，见 `runbook.md`）；NEXT-03 产出 CN-08 试点卡并完成一次受限真实试点；NEXT-04 记录 LibreOffice 环境阻塞；NEXT-05 仍待 Q01/Q11/Q12/Q13 业务决定。

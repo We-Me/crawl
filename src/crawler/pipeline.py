@@ -139,7 +139,7 @@ class CrawlPipeline:
         self.state = state_store or IncrementalStateStore(self.data_dir)
         self.failures_ledger = FailureLedger(self.data_dir)
         self.now = now or (lambda: datetime.now(timezone.utc).astimezone())
-        self._sequence = 0
+        self._sequences: dict = {}
 
     def collect(
         self,
@@ -917,8 +917,16 @@ class CrawlPipeline:
         report.counters.failures += 1
 
     def _next_crawl_id(self, source_id: str, crawl_date: str) -> str:
-        self._sequence += 1
-        return f"{source_id}_{crawl_date.replace('-', '')}_{self._sequence:04d}"
+        """按账本已落盘序号继续编号：同一来源同一天多次运行不复用 crawl_id。
+
+        补抓按 crawl_id 定位原件；若不同运行的编号重复，失败记录会指向错误的
+        原始文件。序号取自账本而不是实例内计数，跨进程运行也保持唯一。
+        """
+        prefix = f"{source_id}_{crawl_date.replace('-', '')}_"
+        if prefix not in self._sequences:
+            self._sequences[prefix] = _max_crawl_sequence(self.layout.manifest_path, prefix)
+        self._sequences[prefix] += 1
+        return f"{prefix}{self._sequences[prefix]:04d}"
 
     def recovery_plan(
         self, *, policy: Optional[RetryPolicy] = None, now: Optional[datetime] = None
@@ -1153,6 +1161,17 @@ class CrawlPipeline:
             extraction_method=parsed.extraction_method,
         )
         return document, blocks
+
+
+def _max_crawl_sequence(manifest_path: Path, prefix: str) -> int:
+    """账本中同前缀 crawl_id 的最大序号；没有记录时从 0 开始。"""
+    maximum = 0
+    for row in read_jsonl(manifest_path):
+        crawl_id = str(row.get("crawl_id") or "")
+        tail = crawl_id[len(prefix):] if crawl_id.startswith(prefix) else ""
+        if tail.isdigit():
+            maximum = max(maximum, int(tail))
+    return maximum
 
 
 def _as_run_report(report: RecoveryReport) -> RunReport:

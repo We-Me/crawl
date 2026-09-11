@@ -81,7 +81,7 @@ uv run --locked --no-python-downloads python --version
 uv run --locked --env-file .env python -c "import os; print(os.environ.get('CRAWL_DATA_DIR'))"
 ```
 
-该命令只检查变量注入，不启动爬虫。真实入口由后续实现提供；开发默认为 ./data，生产设置 CRAWL_ENV=production 与绝对 CRAWL_DATA_DIR，完整路径规则见 [项目起步说明](project-startup.md)。
+该命令只检查变量注入，不启动爬虫。正式业务入口已实现为 `crawl`（见 [运行说明](runbook.md)）；开发默认为 ./data，生产设置 CRAWL_ENV=production 与绝对 CRAWL_DATA_DIR，完整路径规则见 [项目起步说明](project-startup.md)。
 
 ## 环境验收记录
 

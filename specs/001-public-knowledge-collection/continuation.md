@@ -51,6 +51,14 @@
 | NEXT-04 | T012 系统组件缺口 | PENDING_ENV。在目标 Linux 核实 LibreOffice 获取方式与可用性；在已有授权和工具权限内安装/配置，用真实 DOC、XLS 各一份完成转换到解析与原件追溯 | 成功路径必须调用真实转换器，注入替身不算；通过则关闭该缺口，无法获取组件时留下准确环境阻塞，不重测 HTML/PDF/OCR，不为此升级 Python |
 | NEXT-05 | T001/T002 契约冻结、T019/T026/T027 正式收口 | WAITING_DECISION。分开收集当前采集契约、Q11 质量口径和试点范围决定。按已经选择的范围形成交付候选 | 只补先前 blocked 或受决定改变的验收；候选版本一次全量回归与必要分发验证后输出交接。未选领域 T020—T025 保留，不自动实现；总体验收未通过前不勾选 T027 |
 
+2026-09-11 本轮进展：NEXT-01、NEXT-02 已完成（正式 CLI `crawl`、Linux 运行说明，证据见
+[evidence/T027-cli-runbook.md](evidence/T027-cli-runbook.md) 与 [evidence/logs/t027-cli.txt](evidence/logs/t027-cli.txt)）；
+NEXT-03 已产出 [CN-08 试点卡](pilot-cn08.md) 并完成一次受限试点（3 个请求闭环，见
+[evidence/logs/t026-pilot-cn08.txt](evidence/logs/t026-pilot-cn08.txt)），正式来源验收仍待 Q12/Q13；
+NEXT-04 记录目标 Linux 的 LibreOffice 获取方式与 root 权限阻塞（见
+[evidence/logs/t012-libreoffice-env.txt](evidence/logs/t012-libreoffice-env.txt)）；
+NEXT-05 仍待业务决定，所需决定与选项见 [阶段交付决策请求](decision-requests.md)。闭环中发现并修复同日多次运行 crawl_id 重复导致补抓指向错误原件的缺陷。
+
 下一轮默认先做 NEXT-01，同时可整理 NEXT-03 的决策卡；不要默认全量 pytest 起步。NEXT-01 的入口是既有采集操作的工程包装，不能隐式放宽源配置、访问规则、失败处理或阈值。具体 CLI 名称待实现时记录，本文件不提供不存在的可执行命令。
 
 ## 守规真实站点测试 DEV-012

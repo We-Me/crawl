@@ -195,3 +195,42 @@ def test_adapter_content_selector_miss_is_failure_and_recoverable(
 
     validation = validate_delivery(data)
     assert validation.ok is True, validation.errors
+
+
+def test_crawl_ids_continue_across_runs(
+    site_server, registry_factory, pipeline_factory, tmp_path
+):
+    """同日同来源的多次运行不复用 crawl_id；否则补抓会指向错误原件。"""
+    first_registry = registry_factory(site_server)
+    first = pipeline_factory(first_registry)
+    first.collect(
+        "TESTSRC",
+        entry_urls=[f"{site_server}/index.html"],
+        include_attachments=False,
+        max_items=1,
+    )
+
+    broken = registry_factory(
+        site_server,
+        adapter={"list_link_selector": "ul li a", "content_selector": "div.not-here"},
+    )
+    second = pipeline_factory(broken)
+    second.collect(
+        "TESTSRC",
+        entry_urls=[f"{site_server}/adapter_index.html"],
+        include_attachments=False,
+        max_items=1,
+    )
+
+    data = tmp_path / "data"
+    rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
+    crawl_ids = [row["crawl_id"] for row in rows]
+    assert len(crawl_ids) == len(set(crawl_ids))
+    assert crawl_ids[0] == "TESTSRC_20260911_0001"
+    assert crawl_ids[-1] == "TESTSRC_20260911_0002"
+
+    tasks = second.recovery_plan()
+    assert [task.action for task in tasks] == ["reparse"]
+    # 失败记录的 raw_path 必须指向本次运行的原件，而不是同名序号的上一次运行
+    assert tasks[0].url == f"{site_server}/detail_adapter.html"
+    assert tasks[0].raw_path == "raw/TESTSRC/2026-09-11/html/detail_adapter.html"

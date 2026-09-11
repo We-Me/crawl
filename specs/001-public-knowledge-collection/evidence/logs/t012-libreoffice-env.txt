@@ -1,0 +1,32 @@
+# T012 真实旧格式转换：目标 Linux 环境核验（NEXT-04，2026-09-11）
+# 时间：2026-09-11T21:00:25+08:00  平台：Linux 6.6.114.1-microsoft-standard-WSL2 x86_64  Ubuntu 24.04.4 LTS
+
+## 组件可用性
+$ command -v soffice libreoffice   # 均未找到
+
+$ apt-cache policy libreoffice-writer libreoffice-calc
+libreoffice-writer:
+  Installed: (none)
+  Candidate: 4:24.2.7-0ubuntu0.24.04.6
+  Version table:
+     4:25.8.7-0ubuntu0.25.10.1~bpo24.04.1 100
+        100 https://mirrors.ustc.edu.cn/ubuntu noble-backports/main amd64 Packages
+     4:24.2.7-0ubuntu0.24.04.6 500
+        500 https://mirrors.ustc.edu.cn/ubuntu noble-security/main amd64 Packages
+libreoffice-calc:
+  Installed: (none)
+  Candidate: 4:24.2.7-0ubuntu0.24.04.6
+
+## 安装权限
+
+$ sudo -n true            # 沙箱外执行；沙箱内另有 no-new-privileges 限制，不作为依据
+sudo: a password is required
+
+结论：sudo 需要密码，Agent 无 root 授权。系统包安装超出当前工具权限，本轮未执行安装；
+获取方式已核验（Ubuntu 24.04 镜像候选，见上），阻塞项为 root 权限/安装授权。
+
+## 缺少组件时的实际行为（真实执行，未静默回退）
+$ .venv/bin/python - <<'PY' (parse_legacy 对 OLE2 样本)
+find_soffice() -> None
+parse_legacy(sample.doc) -> LegacyFormatError: 本机未安装 LibreOffice（soffice/libreoffice），无法转换旧式 .doc；请安装 LibreOffice 后重试或提供转换器
+parse_legacy(sample.xls) -> LegacyFormatError: 本机未安装 LibreOffice（soffice/libreoffice），无法转换旧式 .xls；请安装 LibreOffice 后重试或提供转换器

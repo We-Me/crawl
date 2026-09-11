@@ -1,0 +1,54 @@
+# NEXT-03 受限真实来源工程试点：CN-08 新华网栏目页
+# 时间：2026-09-11T20:58:20+08:00  平台：Linux 6.6.114.1-microsoft-standard-WSL2 x86_64
+# 预算（事前登记）：1 个来源；HTTP 请求 ≤10（robots、重定向每跳、重试均计入）；速率 0.5 req/s；
+#   并发 1；max_retries=0；不下载附件；总用时 ≤5 分钟；仅新闻栏目，不做历史回填。
+# 待回答的问题：用离线已验证的栏目适配规则，在预算内完成 栏目发现 → 1 篇文章获取解析 → 交付校验 闭环。
+# 配置：data/pilot-cn08-sources.yaml（试点专用，正式注册表仍只有禁用 DEMO）
+# 数据根：/tmp/cn08-pilot（与开发数据根分开，避免覆盖既有成果）
+
+$ uv run --locked --no-python-downloads crawl collect --config data/pilot-cn08-sources.yaml --source CN-08 --max-items 1 --no-attachments
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/cn08-pilot data_dir_default=False
+INFO crawler.fetch.http_client robots.txt 已加载 host=https://www.news.cn {'groups': 1, 'rules': 1, 'agents': 1}
+INFO crawler.output.manifest_writer 账本记录 crawl_id=CN-08_20260911_0001 status=200 raw_path=raw/CN-08/2026-09-11/html/c.html
+INFO crawler.output.documents_writer 成组提交 documents=1 blocks=10
+INFO crawler.monitor.metrics 运行指标 run_id=CN-08_20260911T205825 status=ok metrics=/tmp/cn08-pilot/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=collect source=CN-08 run_id=CN-08_20260911T205825 status=ok requests=3 resources=1 documents=1 blocks=10 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+采集完成 source=CN-08 run_id=CN-08_20260911T205825 请求=3 资源=1 文档=1 块=10 失败=0 跳过=0 未修改=0
+数据根 /tmp/cn08-pilot
+exit=0
+
+$ uv run --locked --no-python-downloads crawl check
+数据根 /tmp/cn08-pilot
+交付成果：齐全 manifest=1 documents=1 blocks=10 failures=0 raw_files=1
+契约 schema：通过
+追溯：documents 1/1（100.0000%） blocks 10/10（100.0000%）
+exit=0
+
+$ uv run --locked --no-python-downloads crawl plan --config data/pilot-cn08-sources.yaml --source CN-08
+补抓计划 /tmp/cn08-pilot 共 0 项
+exit=0
+
+# 用时 6 秒
+# 数据根文件：
+logs/crawler.log
+logs/metrics.json
+logs/metrics_history.jsonl
+manifests/crawl_manifest.jsonl
+manifests/incremental_state.json
+normalized/blocks.jsonl
+normalized/documents.jsonl
+raw/CN-08/2026-09-11/html/c.html
+
+## 试点成果明细（本次 3 个请求，0 失败）
+manifest: CN-08_20260911_0001 https://www.news.cn/xinhuashe/20260907/b4ef6ed446654d7d94ca3827b256fb45/c.html -> https://www.news.cn/xinhuashe/20260907/b4ef6ed446654d7d94ca3827b256fb45/c.html
+          raw=raw/CN-08/2026-09-11/html/c.html bytes=10184 sha256=31fcae825e5d0c555b9abd7935f673102f6c746c3fb30e35f0bea6e384b4841b status=200 method=list referrer=https://www.news.cn/xinhuashe/
+document: CN-08_20260911_0001 title='新华社国家高端智库发布《新大众文艺的繁荣发展与世界影响》智库报告' lang=zh type=html_page
+          text_len=881 parse_status=ok extraction=bs4_lxml_dom pub_date=2026-09-06 metadata_missing=None
+document keys: ['crawl_ids', 'crawl_time', 'doc_id', 'document_type', 'extraction_method', 'full_text', 'language', 'parse_status', 'publication_date', 'raw_date', 'raw_path', 'sha256', 'source_id', 'source_name', 'source_url', 'title']
+document: CN-08_20260911_0001 新华社国家高端智库发布《新大众文艺的繁荣发展与世界影响》智库报告
+  parse_status=ok extraction=bs4_lxml_dom language=zh publication_date=2026-09-06
+  full_text_len=881  sha256=31fcae825e5d0c555b9abd7935f673102f6c746c3fb30e35f0bea6e384b4841b  content_sha256=None
+  attachments=0 crawl_ids=['CN-08_20260911_0001']
+  first120='新华社国家高端智库发布《新大众文艺的繁荣发展与世界影响》智库报告\n新华社国家高端智库发布《新大众文艺的繁荣发展与世界影响》智库报告\n新华社深圳9月6日电（记者杨淑君、邓瑞璇）新华社国家高端智库6日发布中英文智库报告《新大众文艺的繁荣发展与世'
+blocks by type: {'heading': 2, 'paragraph': 6, 'list_item': 2}
+metrics: {"run_id": "CN-08_20260911T205825", "kind": "collect", "status": "ok", "counters": {"requests": 3, "resources": 1, "documents": 1, "blocks": 10, "failures": 0, "skipped": 0, "not_modified": 0}, "request_controls": {"request_rate_per_second": 0.5, "max_concurrency_declared": 1, "effective_concurrency": 1, "note": "单进程同步执行；并发上限按来源声明，速率与并发分别建模"}, "reconciliation": {"ok": true, "checks": [{"name": "资源数与账本追加行数一致", "expected": 1, "actual": 1, "ok": true, "detail": "resources 按成功归档资源计数，等于 crawl_manifest.jsonl 追加行数"}, {"name": "文档数与 documents 追加行数一致", "expected": 1, "actual": 1, "ok": true, "detail": "documents 按 logical document 计数"}, {"name": "块数与 blocks 追加行数一致", "expected": 10, "actual": 10, "ok": true, "detail": "blocks 按结构块计数"}, {"name": "失败数与失败账追加行数一致", "expected": 0, "actual": 0, "ok": true, "detail": "failures 按失败操作计数，不按文档计数"}, {"name": "失败阶段分布合计等于失败数", "expected": 0, "actual": 0, "ok": true, "detail": "按 discover/fetch/parse/normalize/validate 阶段分类"}, {"name": "异常类型分布合计等于失败数", "expected": 0, "actual": 0, "ok": true, "detail": "按 error_type 分类"}, {"name": "跳过原因分布合计等于跳过数", "expected": 0, "actual": 0, "ok": true, "detail": "跳过按原因分类，304 单列"}, {"name": "重复候选保留全部来源", "expected": "keep_all_sources", "actual": "keep_all_sources", "ok": true, "detail": "去重只报候选，不删除、不合并文档（Q05 候选）"}, {"name": "近似重复状态明确", "expected": true, "actual": true, "ok": true, "detail": "未显式给出 Q11 阈值时必须报 not_computed"}], "discrepancies": []}}

@@ -1,0 +1,174 @@
+# T027 / NEXT-01 正式 CLI 执行证据
+# 时间：2026-09-11T20:55:55+08:00  平台：Linux 6.6.114.1-microsoft-standard-WSL2 x86_64  执行：uv run --locked --no-python-downloads
+# 夹具：tests/fixtures/site（127.0.0.1:18999 本地回环，无外部网络）
+
+$ uv run --locked --no-python-downloads crawl --help
+usage: crawl [-h] [--version] COMMAND ...
+
+公开知识采集：来源校验、按来源采集、补抓与交付检查
+
+positional arguments:
+  COMMAND
+    sources   校验来源配置并列出来源
+    collect   按来源执行一次采集
+    plan      查看未关闭失败的补抓计划
+    resume    执行指定来源的补抓
+    check     校验数据根的交付成果
+
+optional arguments:
+  -h, --help  show this help message and exit
+  --version   show program's version number and exit
+
+数据根与运行模式由 CRAWL_ENV / CRAWL_DATA_DIR 决定；退出码 0/1/2 见各子命令说明。
+exit=0
+
+$ uv run --locked --no-python-downloads crawl --version
+crawl 0.1.0
+exit=0
+
+$ uv run --locked --no-python-downloads crawl sources
+来源配置 /home/zhou/workspaces/crawl/src/crawler/config/sources.yaml version=0.1.0 digest=a195a6e57eaf 共 1 条（启用 0 条）
+  DEMO     disabled 虚构示例来源  域=example.invalid  入口=1  速率=1.0/s  并发上限=1  重试=2
+exit=0
+
+$ uv run --locked --no-python-downloads crawl sources --config /tmp/t027-cli-work/sources.yaml
+来源配置 /tmp/t027-cli-work/sources.yaml version=e2e digest=54b38ab5c7ff 共 1 条（启用 1 条）
+  TESTSRC  enabled  本地夹具来源  域=127.0.0.1  入口=1  速率=50.0/s  并发上限=1  重试=0
+exit=0
+
+$ uv run --locked --no-python-downloads crawl sources --config /tmp/t027-cli-work/missing.yaml
+配置错误：来源配置不存在：/tmp/t027-cli-work/missing.yaml
+exit=2
+
+$ uv run --locked --no-python-downloads crawl collect --config /tmp/t027-cli-work/sources.yaml --source NOPE
+配置错误：未登记的 source_id：NOPE
+exit=2
+
+$ uv run --locked --no-python-downloads crawl collect --config /tmp/t027-cli-work/sources.yaml --source TESTSRC --max-items 1
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/t027-cli-work/data data_dir_default=False
+INFO crawler.fetch.http_client robots.txt 已加载 host=http://127.0.0.1:18999 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO crawler.output.manifest_writer 账本记录 crawl_id=TESTSRC_20260911_0001 status=200 raw_path=raw/TESTSRC/2026-09-11/html/detail_1.html
+INFO crawler.output.manifest_writer 账本记录 crawl_id=TESTSRC_20260911_0002 status=200 raw_path=raw/TESTSRC/2026-09-11/attachment/notice.csv
+WARNING crawler.output.failures_writer 失败记录 stage=fetch url=http://127.0.0.1:18999/attachments/unavailable.pdf type=http_error message=HTTP 404
+INFO crawler.output.documents_writer 成组提交 documents=1 blocks=13
+INFO crawler.monitor.metrics 运行指标 run_id=TESTSRC_20260911T205558 status=partial metrics=/tmp/t027-cli-work/data/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260911T205558 status=partial requests=5 resources=2 documents=1 blocks=13 failures=1 skipped=1 not_modified=0 reconciliation_ok=True
+存在 1 项失败，可用 crawl resume 补抓
+采集完成 source=TESTSRC run_id=TESTSRC_20260911T205558 请求=5 资源=2 文档=1 块=13 失败=1 跳过=1 未修改=0
+数据根 /tmp/t027-cli-work/data
+  失败 fetch http://127.0.0.1:18999/attachments/unavailable.pdf http_error HTTP 404
+  跳过 https://outside.invalid/secret domain_not_allowed:outside.invalid
+exit=1
+
+$ uv run --locked --no-python-downloads crawl check
+数据根 /tmp/t027-cli-work/data
+交付成果：齐全 manifest=2 documents=1 blocks=13 failures=1 raw_files=2
+契约 schema：通过
+追溯：documents 1/1（100.0000%） blocks 13/13（100.0000%）
+exit=0
+
+$ uv run --locked --no-python-downloads crawl collect --config /tmp/t027-cli-work/broken.yaml --source TESTSRC --entry-url http://127.0.0.1:18999/adapter_index.html --no-attachments
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/t027-cli-work/data data_dir_default=False
+INFO crawler.fetch.http_client robots.txt 已加载 host=http://127.0.0.1:18999 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO crawler.output.manifest_writer 账本记录 crawl_id=TESTSRC_20260911_0003 status=200 raw_path=raw/TESTSRC/2026-09-11/html/detail_adapter.html
+WARNING crawler.parser.html_parser 正文选择器未命中 url=http://127.0.0.1:18999/detail_adapter.html selector=div.not-here
+WARNING crawler.output.failures_writer 失败记录 stage=parse url=http://127.0.0.1:18999/detail_adapter.html type=adapter_selector_miss message=适配正文选择器未命中：div.not-here
+INFO crawler.monitor.metrics 运行指标 run_id=TESTSRC_20260911T205559 status=partial metrics=/tmp/t027-cli-work/data/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260911T205559 status=partial requests=3 resources=1 documents=0 blocks=0 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+存在 1 项失败，可用 crawl resume 补抓
+采集完成 source=TESTSRC run_id=TESTSRC_20260911T205559 请求=3 资源=1 文档=0 块=0 失败=1 跳过=0 未修改=0
+数据根 /tmp/t027-cli-work/data
+  失败 parse http://127.0.0.1:18999/detail_adapter.html adapter_selector_miss 适配正文选择器未命中：div.not-here
+exit=1
+
+$ uv run --locked --no-python-downloads crawl plan --config /tmp/t027-cli-work/broken.yaml --source TESTSRC --json
+{
+  "data_dir": "/tmp/t027-cli-work/data",
+  "summary": {
+    "manual": 1,
+    "reparse": 1
+  },
+  "tasks": [
+    {
+      "action": "manual",
+      "url": "http://127.0.0.1:18999/attachments/unavailable.pdf",
+      "stage": "fetch",
+      "source_id": "TESTSRC",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-11T20:56:59.734427+08:00",
+      "referrer_url": "http://127.0.0.1:18999/detail_1.html",
+      "reason": "永久 4xx，只记录不重试"
+    },
+    {
+      "action": "reparse",
+      "url": "http://127.0.0.1:18999/detail_adapter.html",
+      "stage": "parse",
+      "source_id": "TESTSRC",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-11T20:56:59.734427+08:00",
+      "crawl_id": "TESTSRC_20260911_0003",
+      "referrer_url": "http://127.0.0.1:18999/adapter_index.html",
+      "raw_path": "raw/TESTSRC/2026-09-11/html/detail_adapter.html",
+      "reason": "本地阶段失败，重解析原件"
+    }
+  ]
+}
+exit=0
+
+$ uv run --locked --no-python-downloads crawl resume --config /tmp/t027-cli-work/fixed.yaml --source TESTSRC
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/t027-cli-work/data data_dir_default=False
+INFO crawler.output.documents_writer 成组提交 documents=1 blocks=4
+INFO crawler.monitor.failures 失败处置 url=http://127.0.0.1:18999/detail_adapter.html stage=parse action=recovered
+INFO crawler.pipeline 补抓完成 source=TESTSRC recovered=1 skipped=0 manual=1 pending=0 failed=0
+INFO crawler.monitor.metrics 运行指标 run_id=TESTSRC_20260911T205600 status=ok metrics=/tmp/t027-cli-work/data/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=recovery source=TESTSRC run_id=TESTSRC_20260911T205600 status=ok requests=0 resources=0 documents=1 blocks=4 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+仍有 1 项未关闭，需要人工处理或下次补抓
+补抓完成 source=TESTSRC run_id=TESTSRC_20260911T205600 恢复=1 跳过=0 待人工=1 退避等待=0 仍失败=0
+  待人工 http://127.0.0.1:18999/attachments/unavailable.pdf 永久 4xx，只记录不重试
+exit=1
+
+$ uv run --locked --no-python-downloads crawl check --require-nonempty
+数据根 /tmp/t027-cli-work/data
+交付成果：齐全 manifest=3 documents=2 blocks=17 failures=3 raw_files=3
+契约 schema：通过
+追溯：documents 2/2（100.0000%） blocks 17/17（100.0000%）
+exit=0
+
+$ uv run --locked --no-python-downloads pytest -q tests/test_cli.py
+..............                                                           [100%]
+14 passed in 1.05s
+exit=0
+
+# 数据根 /tmp/t027-cli-work/data
+logs/crawler.log
+logs/metrics.json
+logs/metrics_history.jsonl
+manifests/crawl_manifest.jsonl
+manifests/failed_records.jsonl
+manifests/incremental_state.json
+normalized/blocks.jsonl
+normalized/documents.jsonl
+raw/TESTSRC/2026-09-11/attachment/notice.csv
+raw/TESTSRC/2026-09-11/html/detail_1.html
+raw/TESTSRC/2026-09-11/html/detail_adapter.html
+
+## 运行说明命令核验（uv --env-file .env，开发数据根 ./data，已保存原件离线读取）
+# 时间：2026-09-11T20:56:23+08:00
+$ uv run --locked --no-python-downloads --env-file .env crawl sources
+来源配置 /home/zhou/workspaces/crawl/src/crawler/config/sources.yaml version=0.1.0 digest=a195a6e57eaf 共 1 条（启用 0 条）
+  DEMO     disabled 虚构示例来源  域=example.invalid  入口=1  速率=1.0/s  并发上限=1  重试=2
+exit=0
+
+$ uv run --locked --no-python-downloads --env-file .env crawl plan
+补抓计划 /home/zhou/workspaces/crawl/data 共 0 项
+exit=0
+
+$ uv run --locked --no-python-downloads --env-file .env crawl check
+数据根 /home/zhou/workspaces/crawl/data
+交付成果：齐全 manifest=10 documents=10 blocks=489 failures=2 raw_files=9
+契约 schema：通过
+追溯：documents 10/10（100.0000%） blocks 489/489（100.0000%）
+exit=0
+

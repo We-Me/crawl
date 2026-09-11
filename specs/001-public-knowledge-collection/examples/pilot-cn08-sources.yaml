@@ -1,0 +1,28 @@
+# NEXT-03 有限试点配置示例（拷贝自执行时使用的 data/pilot-cn08-sources.yaml）。
+# 正式注册表仍只有禁用示例来源；本文件只用于本次受限工程试点，不改任何来源的正式启用状态。
+version: "pilot-cn08"
+sources:
+  - source_id: CN-08
+    source_name: 新华网（试点）
+    base_domain: www.news.cn
+    allowed_domains: [news.cn, www.news.cn]
+    entry_urls: [https://www.news.cn/xinhuashe/]
+    country: CN
+    authority_level: B
+    categories: [B]
+    language: zh
+    allowed_paths: []
+    blocked_paths: [/login, /signin, /register, /user/, /admin]
+    crawl_mode: list
+    resource_kind: news
+    robots_policy: 以 robots.txt 实时判定为准；本次试点只记录当天行为
+    adapter:
+      list_link_selector: "div.newsTitle a"
+      list_link_pattern: "news\\.cn/.*\\.html$"
+      max_pages: 1
+    request_rate_per_second: 0.5
+    max_concurrency: 1
+    connect_timeout_seconds: 10
+    read_timeout_seconds: 20
+    max_retries: 0
+    enabled: true

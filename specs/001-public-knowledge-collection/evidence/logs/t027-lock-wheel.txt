@@ -1,0 +1,20 @@
+$ uv lock --check
+Resolved 41 packages in 2ms
+
+$ uv build --wheel --out-dir /tmp/t027-wheel
+Building wheel...
+Successfully built /tmp/t027-wheel/public_knowledge_collection-0.1.0-py3-none-any.whl
+
+public_knowledge_collection-0.1.0-py3-none-any.whl
+--- entry_points ---
+[console_scripts]
+crawl = crawler.cli:main
+--- requires-python ---
+Metadata-Version: 2.4
+Name: public-knowledge-collection
+Version: 0.1.0
+Summary: Public knowledge collection and standardized data delivery
+Requires-Python: <3.10,>=3.9
+Requires-Dist: beautifulsoup4<5,>=4.13
+Requires-Dist: defusedxml<1,>=0.7.1
+Requires-Dist: lxml<7,>=5.3

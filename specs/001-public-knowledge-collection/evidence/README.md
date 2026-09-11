@@ -18,6 +18,9 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [T026 适配规则机制](logs/t026-adapter-mechanism.txt) | T026 机制部分：逐来源列表/分页/正文规则、未命中显式记录、真实原件离线复算 | 机制已实现并通过 15 项新用例；逐来源取值与至少 10 词验证仍待 Q12/Q13 |
 | [T026 前置真实来源受限核验](logs/t026-realsite-smoke.txt) | 4 个首批来源的最小请求量核验（robots 判定、发现、归档、解析）、CN-01/IN-01 回访（条件请求退化）、栏目入口探测与其余 9 个权威来源的浅层可达性核验 | 已完成五轮受限核验（14 + 9 + 15 + 22 + 9 请求，18 个登记来源均完成浅层核验，含 CN-04 真实页面缺陷的定位与修复）；适配器、至少 10 词与 Q12/Q13 决策仍待办 |
 | [T019 采集验收与环境用例](T019-acceptance.md) | AT-001—AT-024 夹具级验收、schema/追溯校验、CFG-01—CFG-09（含交付态 wheel 普通安装复核与 AT 子句补强后的复验） | 已完成；AT-014/AT-024 因 Q11 标 blocked；真实来源待 Q12/Q13 |
+| [T027 正式 CLI、运行说明与缺陷修复](T027-cli-runbook.md) | NEXT-01/NEXT-02：`crawl` 子命令、Linux 运行说明、同日重复运行 crawl_id 缺陷的修复与回归 | 已完成并通过本机闭环（14 项 CLI 用例、全量 325 passed、wheel 含入口，见 [logs/t027-cli.txt](logs/t027-cli.txt)、[logs/t027-full-pytest.txt](logs/t027-full-pytest.txt)、[logs/t027-lock-wheel.txt](logs/t027-lock-wheel.txt)）；T027 总体验收仍待 T019/T026 正式收口 |
+| [CN-08 有限试点证据](T026-pilot-cn08.md) | NEXT-03：站点卡、离线选择器复算与一次 3 请求的受限真实闭环 | 工程试点已完成（[logs/t026-pilot-cn08.txt](logs/t026-pilot-cn08.txt)）；至少 10 词、歧义与逐站规则仍待 Q12/Q13 |
+| [T012 旧格式转换环境核实](logs/t012-libreoffice-env.txt) | NEXT-04：目标 Linux 的 LibreOffice 获取方式、权限阻塞与缺组件行为 | 环境阻塞已记录（sudo 需密码）；真实 DOC/XLS 转换仍未验证 |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 

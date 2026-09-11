@@ -74,7 +74,7 @@
 2. 按当前范围处理业务待决项，按 tech-stack.md 使用 uv，优先验证 Python 3.9。T002 可在隔离的选型工程建立候选 uv 配置并使用小样本试验；T003 将已验证配置整理成正式工程，避免两任务互相等待。
 3. 按上述 src 结构配置实际包发现和安装，创建统一 settings 接口。先使用 [uv 镜像模板](uv-template.md) 初始化配置；模板的 package=false 只供选型，T003 必须移除并补全构建后端，不能据此宣称 src 包已经可导入；补全选定后端配置后，通过 uv sync --locked 安装项目，再用 uv run --locked 验证实际包导入。
 4. 若本地尚无 .env，将 .env.example 复制为 .env，修改其中的路径。现有文件不得自动覆盖；它只保存本机设置，不纳入版本控制。
-5. 实现业务入口后，用 uv run --locked --env-file .env 执行实际入口。以下命令仅验证变量被注入，不启动爬虫，也不证明配置接口已实现：
+5. 业务入口为 `crawl`；用 uv run --locked --env-file .env crawl … 执行实际命令（命令面见 [运行说明](runbook.md)）。以下命令仅验证变量被注入，不启动爬虫，也不证明配置接口已实现：
 
 ```powershell
 uv run --locked --env-file .env python -c "import os; print(os.environ.get('CRAWL_DATA_DIR'))"
