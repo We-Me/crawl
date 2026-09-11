@@ -4,7 +4,7 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、stage-four.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
 
 ## 开发约束
 
@@ -25,5 +25,5 @@
 ## 阶段续作约束
 
 - DEV-010：每轮选择明确交付物，按 continuation.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
-- DEV-011：下一阶段按 continuation.md 与 stage-three.md 的当前状态从 NEXT-06 起推进预算执行、正文修复与随包契约；NEXT-01/02 已完成，不重新开发，部分完成和正式验收分开记录；业务待决只阻断受影响工作，不触发泛化加固循环。
+- DEV-011：下一阶段按 continuation.md 与 stage-four.md 推进 NEXT-09 工程交接清单及 NEXT-05A 决策输入；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；业务待决只阻断受影响工作，不触发泛化加固循环。
 - DEV-012：用户已授权遵守网站规则的真实站点测试，无需逐轮重复请求该授权。每次测试先登记目的、来源和有限请求预算，遵守 robots、站点条款、访问边界、限速及 Retry-After；遇登录、验证码、明确拒绝或访问限制停止，不绕过。优先已有原件离线验证；遵循 continuation.md 的线上测试停止条件，授权不等于启用全站持续采集或冻结业务范围。工具权限要求仍按实际规则处理。

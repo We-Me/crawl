@@ -183,7 +183,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 
 ## 本轮更正与阶段三限制
 
-上述 sources/plan 为读取配置和失败计划，不发起站点请求；check 需要数据根已有成果，空新目录不应宣称交付通过。CN-08 配置只供工程试点。collect 与 resume 必须传入与 plan 同一份 --config 和同一数据根；不能省略配置让默认 DEMO 注册表处理 CN-08。正文缺口和正式启用范围尚未解决。
+上述 sources/plan 为读取配置和失败计划，不发起站点请求；check 需要数据根已有成果，空新目录不应宣称交付通过。CN-08 配置只供工程试点。collect 与 resume 必须传入与 plan 同一份 --config 和同一数据根；不能省略配置让默认 DEMO 注册表处理 CN-08。该单篇原件的正文边界已在 NEXT-07 修复；正式启用范围和跨模板质量验收仍未完成。
 
 阶段三已落地：统一请求/时间预算与停止报告（退出码 3）、CN-08 正文选择器 `#detailContent`、随包契约。
 正文缺口按已保存原件修复并经离线重解析验证；正式启用范围仍待 Q12/Q13。

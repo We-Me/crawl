@@ -79,4 +79,8 @@ NEXT-01/NEXT-02 完成：正式业务 CLI `crawl`（sources/collect/plan/resume/
 
 ## 阶段二后续开发
 
-阶段二提交 4f07c6f 已交付正式 CLI 和单站试点；不再重复 NEXT-01/02。从 [阶段三计划](specs/001-public-knowledge-collection/stage-three.md) NEXT-06 开始，处理程序预算、正文质量和随包契约三个具体缺口。325 passed 为历史结果；本轮仅复核文件并修订后续文档。
+阶段二提交 4f07c6f 已交付正式 CLI 和单站试点；不再重复 NEXT-01/02。[阶段三计划](specs/001-public-knowledge-collection/stage-three.md) 的 NEXT-06—NEXT-08 已完成，当前按 stage-four.md 收口。325 passed 为历史结果；本轮仅复核文件并修订后续文档。
+
+## 阶段四：交接与正式验收准备
+
+当前入口为 [阶段四交付收口](specs/001-public-knowledge-collection/stage-four.md)。已完成工程能力直接复用，下一步提交可核对的工程交付清单和必要业务决定，条件满足后做正式验收。本轮不新增业务代码或重跑阶段测试。

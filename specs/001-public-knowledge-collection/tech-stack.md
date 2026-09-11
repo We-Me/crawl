@@ -182,3 +182,7 @@ uv sync --locked
 ## 阶段二复核后的续作入口
 
 阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
+
+## 阶段三后的当前入口
+
+NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。按 [阶段四交付收口](stage-four.md) 准备 NEXT-09 清单和 NEXT-05A 决策输入；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
