@@ -1,5 +1,8 @@
 # 项目起步与运行目录配置
 
+> 已开发项目请先阅读 [阶段续作说明](continuation.md)。当前根目录已有 pyproject.toml、uv.lock 和 src/，不要复制空模板覆盖或重做初始化；下文起步命令仅用于新空项目。
+
+
 状态：用户已确定业务代码放在 src/、开发结果目录与 src/ 同级，且需要可配置的正式运行目录。本文将其具体化为项目约束；2026-09-11 已初始化 src/crawler 与起步环境，settings 接口按本文实现并通过 CFG-01—CFG-09 全部验证（CFG-01—CFG-05、CFG-09 见 [evidence/T003-environment.md](evidence/T003-environment.md)，CFG-06—CFG-08 见 [evidence/T019-acceptance.md](evidence/T019-acceptance.md)）。
 
 ## 实现方式与依据

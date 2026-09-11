@@ -4,7 +4,7 @@
 
 本套文件根据工作区的两份 Word 原始规范和两份 Markdown 需求审查生成，将公开资料采集与七类知识组织转成需求、设计、契约、任务和验收追踪。按规格驱动开发理解 SDD，参考 GitHub Spec Kit 的文档结构。没有默认某个版本覆盖另一版本，所有未决事项明确保留。
 
-本次已经完成的是标准文档编制和文档/契约样例核验；尚未进行业务范围批准、爬虫实现、真实采集或系统验收。文档采用 Markdown，方便开发和版本维护；四份输入统一存放于 docs/；两份 Word 字节不变，两份需求审查仅更新链接，业务内容不变。
+当前已有采集源码、锁定环境、夹具验证和有限真实站点核验；正式业务范围、部分系统组件与验收仍有缺口。续作按下方阶段入口推进，不从初始文档阶段重来。文档采用 Markdown，方便开发和版本维护；四份输入统一存放于 docs/；两份 Word 字节不变，两份需求审查仅更新链接，业务内容不变。
 
 ## 项目目录与迁移
 
@@ -65,3 +65,7 @@ S1 V1.1 明确采集阶段不做 RAG 切片和索引，S2 V1.3 确实包含七�
 项目 Python 包必须使用镜像源，复制项目时包含 templates/。从 [uv 镜像模板与 Linux 使用说明](specs/001-public-knowledge-collection/uv-template.md) 开始，先复制或合并配置，再由 Codex 按任务推进；当前模板无业务依赖，不是已完成的业务环境。
 
 2026-09-11 进展：已按 DEV-009 合并模板，并完成 T002 起步选型与 T003 工程初始化（CPython 3.9.25、uv 0.11.28，锁文件与制品均来自登记镜像，CFG-01—CFG-09 通过）；采集范围 T004—T019 已在固定夹具上实现（来源边界与 robots 规则、发现、获取、归档账本、HTML/PDF/OCR/Office/结构数据解析、去重与版本、增量调度、失败补抓、日志对账、交付目录与采集验收），全量 310 项测试通过（含真实站点核验暴露的空标题解析缺陷与补抓来源过滤缺陷的回归用例），其中 AT-014/AT-024 因 Q11 未决在报告中保持 blocked，业务用例状态仍为 NOT RUN。同日在用户许可下分批对 18 个登记来源完成五轮最小请求量核验（共 69 个请求，遵守 robots 与逐来源限速），记录条件请求退化、robots 保守拒绝与域名别名等站点约束，见 [T026 前置核验](specs/001-public-knowledge-collection/evidence/logs/t026-realsite-smoke.txt)。业务契约冻结（T001/T002 契约部分）、真实来源接入与领域任务 T020—T027 仍待相应 Q 项决策；记录见 [T002 选型验证](specs/001-public-knowledge-collection/evidence/T002-selection.md)、[T003 环境验证](specs/001-public-knowledge-collection/evidence/T003-environment.md) 与 [T004—T019 证据索引](specs/001-public-knowledge-collection/evidence/README.md)。
+
+## 后续开发入口
+
+优先阅读 [阶段续作说明](specs/001-public-knowledge-collection/continuation.md)：已有工程证据直接复用，先做正式业务操作入口和运行说明，不以反复全量测试作为默认工作。T012/T019 更正为部分完成，详见 tasks.md；历史记录中的完成表述按此限定。用户已授权遵守网站规则的有限真实测试，无需逐轮重复确认。继续现有项目时须携带 src/、tests/、pyproject.toml、uv.lock、.python-version 及现有工具与证据；上面的文档复制清单仅用于新建规格项目。

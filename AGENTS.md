@@ -1,10 +1,10 @@
 # 开发 Agent 工作约束
 
-本文件是新项目开发入口，复制项目时必须保留在项目根目录。用户已明确使用 Python 和 uv；优先 Python 3.9，只有无法构建当前范围的完整环境时才逐个次版本保守升级。框架及依赖库尚未选定。
+本文件是新项目开发入口，复制项目时必须保留在项目根目录。用户已明确使用 Python 和 uv；优先 Python 3.9，只有无法构建当前范围的完整环境时才逐个次版本保守升级。当前采集模块已有实现与选型，继续开发应复用已记录环境；具体状态见 tech-stack.md 和 continuation.md，不重新从空项目选型。
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
 
 ## 开发约束
 
@@ -21,3 +21,9 @@
 - DEV-009：项目 Python 包必须使用 pyproject.toml 中登记的 HTTPS 镜像源；默认采用 templates/uv/pyproject.toml 的清华源和 default=true，禁止自动退回官方 PyPI。使用 uv-template.md 的模板和流程，核查命令、环境变量、配置及锁文件实际来源；失败先排查或有记录地换镜像，不绕过源配置或因此升级 Python。解释器及系统组件来源分别验证，不能把 PyPI 镜像当作所有下载的代理。
 
 上述约束来自本次用户补充指令及其工程执行规则，不追溯伪装成四份原文中的既定框架或版本。
+
+## 阶段续作约束
+
+- DEV-010：每轮选择明确交付物，按 continuation.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
+- DEV-011：下一阶段按 continuation.md 的 NEXT-01 起推进正式操作入口、运行说明与有限试点，部分完成和正式验收分开记录；业务待决只阻断受影响工作，不触发泛化加固循环。
+- DEV-012：用户已授权遵守网站规则的真实站点测试，无需逐轮重复请求该授权。每次测试先登记目的、来源和有限请求预算，遵守 robots、站点条款、访问边界、限速及 Retry-After；遇登录、验证码、明确拒绝或访问限制停止，不绕过。优先已有原件离线验证；遵循 continuation.md 的线上测试停止条件，授权不等于启用全站持续采集或冻结业务范围。工具权限要求仍按实际规则处理。

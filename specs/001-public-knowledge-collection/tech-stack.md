@@ -166,3 +166,7 @@ uv sync --locked
 ## 强制镜像源与起步模板
 
 执行 DEV-009 和 [uv 镜像模板说明](uv-template.md)。默认清华镜像替换内置 PyPI，禁止失败回退；核查环境覆盖、专用源、锁文件制品地址和空缓存安装证据。模板 package=false 已于 T003 移除，hatchling 与 src 包发现已配置，可编辑与普通安装验证见 [evidence/T003-environment.md](evidence/T003-environment.md)。
+
+## 续作环境边界
+
+当前复用已记录的 Python 3.9.25、uv 与锁文件，不重复初始化或空缓存安装来证明未变化环境。TD-08g 旧式 DOC/XLS 的真实 LibreOffice 转换仍未验证；不能把现有包环境测试通过称为包含该能力的完整环境通过。按 [阶段续作说明](continuation.md) NEXT-04 关闭该实际缺口；仅相关依赖/环境变化才触发新环境验证。

@@ -75,3 +75,7 @@
 用户后续目录指令 → DEV-008 → [项目起步说明](project-startup.md) → T003/T004/T018/T019 → CFG-01—CFG-09（已全部执行：CFG-01—CFG-05、CFG-09 见 [evidence/T003-environment.md](evidence/T003-environment.md)，CFG-06—CFG-08 见 [evidence/T019-acceptance.md](evidence/T019-acceptance.md) 与 [logs/t019-cfg.txt](evidence/logs/t019-cfg.txt)）。业务来源的 37 条需求及 AT 映射保持不变；Q14 目录部分已明确，仓库和发布策略仍 OPEN。
 
 DEV-009：用户镜像要求 → [uv 模板说明](uv-template.md) 与 templates/uv/pyproject.toml → T002/T003 → 镜像来源及环境复现验收（起步环境已执行，见 [evidence/T002-selection.md](evidence/T002-selection.md)；新增运行依赖时按同一流程复核）。
+
+## 后续工程约束追踪
+
+DEV-010 测试停止规则、DEV-011 有限续作、DEV-012 守规线上测试 → [阶段续作说明](continuation.md) → T012/T019/T026/T027 对应子项。保留原有业务需求及 AT 编号，T012/T019 状态更正不删除已执行证据。

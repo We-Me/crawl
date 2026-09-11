@@ -30,3 +30,7 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 第四轮受限核验记录见 [logs/t026-realsite-smoke.txt](logs/t026-realsite-smoke.txt)），
 当前 310 passed、文档校验 PASS（37 需求/27 任务/37 用例/35 md/210 本地链接），
 见 [logs/t019-pytest.txt](logs/t019-pytest.txt)。
+
+## 本轮状态复核
+
+本目录日志为历史执行证据，本轮仅检查文件，未复跑业务测试。T012 真实旧格式转换、T019 正式验收尚未完成；后续按 [阶段续作说明](../continuation.md) 定向补缺，不重跑所有历史验证。
