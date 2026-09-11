@@ -167,6 +167,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 无后台调度/守护进程与并发采集，CLI 为单进程同步执行；旧式 DOC/XLS 转换需要系统 LibreOffice（本机尚未安装，见 NEXT-04 记录）。
 - 预算的同步调用终止延迟：单次连接/读取超时下限 0.1s，不宣称硬实时中断；同一数据根仍只允许一个写进程。
 - 未设置预算的运行不受请求数/时间限制；线上运行必须显式给出 `--max-requests` 与 `--deadline-seconds`。
+- 本节只列运行相关限制；完整局限清单、未交付范围与所需业务输入见 [局限与所需输入报告](limitations-report.md)。
 
 ## 10. 证据与验证
 

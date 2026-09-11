@@ -48,6 +48,8 @@
 | [运行说明](specs/001-public-knowledge-collection/runbook.md) | Linux 安装、配置、`crawl` 命令、故障处理与已知限制 |
 | [CN-08 试点卡](specs/001-public-knowledge-collection/pilot-cn08.md) | NEXT-03 的来源候选参数与受限试点结果 |
 | [阶段交付决策请求](specs/001-public-knowledge-collection/decision-requests.md) | 收口前需要业务确认的 6 项决定与影响 |
+| [工程交付清单](specs/001-public-knowledge-collection/delivery-inventory.md) | 源码提交、锁文件与构建产物、运行说明、证据索引、组件缺口与未交付范围 |
+| [局限与所需输入报告](specs/001-public-knowledge-collection/limitations-report.md) | 局限清单、未交付范围、所需业务输入、环境需求与恢复条件 |
 | [交接指南](specs/001-public-knowledge-collection/quickstart.md) | 阅读顺序、文档校验和后续开发使用方式 |
 | [一致性核验](specs/001-public-knowledge-collection/analysis.md) | 本次实际检查结果及仍未解决的业务问题 |
 
@@ -83,4 +85,7 @@ NEXT-01/NEXT-02 完成：正式业务 CLI `crawl`（sources/collect/plan/resume/
 
 ## 阶段四：交接与正式验收准备
 
-当前入口为 [阶段四交付收口](specs/001-public-knowledge-collection/stage-four.md)。已完成工程能力直接复用，下一步提交可核对的工程交付清单和必要业务决定，条件满足后做正式验收。本轮不新增业务代码或重跑阶段测试。
+当前入口为 [阶段四交付收口](specs/001-public-knowledge-collection/stage-four.md)。NEXT-09 工程交付清单已交付
+（[delivery-inventory.md](specs/001-public-knowledge-collection/delivery-inventory.md)），NEXT-05A 决策确认栏见
+[decision-requests.md](specs/001-public-knowledge-collection/decision-requests.md)；等待业务确认与 Linux 组件条件变化后执行
+NEXT-04/05B/05C 正式验收收口。本轮不新增业务代码或重跑阶段测试。

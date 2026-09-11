@@ -231,7 +231,8 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   完成标准：需求、任务、测试、成果四者对应；只对真实完成项目勾选任务。
 
   证据（2026-09-11，部分）：正式业务 CLI（`crawl`，子命令 sources/collect/plan/resume/check，退出码 0/1/2）与 Linux 运行说明已完成并实际执行，命令输出见 `evidence/logs/t027-cli.txt`，说明见 `runbook.md`，汇总见 `evidence/T027-cli-runbook.md`；闭环中发现并修复“同日同来源多次运行 crawl_id 重复、补抓指向错误原件”的缺陷（回归见 `tests/test_pipeline.py::test_crawl_ids_continue_across_runs`）；阶段候选全量回归 325 passed（`evidence/logs/t027-full-pytest.txt`），锁文件未变、wheel 含 `crawl` 入口（`evidence/logs/t027-lock-wheel.txt`）。本任务保持未勾选：T019/T026 正式验收与来源决定仍未完成。
-  阶段三追加：运行预算与停止报告（退出码 3，`evidence/next06-budget.md`）、随包契约与源码外安装（`evidence/next08-packaged-contracts.md`）已交付，runbook.md 同步真实命令、停止行为、退出码与剩余限制；阶段候选一次全量回归 345 passed（`evidence/logs/stage-three-full-pytest.txt`）。本任务保持未勾选：T019/T026 正式验收与 Q12/Q13 来源决定仍未完成。
+  阶段三追加：运行预算与停止报告（退出码 3，`evidence/next06-budget.md`）、随包契约与源码外安装（`evidence/next08-packaged-contracts.md`）已交付，runbook.md 同步真实命令、停止行为、退出码与剩余限制；阶段候选一次全量回归 345 passed（`evidence/logs/stage-three-full-pytest.txt`）。
+  阶段四追加：工程交接清单交付 `delivery-inventory.md`（源码提交、Python/uv 与锁文件哈希、源码/契约位置、构建产物、运行说明、证据索引、组件缺口与未交付范围），决策输入备好 `decision-requests.md` 确认栏；本轮只做只读核对与文档校验，未重跑测试、未重建 wheel。本任务保持未勾选：T019/T026 正式验收与 Q12/Q13 来源决定仍未完成。
 
 ## 里程碑与独立交付
 
@@ -254,7 +255,7 @@ T002 按 [uv 模板说明](uv-template.md) 核验登记镜像、依赖兼容性�
 
 ## 当前续作优先级与状态更正
 
-以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01/02 已完成，NEXT-03 工程试点已完成；NEXT-06/07/08 已完成；当前 NEXT-09 与 NEXT-05A 准备交接，NEXT-04 待环境条件改变，NEXT-05B/C 待相关业务决定。NEXT 是现有任务子项，不改变 27 个 T 编号。
+以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01/02 已完成，NEXT-03 工程试点已完成；NEXT-06/07/08 已完成；NEXT-09 交付清单与 NEXT-05A 决策确认栏已交付，NEXT-04 待环境条件改变，NEXT-05B/C 待相关业务决定。NEXT 是现有任务子项，不改变 27 个 T 编号。
 
 T012：DOCX/XLSX/结构格式及旧格式接口已有证据，真实 LibreOffice DOC/XLS 转换尚缺，故部分完成。T019：夹具级验证已完成，AT-014/AT-024 及正式业务验收尚缺，故部分完成。取消勾选不表示删除代码或重做既有有效测试。T003 依赖 T002 的已验证环境部分；T013 及后续已有工程结果在已验证格式上继续有效。T026 工程机制和有限探测可使用 T019 已有工程证据；正式来源验收仍依赖有关业务决定。T027 的 CLI 与交接准备可提前实施，但总体验收保留原依赖。
 
@@ -266,4 +267,4 @@ T012：DOCX/XLSX/结构格式及旧格式接口已有证据，真实 LibreOffice
 
 ## 阶段三后的当前入口
 
-NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。按 [阶段四交付收口](stage-four.md) 准备 NEXT-09 清单和 NEXT-05A 决策输入；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
+NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付，按 [阶段四交付收口](stage-four.md) 等待业务确认与 Linux 组件条件；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
