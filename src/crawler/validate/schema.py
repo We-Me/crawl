@@ -11,13 +11,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+from importlib import resources
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
-from crawler.config.settings import detect_project_root
 from crawler.output.layout import DeliveryLayout
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,11 @@ CONTRACT_FILES = {
     "failure": "failure.schema.json",
     "source_registry": "source-registry.schema.json",
 }
+
+# 随包契约资源（NEXT-08）：规格 contracts/ 是权威来源，构建/提交流程用
+# tools/sync_contracts.py 同步并校验，运行时只读这一份，不再依赖源码树。
+PACKAGE_NAME = "crawler"
+CONTRACTS_RESOURCE = "contracts"
 
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -49,23 +54,40 @@ class ValidationReport:
 
 
 def contracts_dir() -> Path:
-    """定位评审契约目录；找不到时明确报错，不猜测、不回退。"""
-    root = detect_project_root()
-    if root is None:
-        raise SchemaConfigError("无法从源码位置识别工程根，不能定位 contracts/；请显式传入 contracts_dir")
-    path = root / "specs" / "001-public-knowledge-collection" / "contracts"
+    """随包契约资源目录；资源缺失时明确报错，不回退到源码树或当前目录。"""
+    path = Path(str(resources.files(PACKAGE_NAME).joinpath(CONTRACTS_RESOURCE)))
     if not path.is_dir():
-        raise SchemaConfigError(f"契约目录不存在：{path}")
+        raise SchemaConfigError(
+            f"随包契约资源缺失：{PACKAGE_NAME}/{CONTRACTS_RESOURCE}（{path}）；"
+            "请重新安装完整发行包，不要指向开发机器路径"
+        )
     return path
 
 
 def load_contract(name: str, *, directory: Optional[Path] = None) -> dict:
+    """读取运行契约；directory 显式给出目录时用于测试与调用方自带契约。"""
     if name not in CONTRACT_FILES:
         raise SchemaConfigError(f"未知契约：{name!r}；可用：{sorted(CONTRACT_FILES)}")
-    path = Path(directory) / CONTRACT_FILES[name] if directory else contracts_dir() / CONTRACT_FILES[name]
-    if not path.is_file():
-        raise SchemaConfigError(f"契约文件不存在：{path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    filename = CONTRACT_FILES[name]
+    if directory is not None:
+        path = Path(directory) / filename
+        if not path.is_file():
+            raise SchemaConfigError(f"契约文件不存在：{path}")
+        text = path.read_text(encoding="utf-8")
+        source = str(path)
+    else:
+        resource = resources.files(PACKAGE_NAME).joinpath(CONTRACTS_RESOURCE, filename)
+        try:
+            text = resource.read_text(encoding="utf-8")
+        except (FileNotFoundError, IsADirectoryError, ModuleNotFoundError, NotADirectoryError) as exc:
+            raise SchemaConfigError(
+                f"随包契约文件缺失：{PACKAGE_NAME}/{CONTRACTS_RESOURCE}/{filename}"
+            ) from exc
+        source = f"{PACKAGE_NAME}/{CONTRACTS_RESOURCE}/{filename}"
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SchemaConfigError(f"契约文件不是合法 JSON：{source}：{exc}") from exc
 
 
 # ---------- JSON Schema 子集 ----------

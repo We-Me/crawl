@@ -2,6 +2,8 @@
 
 单进程同步执行；每页在归档与账本完成后才进入解析，文档与块全部校验后才
 成组提交。失败按操作记录，不静默丢弃，也不以失败掩盖已成功获取的原件。
+collect/resume 可挂统一的 RunBudget：请求上限或截止时间到达时停止后续请求，
+保留已成功归档的原件、账本、文档与块，并以 stop_reason 报告未完成部分。
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from crawler.discover.discoverer import (
     SkippedTarget,
 )
 from crawler.fetch.downloader import Downloader
+from crawler.fetch.budget import BudgetStop, RunBudget
 from crawler.fetch.http_client import FetchError, HttpClient, RobotsDisallowed
 from crawler.normalize.block_schema import build_blocks
 from crawler.normalize.document_schema import build_document
@@ -90,6 +93,10 @@ class RunReport:
     skipped: List[SkippedTarget] = field(default_factory=list)
     documents: List[str] = field(default_factory=list)
     metrics: Optional[dict] = None
+    stop_reason: Optional[str] = None
+    stop_message: str = ""
+    unprocessed: Optional[int] = None
+    budget: Optional[dict] = None
 
 
 @dataclass
@@ -101,6 +108,7 @@ class BodyExpansion:
     extra_pages: List[Tuple[bytes, str]] = field(default_factory=list)
     parts: int = 1
     incomplete: Optional[str] = None
+    stop: Optional[BudgetStop] = None
 
 
 @dataclass
@@ -112,6 +120,10 @@ class RecoveryReport:
     manual: List[dict] = field(default_factory=list)
     pending: List[dict] = field(default_factory=list)
     failures: List[dict] = field(default_factory=list)
+    stop_reason: Optional[str] = None
+    stop_message: str = ""
+    unprocessed: Optional[int] = None
+    budget: Optional[dict] = None
 
 
 class CrawlPipeline:
@@ -151,6 +163,7 @@ class CrawlPipeline:
         api_urls: Sequence[str] = (),
         include_attachments: bool = True,
         max_items: int = 100,
+        budget: Optional[RunBudget] = None,
     ) -> RunReport:
         source = self.registry.get(source_id)
         if not source.enabled:
@@ -163,52 +176,67 @@ class CrawlPipeline:
         before = output_stats(self.data_dir)
         requests_before = self.http.request_attempts
         report = RunReport(source_id=source_id)
+        if budget is not None:
+            budget.start()
+            self.http.attach_budget(budget)
+            report.budget = budget
         discoverer = Discoverer(self.http, self.registry, source, max_items=max_items)
         moment = self.now()
         crawl_date = moment.date().isoformat()
         crawl_time = moment.isoformat()
 
         targets: List[DiscoveredTarget] = []
-        wants_list = entry_urls is None or len(entry_urls) > 0
-        if wants_list:
-            entries = list(entry_urls) if entry_urls is not None else list(source.entry_urls)
-            targets.extend(
-                self._discover(
-                    report, "list", lambda: discoverer.discover_list(entries), source_id
+        planned = 0
+        processed = 0
+        try:
+            wants_list = entry_urls is None or len(entry_urls) > 0
+            if wants_list:
+                entries = list(entry_urls) if entry_urls is not None else list(source.entry_urls)
+                targets.extend(
+                    self._discover(
+                        report, "list", lambda: discoverer.discover_list(entries), source_id
+                    )
                 )
-            )
-        for keyword in search_keywords:
-            targets.extend(
-                self._discover(
-                    report,
-                    "search",
-                    lambda keyword=keyword: discoverer.discover_search(keyword),
-                    source_id,
+            for keyword in search_keywords:
+                targets.extend(
+                    self._discover(
+                        report,
+                        "search",
+                        lambda keyword=keyword: discoverer.discover_search(keyword),
+                        source_id,
+                    )
                 )
-            )
-        for sitemap_url in sitemap_urls:
-            targets.extend(
-                self._discover(
-                    report,
-                    "sitemap",
-                    lambda sitemap_url=sitemap_url: discoverer.discover_sitemap(sitemap_url),
-                    source_id,
+            for sitemap_url in sitemap_urls:
+                targets.extend(
+                    self._discover(
+                        report,
+                        "sitemap",
+                        lambda sitemap_url=sitemap_url: discoverer.discover_sitemap(sitemap_url),
+                        source_id,
+                    )
                 )
-            )
-        for api_url in api_urls:
-            targets.extend(
-                self._discover(
-                    report,
-                    "api",
-                    lambda api_url=api_url: discoverer.discover_api(api_url),
-                    source_id,
+            for api_url in api_urls:
+                targets.extend(
+                    self._discover(
+                        report,
+                        "api",
+                        lambda api_url=api_url: discoverer.discover_api(api_url),
+                        source_id,
+                    )
                 )
-            )
 
-        for target in targets[:max_items]:
-            self._collect_target(
-                source, discoverer, target, crawl_date, crawl_time, include_attachments, report
-            )
+            selected = targets[:max_items]
+            planned = len(selected)
+            for target in selected:
+                self._collect_target(
+                    source, discoverer, target, crawl_date, crawl_time, include_attachments, report
+                )
+                processed += 1
+        except BudgetStop as stop:
+            report.stop_reason = stop.reason
+            report.stop_message = stop.message
+            logger.warning("采集按预算停止 reason=%s message=%s", stop.reason, stop.message)
+        report.unprocessed = planned - processed if planned else None
         report.skipped.extend(discoverer.skipped)
         report.counters.skipped = len(report.skipped)
         report.metrics = self._finish_run(
@@ -255,6 +283,13 @@ class CrawlPipeline:
         duplicates = duplicate_stats_from_files(
             self.data_dir, threshold=self.duplicate_threshold
         )
+        budget_row = report.budget
+        if budget_row is None and self.http.budget is not None:
+            # 直接给客户端挂了预算、未显式传给 collect/resume 时，按实际生效的预算记录。
+            budget_row = self.http.budget.as_row()
+        if isinstance(budget_row, RunBudget):
+            budget_row = budget_row.as_row()
+        report.budget = budget_row
         counters = {
             "requests": report.counters.requests,
             "resources": report.counters.resources,
@@ -277,6 +312,10 @@ class CrawlPipeline:
             duplicates=duplicates,
             request_controls=request_controls,
             expected_deltas=expected_deltas,
+            stop_reason=report.stop_reason,
+            stop_message=report.stop_message,
+            unprocessed=report.unprocessed,
+            budget=budget_row,
         )
         write_metrics(self.data_dir, metrics)
         logger.info(
@@ -461,8 +500,9 @@ class CrawlPipeline:
 
         doc_id = crawl_id
         attachments = []
-        if include_attachments:
-            attachments = self._collect_attachments(
+        attachment_stop: Optional[BudgetStop] = None
+        if include_attachments and expansion.stop is None:
+            attachments, attachment_stop = self._collect_attachments(
                 source,
                 discoverer,
                 [(response.content, response.final_url), *expansion.extra_pages],
@@ -471,6 +511,7 @@ class CrawlPipeline:
                 crawl_time,
                 report,
             )
+        stop_after_commit = expansion.stop or attachment_stop
         try:
             document = build_document(
                 doc_id=doc_id,
@@ -491,7 +532,7 @@ class CrawlPipeline:
                 raw_date=parsed.raw_date_text,
                 attachments=attachments or None,
                 metadata_missing=parsed.metadata_missing,
-                parse_status="partial" if expansion.incomplete else None,
+                parse_status="partial" if (expansion.incomplete or stop_after_commit) else None,
             )
             blocks = build_blocks(
                 doc_id=doc_id,
@@ -527,6 +568,9 @@ class CrawlPipeline:
             publication_date=document.get("publication_date"),
             version=document.get("version"),
         )
+        if stop_after_commit is not None:
+            # 已归档页面、附件与文档全部落盘后再停止本次运行。
+            raise stop_after_commit
 
     def _expand_body(
         self,
@@ -550,6 +594,7 @@ class CrawlPipeline:
         extra_crawl_ids: List[str] = []
         extra_pages: List[Tuple[bytes, str]] = []
         incomplete: Optional[str] = None
+        budget_stop: Optional[BudgetStop] = None
         parts = 1
         visited = {page_url}
         next_url = parsed.next_page_url
@@ -572,6 +617,12 @@ class CrawlPipeline:
                 break
             try:
                 part = self.http.get(next_url, source_id=source.source_id)
+            except BudgetStop as stop:
+                # 预算停止不是抓取失败：已合并的部分保留，停止原因交给运行报告。
+                incomplete = f"budget_stop:{stop.reason}"
+                budget_stop = stop
+                logger.warning("正文分页按预算停止 url=%s reason=%s", next_url, stop.reason)
+                break
             except RobotsDisallowed as exc:
                 report.skipped.append(
                     SkippedTarget(next_url, f"robots_disallowed: {exc.rule or exc}", referrer)
@@ -664,9 +715,15 @@ class CrawlPipeline:
             next_url = part_parsed.next_page_url
 
         if parsed.body_api_url:
-            api_result = self._fetch_body_api(
-                source, parsed.body_api_url, referrer, crawl_date, crawl_time, report
-            )
+            try:
+                api_result = self._fetch_body_api(
+                    source, parsed.body_api_url, referrer, crawl_date, crawl_time, report
+                )
+            except BudgetStop as stop:
+                api_result = None
+                budget_stop = budget_stop or stop
+                incomplete = incomplete or f"budget_stop:{stop.reason}"
+                logger.warning("接口正文按预算停止 url=%s reason=%s", parsed.body_api_url, stop.reason)
             if api_result is None:
                 incomplete = incomplete or f"body_api_failed:{parsed.body_api_url}"
             else:
@@ -695,6 +752,7 @@ class CrawlPipeline:
             extra_pages=extra_pages,
             parts=parts,
             incomplete=incomplete,
+            stop=budget_stop,
         )
 
     def _fetch_body_api(
@@ -805,7 +863,8 @@ class CrawlPipeline:
         crawl_date: str,
         crawl_time: str,
         report: RunReport,
-    ) -> List[dict]:
+    ) -> Tuple[List[dict], Optional[BudgetStop]]:
+        """下载附件；预算在附件阶段用尽时返回已完成的附件与停止原因，不丢弃已归档原件。"""
         attachment_targets = []
         for html_bytes, page_url in pages:
             attachment_targets.extend(discoverer.attachments_from_html(html_bytes, page_url))
@@ -820,6 +879,9 @@ class CrawlPipeline:
             }
             try:
                 resource = self.downloader.download(target.url, source_id=source.source_id)
+            except BudgetStop as stop:
+                logger.warning("附件下载按预算停止 url=%s reason=%s", target.url, stop.reason)
+                return attachments, stop
             except RobotsDisallowed as exc:
                 self._record_failure(
                     report,
@@ -884,7 +946,7 @@ class CrawlPipeline:
                 }
             )
             attachments.append(record)
-        return attachments
+        return attachments, None
 
     def _record_failure(
         self,
@@ -951,6 +1013,7 @@ class CrawlPipeline:
         policy: Optional[RetryPolicy] = None,
         max_tasks: Optional[int] = None,
         respect_backoff: bool = False,
+        budget: Optional[RunBudget] = None,
     ) -> RecoveryReport:
         """执行补抓：网络阶段重取，本地阶段重解析原件；历史失败与原件保持不变。"""
         source = self.registry.get(source_id)
@@ -962,6 +1025,9 @@ class CrawlPipeline:
             log_run_context(logger, self.settings)
         before = output_stats(self.data_dir)
         requests_before = self.http.request_attempts
+        if budget is not None:
+            budget.start()
+            self.http.attach_budget(budget)
         policy = policy or RetryPolicy()
         report = RecoveryReport(source_id=source_id)
         tasks = [
@@ -971,37 +1037,50 @@ class CrawlPipeline:
         ]
         if max_tasks is not None:
             tasks = tasks[:max_tasks]
-        for task in tasks:
-            if task.action == RETRY_MANUAL:
-                report.manual.append(task.as_row())
-                continue
-            if respect_backoff and not plan_is_ready(task, now=moment):
-                report.pending.append(task.as_row())
-                continue
-            failure = self._failure_for(task)
-            if task.action == REFETCH:
-                recovered = self._recover_refetch(source, task, moment)
-            else:
-                recovered = self._recover_reparse(source, task, moment)
-            if recovered:
-                action = recovered.get("action", "recovered")
-                row = self.failures_ledger.record_resolution(
-                    failure,
-                    now=self.now(),
-                    note=recovered["note"],
-                    crawl_id=recovered.get("crawl_id"),
-                    action=action,
-                )
-                entry = {**task.as_row(), "resolution": row["final_action"]}
-                if action == "skip":
-                    report.skipped.append(entry)
+        planned = len(tasks)
+        processed = 0
+        try:
+            for task in tasks:
+                if task.action == RETRY_MANUAL:
+                    report.manual.append(task.as_row())
+                    processed += 1
+                    continue
+                if respect_backoff and not plan_is_ready(task, now=moment):
+                    report.pending.append(task.as_row())
+                    processed += 1
+                    continue
+                failure = self._failure_for(task)
+                if task.action == REFETCH:
+                    recovered = self._recover_refetch(source, task, moment)
                 else:
-                    report.recovered.append(entry)
-                report.counters.resources += recovered.get("resources", 0)
-                report.counters.documents += recovered.get("documents", 0)
-                report.counters.blocks += recovered.get("blocks", 0)
-            else:
-                report.failures.append(task.as_row())
+                    recovered = self._recover_reparse(source, task, moment)
+                if recovered:
+                    action = recovered.get("action", "recovered")
+                    row = self.failures_ledger.record_resolution(
+                        failure,
+                        now=self.now(),
+                        note=recovered["note"],
+                        crawl_id=recovered.get("crawl_id"),
+                        action=action,
+                    )
+                    entry = {**task.as_row(), "resolution": row["final_action"]}
+                    if action == "skip":
+                        report.skipped.append(entry)
+                    else:
+                        report.recovered.append(entry)
+                    report.counters.resources += recovered.get("resources", 0)
+                    report.counters.documents += recovered.get("documents", 0)
+                    report.counters.blocks += recovered.get("blocks", 0)
+                else:
+                    report.failures.append(task.as_row())
+                processed += 1
+        except BudgetStop as stop:
+            report.stop_reason = stop.reason
+            report.stop_message = stop.message
+            logger.warning("补抓按预算停止 reason=%s message=%s", stop.reason, stop.message)
+        report.unprocessed = planned - processed if planned else None
+        if budget is not None:
+            report.budget = budget.as_row()
         report.counters.failures = len(report.failures)
         report.counters.skipped = len(report.skipped)
         logger.info(
@@ -1188,6 +1267,10 @@ def _as_run_report(report: RecoveryReport) -> RunReport:
             for row in report.skipped
         ],
         documents=[item.get("crawl_id") for item in report.recovered if item.get("crawl_id")],
+        stop_reason=report.stop_reason,
+        stop_message=report.stop_message,
+        unprocessed=report.unprocessed,
+        budget=report.budget,
     )
 
 

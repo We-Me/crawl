@@ -77,6 +77,10 @@ CRAWL_DATA_DIR=/tmp/cn08-pilot uv run --locked --no-python-downloads crawl check
   CN-08 可作为首批候选来源提交 Q12/Q13 决定；
 - 文章正文当前使用通用 DOM 抽取（`bs4_lxml_dom`），尾部含“相关阅读”链接（全文 881 字，末尾 2 行是相关文章标题）；
   文章级正文选择器、字段定位（标题/日期）、附件与分页规则仍属 T026，待 Q12/Q13 后按站核验；
+- 文章正文缺口已在 NEXT-07 按已保存原件修复：`adapter.content_selector: "#detailContent"`，
+  相关阅读（`.columBox.relatedNews`）与重复标题不再进入正文（6 块 / 751 字，正文逐字保留，
+  0 个新请求），见 [NEXT-07 证据](evidence/next07-cn08-body.md) 与
+  [离线差异日志](evidence/logs/next07-cn08-offline-diff.txt)；字段定位（标题/日期）、附件与分页规则仍属 T026；
 - 本试点不改正式启用状态，不构成至少 10 词、歧义验证或 T026 正式验收；历史范围与调度频率仍待 Q13。
 
 ## 相关记录
@@ -88,3 +92,9 @@ CRAWL_DATA_DIR=/tmp/cn08-pilot uv run --locked --no-python-downloads crawl check
 ## 阶段二复核补充
 
 本页命令与 3 请求结果是历史记录，不是强制预算已实现的证明。当前程序没有统一 10 请求/5 分钟限额，扩展线上验证前按 [阶段三计划](stage-three.md) NEXT-06 落实。正文含相关阅读是已知工程缺陷，NEXT-07 可在现有测试授权内离线修复，不必等待正式生产启用。原始 /tmp/cn08-pilot 可能未随仓库迁移，先核对原件可用性，缺失时如实记录；不能拿摘要或全文末尾当作完整原件。
+
+阶段三复核结果（2026-09-11 追加）：NEXT-06 的统一预算与停止报告已实现并验证
+（`--max-requests`/`--deadline-seconds`、退出码 3，见 [NEXT-06 证据](evidence/next06-budget.md)）；
+`/tmp/cn08-pilot` 原件仍在且 sha256 与账本一致，NEXT-07 已离线修复正文边界并留差异证据
+（[NEXT-07 证据](evidence/next07-cn08-body.md)），未做新的线上补取。本页的 3 请求记录仍是历史证据，
+不代表 T026 正式验收。

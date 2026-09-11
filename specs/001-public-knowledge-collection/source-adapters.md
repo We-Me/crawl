@@ -6,6 +6,8 @@
 
 逐来源适配规则的**机制**已实现（T026 机制部分）：来源可显式配置列表链接选择器/正则、分页终止条件与正文范围选择器；规则未命中一律记录（列表页记跳过、正文页记 `adapter_selector_miss` 失败并保留原件，修正后可本地重解析），不静默回退到通用规则。字段为候选，待 T002 冻结；逐来源取值、规则版本与核验日期仍待 Q12/Q13，见 [evidence/logs/t026-adapter-mechanism.txt](evidence/logs/t026-adapter-mechanism.txt)。
 
+首个逐来源正文取值（NEXT-07，工程试点候选）：CN-08 文章正文容器为 `#detailContent`，相关阅读在容器外的 `.columBox.relatedNews`，标题 `<h1>` 也在容器外；正文选择器生效时，若容器内无 h1/h2，标题按文档范围回退提取（不退化成带站点后缀的 `<title>`）。已用保存原件离线复验（10 块 → 6 块，正文逐字保留），取值记录在 [examples/pilot-cn08-sources.yaml](examples/pilot-cn08-sources.yaml)，证据见 [evidence/next07-cn08-body.md](evidence/next07-cn08-body.md)。该取值只适用于当前文章模板，正式启用与版本冻结仍待 Q12/Q13。
+
 通用正文还原（FR-005）按确定性规则实现：内容区 `rel=next` 或明确翻页文案视为正文分页链接、`<link rel="alternate" type="application/json">` 视为接口正文档端点；站点专属的 DOM/接口形态、分页终止条件与字段名仍在 T026 逐站核验。具体启用哪些来源、时间范围、语种和调用参数由 Q13 决定；逐站点实现为 T026。来源类别是 A—G 知识类别，不是证据等级。原件字段、正文保真及追溯要求仍从通用契约继承。
 
 ## 首批来源目录

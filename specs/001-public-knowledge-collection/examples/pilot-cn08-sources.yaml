@@ -20,6 +20,8 @@ sources:
       list_link_selector: "div.newsTitle a"
       list_link_pattern: "news\\.cn/.*\\.html$"
       max_pages: 1
+      # NEXT-07：正文容器（span#detailContent）；相关阅读在 .columBox.relatedNews，容器外不进入正文。
+      content_selector: "#detailContent"
     request_rate_per_second: 0.5
     max_concurrency: 1
     connect_timeout_seconds: 10

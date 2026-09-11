@@ -43,6 +43,7 @@ COUNTING_RULES = {
     "failures": "按操作记录的失败条数，等于本次 failed_records.jsonl 追加行数",
     "skipped": "未产生新成果的跳过目标数（含 304 未变化与边界跳过）",
     "success": "成功口径按资源数（resources），不按请求数",
+    "budget": "一次运行共享的请求数/截止时间预算；请求在发送前扣减，max-items 不计入",
 }
 
 OUTPUT_FILES = (
@@ -72,6 +73,10 @@ class RunMetrics:
     skipped_by_reason: Mapping = field(default_factory=dict)
     duplicates: Mapping = field(default_factory=dict)
     request_controls: Mapping = field(default_factory=dict)
+    budget: Mapping = field(default_factory=dict)
+    stop_reason: Optional[str] = None
+    stop_message: str = ""
+    unprocessed: Optional[int] = None
     outputs: Mapping = field(default_factory=dict)
     deltas: Mapping = field(default_factory=dict)
     expected_deltas: Mapping = field(default_factory=dict)
@@ -94,6 +99,12 @@ class RunMetrics:
             "skipped_by_reason": dict(self.skipped_by_reason),
             "duplicates": dict(self.duplicates),
             "request_controls": dict(self.request_controls),
+            "budget": dict(self.budget),
+            "stop": {
+                "reason": self.stop_reason,
+                "message": self.stop_message,
+                "unprocessed": self.unprocessed,
+            },
             "outputs": dict(self.outputs),
             "deltas": dict(self.deltas),
             "expected_deltas": dict(self.expected_deltas),
@@ -189,6 +200,10 @@ def build_metrics(
     duplicates: Optional[Mapping] = None,
     request_controls: Optional[Mapping] = None,
     expected_deltas: Optional[Mapping] = None,
+    stop_reason: Optional[str] = None,
+    stop_message: str = "",
+    unprocessed: Optional[int] = None,
+    budget: Optional[Mapping] = None,
 ) -> RunMetrics:
     """汇总一次运行：计数、状态分布、异常分类、重复候选与对账。"""
     counters = {key: int(value) for key, value in dict(counters).items()}
@@ -197,8 +212,15 @@ def build_metrics(
     failures_by_type = _count_by(failures, "error_type")
     skipped_by_reason = _count_skipped(skipped)
     deltas = deltas_between(before, after)
-    status = _status_of(counters)
-    notes = _notes_of(counters, failures_by_stage, skipped_by_reason)
+    status = _status_of(counters, stop_reason=stop_reason)
+    notes = _notes_of(
+        counters,
+        failures_by_stage,
+        skipped_by_reason,
+        stop_reason=stop_reason,
+        stop_message=stop_message,
+        unprocessed=unprocessed,
+    )
     metrics = RunMetrics(
         run_id=run_id_for(source_id, finished_at),
         source_id=source_id,
@@ -218,6 +240,10 @@ def build_metrics(
         skipped_by_reason=skipped_by_reason,
         duplicates=dict(duplicates or {}),
         request_controls=dict(request_controls or {}),
+        budget=dict(budget or {}),
+        stop_reason=stop_reason,
+        stop_message=stop_message,
+        unprocessed=unprocessed,
         outputs=dict(after),
         deltas=deltas,
         expected_deltas={key: int(value) for key, value in dict(expected_deltas or {}).items()},
@@ -364,7 +390,10 @@ def _count_skipped(skipped: Iterable) -> dict:
     return dict(sorted(counts.items()))
 
 
-def _status_of(counters: Mapping) -> str:
+def _status_of(counters: Mapping, *, stop_reason: Optional[str] = None) -> str:
+    if stop_reason:
+        obtained = int(counters.get("resources", 0)) + int(counters.get("documents", 0))
+        return "partial" if obtained else "stopped"
     failures = int(counters.get("failures", 0))
     obtained = int(counters.get("resources", 0)) + int(counters.get("documents", 0))
     if failures and obtained:
@@ -376,8 +405,23 @@ def _status_of(counters: Mapping) -> str:
     return "ok"
 
 
-def _notes_of(counters: Mapping, failures_by_stage: Mapping, skipped_by_reason: Mapping) -> List[str]:
+def _notes_of(
+    counters: Mapping,
+    failures_by_stage: Mapping,
+    skipped_by_reason: Mapping,
+    *,
+    stop_reason: Optional[str] = None,
+    stop_message: str = "",
+    unprocessed: Optional[int] = None,
+) -> List[str]:
     notes: List[str] = []
+    if stop_reason:
+        detail = f"停止原因 {stop_reason}"
+        if stop_message:
+            detail += f"：{stop_message}"
+        if unprocessed is not None:
+            detail += f"；未处理 {unprocessed} 项，已完成成果保留"
+        notes.append(detail)
     if int(counters.get("not_modified", 0)) and not int(counters.get("resources", 0)):
         notes.append("本次无新增成果：目标未变化（304），复用此前原件与账本")
     if int(counters.get("skipped", 0)):

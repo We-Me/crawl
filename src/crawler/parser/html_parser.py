@@ -91,6 +91,14 @@ def parse_html(
         if heading_text:
             title = heading_text
             break
+    if not title and content_selector:
+        # 正文选择器只框定正文容器，标题通常在容器之外；
+        # 先按文档范围补标题，避免退化到带站点后缀的 <title>。
+        for heading in soup.find_all(["h1", "h2"]):
+            heading_text = _clean_text(heading)
+            if heading_text:
+                title = heading_text
+                break
     if not title and soup.title is not None:
         title = _clean_text(soup.title)
     metadata_missing = []

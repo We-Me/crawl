@@ -171,6 +171,14 @@ uv sync --locked
 
 当前复用已记录的 Python 3.9.25、uv 与锁文件，不重复初始化或空缓存安装来证明未变化环境。TD-08g 旧式 DOC/XLS 的真实 LibreOffice 转换仍未验证；不能把现有包环境测试通过称为包含该能力的完整环境通过。按 [阶段续作说明](continuation.md) NEXT-04 关闭该实际缺口；仅相关依赖/环境变化才触发新环境验证。
 
+## 运行契约的打包方式（NEXT-08，无新增依赖）
+
+`crawl sources` 与 `crawl check` 所需的 6 个 JSON Schema 随 wheel 交付到 `crawler/contracts/`，
+运行期用标准库 `importlib.resources` 读取包资源，不再依赖源码树或开发机器路径；
+`specs/001-public-knowledge-collection/contracts/` 仍是权威来源，`tools/sync_contracts.py` 负责同步与
+`--check` 漂移校验，`tests/test_contract_resources.py` 守住一致性。该能力只用标准库与既有 hatchling 打包，
+未新增运行依赖、未引入配置框架；普通安装与源码外命令验证见 [NEXT-08 证据](evidence/next08-packaged-contracts.md)。
+
 ## 阶段二复核后的续作入口
 
-阶段二基线为 4f07c6f：正式 crawl CLI、运行说明和 CN-08 有限试点已交付；历史全量日志记录 325 passed。当前从 [阶段三计划](stage-three.md) NEXT-06 开始，依次处理运行预算、CN-08 正文边界和随包契约。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
+阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。

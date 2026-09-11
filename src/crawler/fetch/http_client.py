@@ -1,9 +1,11 @@
-"""带访问边界、robots 规则、限速与退避重试的 HTTP 客户端（T006）。
+"""带访问边界、robots 规则、限速、退避重试与运行预算的 HTTP 客户端（T006/NEXT-06）。
 
 重定向不交给底层库自动跟随：每一跳都先用来源注册表检查，越界立即停止；
 429 与 5xx 按可配置退避重试，Retry-After 优先。
 每个主机首次请求前按 robots.txt 判定（FR-001）；规则获取走同一客户端，
 因此同样受限速与访问边界约束，且不写入抓取账本。
+挂上 RunBudget 后，本客户端发出的每个实际尝试（含 robots、重定向每跳、重试）
+发送前扣减同一预算；等待限速或 Retry-After 超过剩余时间时以 BudgetStop 停止。
 """
 
 from __future__ import annotations
@@ -18,6 +20,13 @@ import requests
 from requests.structures import CaseInsensitiveDict
 
 from crawler.fetch.robots import RobotsRules, group_summary, parse_robots, rules_for_unavailable
+from crawler.fetch.budget import (
+    BudgetStop,
+    RunBudget,
+    STOP_RATE_LIMIT_WAIT,
+    STOP_RETRY_AFTER_WAIT,
+    STOP_RETRY_WAIT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +112,7 @@ class StreamHandle:
         raw: "HttpClient",
         attempts: int,
         redirect_chain: Tuple[str, ...] = (),
+        budget: Optional[RunBudget] = None,
     ) -> None:
         self.requested_url = requested_url
         self.redirect_chain = redirect_chain
@@ -113,10 +123,14 @@ class StreamHandle:
         self._response = response
         self._raw = raw
         self.attempts = attempts
+        self._budget = budget
 
     def iter_chunks(self, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
         try:
             for chunk in self._response.iter_content(chunk_size=chunk_size):
+                if self._budget is not None:
+                    # 停止后不再继续读下一块，已写入的块由调用方按失败处理。
+                    self._budget.enforce_deadline()
                 if chunk:
                     yield chunk
         finally:
@@ -141,6 +155,7 @@ class HttpClient:
         clock=time.monotonic,
         robots: bool = True,
         user_agent: str = USER_AGENT,
+        budget: Optional[RunBudget] = None,
     ) -> None:
         self.registry = registry
         # 调用方显式给出 FetchLimits 时以它为准（测试与批量运行用）；
@@ -157,6 +172,16 @@ class HttpClient:
         self._robots: dict = {}
         # 实际发出的 HTTP 尝试次数（含重试与逐跳重定向），供运行计数使用
         self.request_attempts = 0
+        # 运行预算：由 pipeline 在 collect/resume 开始时挂上，运行内不清零
+        self.budget: Optional[RunBudget] = None
+        if budget is not None:
+            self.attach_budget(budget)
+
+    def attach_budget(self, budget: Optional[RunBudget]) -> None:
+        """挂上本次运行的统一预算；预算未显式给时钟时与客户端共用时钟。"""
+        self.budget = budget
+        if budget is not None and budget.clock is None:
+            budget.clock = self._clock
 
     def limits_for(self, url: str, source_id: Optional[str] = None) -> FetchLimits:
         """本次请求适用的限速与超时：显式 FetchLimits 优先，否则按来源配置。"""
@@ -247,6 +272,7 @@ class HttpClient:
                 raw=self,
                 attempts=attempts,
                 redirect_chain=tuple(hops),
+                budget=self.budget,
             )
         raise FetchError(
             f"重定向超过 {self.limits.max_redirects} 跳",
@@ -306,7 +332,15 @@ class HttpClient:
         attempt = 0
         while True:
             attempt += 1
-            self._wait_for_rate_limit(url, limits)
+            # 预算检查在等待与发送之前：请求数上限与截止时间共用同一次扣减；
+            # 预算已用尽时不再为限速等待占用时间。
+            self._begin_request()
+            try:
+                self._wait_for_rate_limit(url, limits)
+            except BudgetStop:
+                # 等待超过剩余时间：本次请求没有发出，退回已扣减的额度。
+                self._refund_request()
+                raise
             self.request_attempts += 1
             try:
                 response = self.session.get(
@@ -314,15 +348,12 @@ class HttpClient:
                     headers=dict(headers) if headers else None,
                     allow_redirects=False,
                     stream=True,
-                    timeout=(
-                        limits.connect_timeout_seconds,
-                        limits.read_timeout_seconds,
-                    ),
+                    timeout=self._attempt_timeouts(limits),
                 )
             except requests.RequestException as exc:
                 if attempt <= limits.max_retries:
                     logger.info("请求失败将重试 url=%s attempt=%s error=%s", url, attempt, exc)
-                    self._sleep(self._backoff(attempt, limits))
+                    self._wait(self._backoff(attempt, limits), reason=STOP_RETRY_WAIT)
                     continue
                 raise FetchError(
                     f"请求失败：{exc}", url=url, retryable=True, attempts=attempt
@@ -330,6 +361,7 @@ class HttpClient:
             if response.status_code in RETRY_STATUS:
                 if attempt <= limits.max_retries:
                     delay = self._retry_after(response)
+                    reason = STOP_RETRY_AFTER_WAIT if delay is not None else STOP_RETRY_WAIT
                     if delay is None:
                         delay = self._backoff(attempt, limits)
                     logger.info(
@@ -340,7 +372,7 @@ class HttpClient:
                         delay,
                     )
                     response.close()
-                    self._sleep(delay)
+                    self._wait(delay, reason=reason)
                     continue
                 status = response.status_code
                 response.close()
@@ -374,9 +406,36 @@ class HttpClient:
         now = self._clock()
         next_allowed = self._next_allowed.get(host, 0.0)
         if next_allowed > now:
-            self._sleep(next_allowed - now)
+            self._wait(next_allowed - now, reason=STOP_RATE_LIMIT_WAIT)
             now = self._clock()
         self._next_allowed[host] = now + interval
+
+    def _begin_request(self) -> None:
+        if self.budget is not None:
+            self.budget.begin_request()
+
+    def _refund_request(self) -> None:
+        if self.budget is not None and self.budget.used_requests > 0:
+            self.budget.used_requests -= 1
+
+    def _attempt_timeouts(self, limits: FetchLimits):
+        """连接与读取超时受剩余时间约束；没有预算时保持来源配置的超时。"""
+        if self.budget is None:
+            return (
+                limits.connect_timeout_seconds,
+                limits.read_timeout_seconds,
+            )
+        return (
+            self.budget.attempt_timeout(limits.connect_timeout_seconds),
+            self.budget.attempt_timeout(limits.read_timeout_seconds),
+        )
+
+    def _wait(self, seconds: float, *, reason: str) -> None:
+        """等待限速或退避；挂了预算时先把等待与剩余时间比较再睡。"""
+        if self.budget is None:
+            self._sleep(max(0.0, float(seconds)))
+            return
+        self.budget.wait(seconds, sleep=self._sleep, reason=reason)
 
     def _backoff(self, attempt: int, limits: Optional[FetchLimits] = None) -> float:
         limits = limits or self.limits

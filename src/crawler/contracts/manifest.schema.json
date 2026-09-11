@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "抓取账本基础契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。必填集合来自 S1 §5；URL/http_status 范围、非空/路径限制是本次候选工程规则；发现枚举映射见 Q12。",
+  "type": "object",
+  "properties": {
+    "crawl_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S1 必填：唯一抓取 ID"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S1 必填：来源 ID"
+    },
+    "requested_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "final_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "crawl_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "http_status": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "content_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MIME 类型"
+    },
+    "raw_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+      "description": "候选约束：以 / 分隔、相对于约定数据根，不含父目录跳转、绝对路径或 Windows 盘符"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "原始文件字节 SHA-256；S1 §5"
+    },
+    "referrer_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "discovery_method": {
+      "enum": [
+        "list",
+        "search",
+        "sitemap",
+        "api",
+        "attachment",
+        "manual"
+      ]
+    },
+    "keyword": {
+      "type": "string",
+      "minLength": 1,
+      "description": "站内搜索发现时条件必填"
+    },
+    "etag": {
+      "type": "string",
+      "description": ""
+    },
+    "last_modified": {
+      "type": "string",
+      "description": "原始 HTTP 日期字符串，不按 date-time 强制转换"
+    }
+  },
+  "required": [
+    "crawl_id",
+    "source_id",
+    "requested_url",
+    "final_url",
+    "crawl_time",
+    "http_status",
+    "content_type",
+    "raw_path",
+    "sha256",
+    "discovery_method"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "discovery_method": {
+            "const": "search"
+          }
+        },
+        "required": [
+          "discovery_method"
+        ]
+      },
+      "then": {
+        "required": [
+          "keyword"
+        ]
+      }
+    }
+  ]
+}

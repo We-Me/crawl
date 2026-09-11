@@ -33,6 +33,13 @@ class FixtureSiteHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith("/_429/"):
             self._fail_times_then_ok(path, 429)
             return
+        if path.startswith("/_retry_after/"):
+            value = path.rsplit("/", 1)[1]
+            self.send_response(429)
+            self.send_header("Retry-After", value)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/search":
             query = query.get("q", [""])[0]
             body = (
@@ -159,10 +166,22 @@ def timeout_session():
     return TimeoutInjectingSession
 
 
+class QuietThreadingHTTPServer(http.server.ThreadingHTTPServer):
+    """本地夹具站点服务器：客户端中止流式下载时不断言失败、不打印堆栈。"""
+
+    def handle_error(self, request, client_address):
+        import sys
+
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (OSError, ConnectionError)):
+            return
+        super().handle_error(request, client_address)
+
+
 @contextlib.contextmanager
 def _serve_site(directory: Path):
     handler = partial(FixtureSiteHandler, directory=str(directory))
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = QuietThreadingHTTPServer(("127.0.0.1", 0), handler)
     server.flaky_counts = {}  # type: ignore[attr-defined]
     server.flaky_lock = threading.Lock()  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)

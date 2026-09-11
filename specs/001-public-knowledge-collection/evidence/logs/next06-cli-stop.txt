@@ -1,0 +1,73 @@
+# NEXT-06 CLI 记录（本地回环夹具站点 tests/fixtures/site，不访问真实站点）
+# 夹具站点入口 = http://127.0.0.1:46565/index.html（本次运行结束后关闭）
+# 临时配置 = /tmp/next06-cli-fkl4hnr4/sources.yaml；数据根 = /tmp/next06-cli-fkl4hnr4/data
+
+== 1) 显式预算：--max-requests 3 在发现第二页后停止（robots 1 + 列表页 2）==
+$ CRAWL_DATA_DIR=/tmp/next06-cli-fkl4hnr4/data python -m crawler collect --config /tmp/next06-cli-fkl4hnr4/sources.yaml --source DEMOSRC --max-items 5 --no-attachments --max-requests 3 --deadline-seconds 60 --json
+{
+  "ok": false,
+  "source_id": "DEMOSRC",
+  "data_dir": "/tmp/next06-cli-fkl4hnr4/data",
+  "counters": {
+    "requests": 3,
+    "resources": 0,
+    "documents": 0,
+    "blocks": 0,
+    "failures": 0,
+    "skipped": 1,
+    "not_modified": 0
+  },
+  "budget": {
+    "max_requests": 3,
+    "deadline_seconds": 60.0,
+    "used_requests": 3,
+    "elapsed_seconds": 0.01,
+    "remaining_requests": 0,
+    "remaining_seconds": 59.99,
+    "note": "一次运行共享的请求数与截止时间预算；所有实际 HTTP 尝试发送前扣减，max-items/max-tasks 不计入"
+  },
+  "stop": {
+    "reason": "request_budget",
+    "message": "运行已发出 3 个请求，达到请求上限 3",
+    "unprocessed": 2
+  },
+  "run_id": "DEMOSRC_20260911T214924",
+  "failures": [],
+  "skipped": [
+    {
+      "url": "https://outside.invalid/secret",
+      "reason": "domain_not_allowed:outside.invalid"
+    }
+  ]
+}
+[stderr]
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/next06-cli-fkl4hnr4/data data_dir_default=False
+INFO crawler.fetch.http_client robots.txt 已加载 host=http://127.0.0.1:46565 {'groups': 1, 'rules': 2, 'agents': 1}
+WARNING crawler.pipeline 采集按预算停止 reason=request_budget message=运行已发出 3 个请求，达到请求上限 3
+INFO crawler.monitor.metrics 运行指标 run_id=DEMOSRC_20260911T214924 status=stopped metrics=/tmp/next06-cli-fkl4hnr4/data/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=collect source=DEMOSRC run_id=DEMOSRC_20260911T214924 status=stopped requests=3 resources=0 documents=0 blocks=0 failures=0 skipped=1 not_modified=0 reconciliation_ok=True
+[预算停止] 退出码 = 3
+
+== 2) 未设预算：完整运行并以退出码 0 结束（输出提示未设置上限）==
+$ CRAWL_DATA_DIR=/tmp/next06-cli-fkl4hnr4/data python -m crawler collect --config /tmp/next06-cli-fkl4hnr4/sources.yaml --source DEMOSRC --max-items 1 --no-attachments
+采集完成 source=DEMOSRC run_id=DEMOSRC_20260911T214925 请求=3 资源=1 文档=1 块=13 失败=0 跳过=1 未修改=0
+预算：未设置请求数/截止时间上限（参数见 --max-requests、--deadline-seconds）
+数据根 /tmp/next06-cli-fkl4hnr4/data
+  跳过 https://outside.invalid/secret domain_not_allowed:outside.invalid
+[stderr]
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/next06-cli-fkl4hnr4/data data_dir_default=False
+INFO crawler.fetch.http_client robots.txt 已加载 host=http://127.0.0.1:46565 {'groups': 1, 'rules': 2, 'agents': 1}
+INFO crawler.output.manifest_writer 账本记录 crawl_id=DEMOSRC_20260911_0001 status=200 raw_path=raw/DEMOSRC/2026-09-11/html/detail_1.html
+INFO crawler.output.documents_writer 成组提交 documents=1 blocks=13
+INFO crawler.monitor.metrics 运行指标 run_id=DEMOSRC_20260911T214925 status=ok metrics=/tmp/next06-cli-fkl4hnr4/data/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=collect source=DEMOSRC run_id=DEMOSRC_20260911T214925 status=ok requests=3 resources=1 documents=1 blocks=13 failures=0 skipped=1 not_modified=0 reconciliation_ok=True
+[完整运行] 退出码 = 0
+
+== 3) 停止后交付检查：已归档成果仍通过 check（退出码 0）==
+$ CRAWL_DATA_DIR=/tmp/next06-cli-fkl4hnr4/data python -m crawler check
+数据根 /tmp/next06-cli-fkl4hnr4/data
+交付成果：齐全 manifest=1 documents=1 blocks=13 failures=0 raw_files=1
+契约 schema：通过
+追溯：documents 1/1（100.0000%） blocks 13/13（100.0000%）
+[交付校验] 退出码 = 0
+

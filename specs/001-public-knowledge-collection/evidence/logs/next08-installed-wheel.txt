@@ -1,0 +1,101 @@
+# NEXT-08：随包契约 + 源码外普通安装验证（Linux，CPython 3.9.25，uv 0.11.28）
+# 日期：2026-09-11；数据根为已有离线交付样本 data/ 的副本，显式绝对路径
+
+$ uv build   # 构建后端 hatchling 来自登记清华镜像
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/public_knowledge_collection-0.1.0.tar.gz
+Successfully built dist/public_knowledge_collection-0.1.0-py3-none-any.whl
+
+== wheel 内容（契约资源与入口）==
+  crawler/config/sources.yaml
+  crawler/contracts/attachment.schema.json
+  crawler/contracts/block.schema.json
+  crawler/contracts/document.schema.json
+  crawler/contracts/failure.schema.json
+  crawler/contracts/manifest.schema.json
+  crawler/contracts/source-registry.schema.json
+  public_knowledge_collection-0.1.0.dist-info/entry_points.txt
+wheel = public_knowledge_collection-0.1.0-py3-none-any.whl
+
+== 源码外普通安装（独立 venv，wheel 为唯一来源）==
+$ uv venv --clear --python 3.9 /tmp/next08-venv
+Using CPython 3.9.25
+Creating virtual environment at: /tmp/next08-venv
+Activate with: source /tmp/next08-venv/bin/activate
+$ uv pip install --python /tmp/next08-venv/bin/python /home/zhou/workspaces/crawl/dist/public_knowledge_collection-0.1.0-py3-none-any.whl
+Using Python 3.9.25 environment at: /tmp/next08-venv
+Resolved 33 packages in 11ms
+Prepared 1 package in 7ms
+Installed 33 packages in 36ms
+ + beautifulsoup4==4.15.0
+ + certifi==2026.7.22
+ + charset-normalizer==3.5.1
+ + coloredlogs==15.0.1
+ + defusedxml==0.7.1
+ + et-xmlfile==2.0.0
+ + flatbuffers==25.12.19
+ + humanfriendly==10.0
+ + idna==3.19
+ + lxml==6.1.3
+ + mpmath==1.3.0
+ + numpy==2.0.2
+ + onnxruntime==1.19.2
+ + opencv-python==5.0.0.93
+ + openpyxl==3.1.5
+ + packaging==26.3
+ + pillow==11.3.0
+ + protobuf==6.33.6
+ + public-knowledge-collection==0.1.0 (from file:///home/zhou/workspaces/crawl/dist/public_knowledge_collection-0.1.0-py3-none-any.whl)
+ + pyclipper==1.3.0.post6
+ + pypdf==6.18.1
+ + pypdfium2==4.30.0
+ + python-docx==1.2.0
+ + pyyaml==6.0.3
+ + rapidocr-onnxruntime==1.4.4
+ + requests==2.32.5
+ + shapely==2.0.7
+ + six==1.17.0
+ + soupsieve==2.8.4
+ + sympy==1.14.0
+ + tqdm==4.70.1
+ + typing-extensions==4.16.0
+ + urllib3==2.6.3
+
+== 在源码目录之外运行（cwd=/tmp/next08-run，仅安装 wheel）==
+$ cd /tmp/next08-run && CRAWL_ENV=production CRAWL_DATA_DIR=/tmp/next08-data /tmp/next08-venv/bin/crawl sources
+来源配置 /tmp/next08-venv/lib/python3.9/site-packages/crawler/config/sources.yaml version=0.1.0 digest=a195a6e57eaf 共 1 条（启用 0 条）
+  DEMO     disabled 虚构示例来源  域=example.invalid  入口=1  速率=1.0/s  并发上限=1  重试=2
+sources 退出码 = 0
+$ CRAWL_ENV=production CRAWL_DATA_DIR=/tmp/next08-data /tmp/next08-venv/bin/crawl check
+数据根 /tmp/next08-data
+交付成果：齐全 manifest=10 documents=10 blocks=489 failures=2 raw_files=9
+契约 schema：通过
+追溯：documents 10/10（100.0000%） blocks 489/489（100.0000%）
+check 退出码 = 0
+
+== 解释器与包位置（不指向源码树）==
+python = /tmp/next08-venv/bin/python
+crawler = /tmp/next08-venv/lib/python3.9/site-packages/crawler/__init__.py
+
+== 依赖来源（登记镜像，无官方 PyPI 回退）==
+$ uv pip install --dry-run -v ... | grep -m3 mirrors.tuna
+DEBUG Found stale response for: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/beautifulsoup4/
+DEBUG Sending revalidation request for: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/beautifulsoup4/
+DEBUG Found stale response for: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/defusedxml/
+
+== 负向检查：随包契约资源缺失时清晰失败（源码外安装，临时移出资源目录）==
+$ mv site-packages/crawler/contracts /tmp/next08-contracts-backup
+$ CRAWL_ENV=production CRAWL_DATA_DIR=/tmp/next08-data crawl sources
+契约错误：随包契约文件缺失：crawler/contracts/source-registry.schema.json
+sources 退出码 = 2
+$ CRAWL_ENV=production CRAWL_DATA_DIR=/tmp/next08-data crawl check
+契约错误：随包契约文件缺失：crawler/contracts/manifest.schema.json
+check 退出码 = 2
+$ mv /tmp/next08-contracts-backup site-packages/crawler/contracts  # 恢复
+$ CRAWL_ENV=production CRAWL_DATA_DIR=/tmp/next08-data crawl check  # 恢复后复验
+数据根 /tmp/next08-data
+交付成果：齐全 manifest=10 documents=10 blocks=489 failures=2 raw_files=9
+契约 schema：通过
+追溯：documents 10/10（100.0000%） blocks 489/489（100.0000%）
+恢复后 check 退出码 = 0

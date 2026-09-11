@@ -165,3 +165,23 @@ def test_content_selector_miss_is_reported_not_hidden():
     assert page.content_selector_missed is True
     assert page.extraction_method == "bs4_lxml_dom"
     assert "相关阅读" in page.full_text  # 降级结果包含相关阅读噪声，因此必须由调用方按失败处理
+
+
+def test_content_selector_excludes_related_reading_and_keeps_outer_title():
+    """NEXT-07：正文容器外的标题仍要提取；相关阅读与工具栏不进入正文。"""
+    content = (SITE / "detail_selector_title.html").read_bytes()
+    page = parse_html(
+        content,
+        "http://127.0.0.1/detail_selector_title.html",
+        content_selector="#detailContent",
+    )
+    assert page.content_selector_missed is False
+    assert page.extraction_method == "bs4_lxml_selector"
+    # 标题在容器之外：按文档范围回退，不退化成带站点后缀的 <title>
+    assert page.title == "虚构新闻：标题在正文容器之外"
+    assert [block.text for block in page.blocks] == [
+        "正文第一段：只保留正文范围内的内容。",
+        "正文第二段：容器之外的栏目链接与工具栏不进入正文。",
+    ]
+    for noise in ("相关阅读", "新闻链接", "责任编辑", "页脚"):
+        assert noise not in page.full_text

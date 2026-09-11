@@ -1,0 +1,30 @@
+# NEXT-07：CN-08 正文边界修复的离线重解析验证（0 个网络请求）
+# 数据根 /tmp/cn08-reparse-next07c 是 /tmp/cn08-pilot 的副本，原始试点证据保持不动
+# 日期 2026-09-11；执行顺序：登记 parse 失败 → crawl resume（本地重解析）→ crawl check
+# 命令：
+#   cp -r /tmp/cn08-pilot /tmp/cn08-reparse-next07c
+#   CRAWL_DATA_DIR=/tmp/cn08-reparse-next07c crawl resume --source CN-08 --config specs/001-public-knowledge-collection/examples/pilot-cn08-sources.yaml --max-requests 5 --deadline-seconds 60
+#   CRAWL_DATA_DIR=/tmp/cn08-reparse-next07c crawl check
+
+== 准备：写入 parse 阶段失败记录（本地重解析入口）==
+失败记录 stage=parse url=https://www.news.cn/xinhuashe/20260907/b4ef6ed446654d7d94ca3827b256fb45/c.html type=parse_error message=NEXT-07 离线重解析准备：用修复后的正文选择器重放同一原件
+原件 sha256 = 31fcae825e5d0c555b9abd7935f673102f6c746c3fb30e35f0bea6e384b4841b 字节 = 10184
+失败记录 = {"source_id": "CN-08", "url": "https://www.news.cn/xinhuashe/20260907/b4ef6ed446654d7d94ca3827b256fb45/c.html", "time": "2026-09-11T21:30:00+08:00", "stage": "parse", "error_type": "parse_error", "message": "NEXT-07 离线重解析准备：用修复后的正文选择器重放同一原件", "retry_count": 0, "final_action": "retry_later", "crawl_id": "CN-08_20260911_0001"}
+
+== crawl resume（本地重解析，0 请求）==
+INFO crawler.pipeline 运行配置 mode=development data_dir=/tmp/cn08-reparse-next07c data_dir_default=False
+INFO crawler.output.documents_writer 成组提交 documents=1 blocks=6
+INFO crawler.monitor.failures 失败处置 url=https://www.news.cn/xinhuashe/20260907/b4ef6ed446654d7d94ca3827b256fb45/c.html stage=parse action=recovered
+INFO crawler.pipeline 补抓完成 source=CN-08 recovered=1 skipped=0 manual=0 pending=0 failed=0
+INFO crawler.monitor.metrics 运行指标 run_id=CN-08_20260911T213355 status=ok metrics=/tmp/cn08-reparse-next07c/logs/metrics.json reconciliation_ok=True
+INFO crawler.pipeline 运行汇总 kind=recovery source=CN-08 run_id=CN-08_20260911T213355 status=ok requests=0 resources=0 documents=1 blocks=6 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+补抓完成 source=CN-08 run_id=CN-08_20260911T213355 恢复=1 跳过=0 待人工=0 退避等待=0 仍失败=0
+预算：请求上限=5，截止=60s；实际请求=0 用时=0.014s
+resume 退出码 = 0
+
+== crawl check ==
+数据根 /tmp/cn08-reparse-next07c
+交付成果：齐全 manifest=1 documents=2 blocks=16 failures=2 raw_files=1
+契约 schema：通过
+追溯：documents 2/2（100.0000%） blocks 16/16（100.0000%）
+check 退出码 = 0

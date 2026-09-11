@@ -54,9 +54,9 @@
 | NEXT-03 | DONE（工程试点），正式来源验收待决 | CN-08 三请求闭环已有证据；正文缺口转 NEXT-07 |
 | NEXT-04 | BLOCKED_ENV，环境核实完成 | Linux 组件/权限改变后恢复真实转换验证 |
 | NEXT-05 | WAITING_DECISION | 复用 decision-requests.md，按采集相关决定收口 |
-| NEXT-06 | READY，默认下一项 | 落实统一请求/时间预算及停止报告 |
-| NEXT-07 | READY，优先离线 | 修复 CN-08 正文边界，保留全文证据 |
-| NEXT-08 | READY | 随包契约与源码外安装的命令可用性 |
+| NEXT-06 | DONE（工程交付），预算与停止报告已验证 | 复用 `--max-requests`/`--deadline-seconds` 与退出码 3；正式验收不受影响 |
+| NEXT-07 | DONE（工程修复），CN-08 正文边界已按原件修复 | 逐站正文取值与 T026 正式验收仍待 Q12/Q13 |
+| NEXT-08 | DONE（工程交付），契约已随包并源码外复验 | 正式来源接入不受此阻碍 |
 
 详细依据、验收边界与顺序见 [阶段二复核与阶段三计划](stage-three.md)。
 
@@ -68,7 +68,16 @@ NEXT-04 记录目标 Linux 的 LibreOffice 获取方式与 root 权限阻塞（�
 [evidence/logs/t012-libreoffice-env.txt](evidence/logs/t012-libreoffice-env.txt)）；
 NEXT-05 仍待业务决定，所需决定与选项见 [阶段交付决策请求](decision-requests.md)。闭环中发现并修复同日多次运行 crawl_id 重复导致补抓指向错误原件的缺陷。
 
-下一轮默认从 NEXT-06 开始，随后推进 NEXT-07/NEXT-08；不重复 NEXT-01/02。正式 CLI 已为 crawl，使用 runbook.md，预算及无源码契约限制按 stage-three.md 处理。
+阶段三进展（2026-09-11 追加）：NEXT-06/NEXT-07/NEXT-08 已完成工程交付——
+统一请求预算、运行截止时间与停止报告（[evidence/next06-budget.md](evidence/next06-budget.md)），
+CN-08 正文边界修复与离线差异证据（[evidence/next07-cn08-body.md](evidence/next07-cn08-body.md)），
+随包契约与源码外普通安装（[evidence/next08-packaged-contracts.md](evidence/next08-packaged-contracts.md)）；
+阶段候选一次全量回归 345 passed（[evidence/logs/stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)）。
+正式 CLI 仍为 crawl，命令与退出码以 runbook.md 为准。
+
+剩余阻塞：NEXT-04（目标 Linux 的 LibreOffice 组件/权限未变）与 NEXT-05（Q11—Q15 等业务决定）。
+NEXT-06—NEXT-08 完成不勾选 T012/T019/T026/T027 的正式验收；下一轮若无新的缺陷或决定，
+不重开已完成项，也不通过增加测试数量维持工作。
 
 ## 守规真实站点测试 DEV-012
 

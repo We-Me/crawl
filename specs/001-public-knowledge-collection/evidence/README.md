@@ -21,6 +21,9 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [T027 正式 CLI、运行说明与缺陷修复](T027-cli-runbook.md) | NEXT-01/NEXT-02：`crawl` 子命令、Linux 运行说明、同日重复运行 crawl_id 缺陷的修复与回归 | 已完成并通过本机闭环（14 项 CLI 用例、全量 325 passed、wheel 含入口，见 [logs/t027-cli.txt](logs/t027-cli.txt)、[logs/t027-full-pytest.txt](logs/t027-full-pytest.txt)、[logs/t027-lock-wheel.txt](logs/t027-lock-wheel.txt)）；T027 总体验收仍待 T019/T026 正式收口 |
 | [CN-08 有限试点证据](T026-pilot-cn08.md) | NEXT-03：站点卡、离线选择器复算与一次 3 请求的受限真实闭环 | 工程试点已完成（[logs/t026-pilot-cn08.txt](logs/t026-pilot-cn08.txt)）；至少 10 词、歧义与逐站规则仍待 Q12/Q13 |
 | [T012 旧格式转换环境核实](logs/t012-libreoffice-env.txt) | NEXT-04：目标 Linux 的 LibreOffice 获取方式、权限阻塞与缺组件行为 | 环境阻塞已记录（sudo 需密码）；真实 DOC/XLS 转换仍未验证 |
+| [NEXT-06 运行预算与停止报告](next06-budget.md) | T006/T016/T026/T027：统一请求预算、截止时间、stop 报告与退出码 3 | 已完成工程交付；本地夹具 + 可注入时钟 14 项用例，见 [logs/stage-three-full-pytest.txt](logs/stage-three-full-pytest.txt) |
+| [NEXT-07 CN-08 正文边界修复](next07-cn08-body.md) | T008/T013/T026：正文选择器、容器外标题回退、原 10 块 → 6 块（正文逐字保留） | 已完成工程修复；离线差异 [logs/next07-cn08-offline-diff.txt](logs/next07-cn08-offline-diff.txt)、离线重解析 [logs/next07-cn08-reparse.txt](logs/next07-cn08-reparse.txt) |
+| [NEXT-08 随包契约与源码外安装](next08-packaged-contracts.md) | T003/T019/T027：契约随 wheel 交付、一致性校验、源码外 sources/check | 已完成工程交付；安装与负向检查见 [logs/next08-installed-wheel.txt](logs/next08-installed-wheel.txt) |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -37,6 +40,10 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 ## 本轮状态复核
 
 本目录日志为历史执行证据，本轮仅检查文件，未复跑业务测试。T012 真实旧格式转换、T019 正式验收尚未完成；后续按 [阶段续作说明](../continuation.md) 定向补缺，不重跑所有历史验证。
+
+阶段三追加（2026-09-11）：NEXT-06—NEXT-08 已按各自退出条件完成并留存证据（见上表），
+阶段候选一次全量回归 345 passed（[logs/stage-three-full-pytest.txt](logs/stage-three-full-pytest.txt)）。
+这些记录只证明对应工程动作，不把 T012/T019/T026/T027 的正式验收或 Q11—Q13 业务决定改为已完成。
 
 ## 阶段二复核范围
 

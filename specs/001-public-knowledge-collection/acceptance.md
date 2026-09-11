@@ -412,4 +412,4 @@ DEV-009 对应 T002/T003，按 [uv 模板说明](uv-template.md) 记录镜像来
 
 ## 阶段二复核后的续作入口
 
-阶段二基线为 4f07c6f：正式 crawl CLI、运行说明和 CN-08 有限试点已交付；历史全量日志记录 325 passed。当前从 [阶段三计划](stage-three.md) NEXT-06 开始，依次处理运行预算、CN-08 正文边界和随包契约。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
+阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。

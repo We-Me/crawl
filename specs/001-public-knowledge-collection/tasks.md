@@ -56,7 +56,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
 
   完成标准：分页、展开、接口、失败附件、429 与永久 4xx 的测试结果符合规格。
 
-  证据（2026-09-11）：逐跳边界、限速、退避（含读取超时重试与连接超时耗尽上报）、Retry-After、展开正文抽取与附件下载测试见 `evidence/T004-T009-collection.md`；同日补齐来源级速率、连接/读取超时与重试上限的实际生效（NFR-003“按站点调整”），见同页“来源级请求参数”；并按 FR-005 补上正文分页（三页样本，含部分失败标 partial）与接口正文（`<link rel="alternate" type="application/json">` 声明的正文档端点）还原，见同页“正文分页与接口正文还原”；本任务已完成。
+  证据（2026-09-11）：逐跳边界、限速、退避（含读取超时重试与连接超时耗尽上报）、Retry-After、展开正文抽取与附件下载测试见 `evidence/T004-T009-collection.md`；同日补齐来源级速率、连接/读取超时与重试上限的实际生效（NFR-003“按站点调整”），见同页“来源级请求参数”；并按 FR-005 补上正文分页（三页样本，含部分失败标 partial）与接口正文（`<link rel="alternate" type="application/json">` 声明的正文档端点）还原，见同页“正文分页与接口正文还原”；本任务已完成。阶段三 NEXT-06 追加：robots、重定向每跳、重试、分页/接口与附件在发送前共用统一请求预算，达到请求上限或截止时间即停（退出码 3），见 `evidence/next06-budget.md`。
 
 - [x] T007 [US1] 实现原件归档和 manifest 写出，确保原件存在后账本才可引用。
 
@@ -142,7 +142,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
 
   完成标准：四阶段失败均可复现，对账可解释。
 
-  证据（2026-09-11）：四阶段失败按网络/本地分流补抓，失败账只追加并保留历史，网络重取与原件重解析端到端通过，中断后可列出待补全原件，见 `evidence/T016-recovery.md`；同日以真实站点失败样本复验（CN-04 `normalize` 失败 → `reparse` 0 请求补全、原件 sha256 不变），并修正 `resume_failures` 会串处理其他来源失败的缺陷（新增 `tests/test_recovery.py::test_resume_failures_only_handles_requested_source`），见 `evidence/logs/t008-cn04-defect-fix.txt`；本任务已完成。
+  证据（2026-09-11）：四阶段失败按网络/本地分流补抓，失败账只追加并保留历史，网络重取与原件重解析端到端通过，中断后可列出待补全原件，见 `evidence/T016-recovery.md`；同日以真实站点失败样本复验（CN-04 `normalize` 失败 → `reparse` 0 请求补全、原件 sha256 不变），并修正 `resume_failures` 会串处理其他来源失败的缺陷（新增 `tests/test_recovery.py::test_resume_failures_only_handles_requested_source`），见 `evidence/logs/t008-cn04-defect-fix.txt`；本任务已完成。阶段三 NEXT-06 追加：resume 与 collect 共用同一预算语义，停止时报告未处理任务并保留已恢复成果；NEXT-07 的 CN-08 离线重解析也走该路径，见 `evidence/next06-budget.md`、`evidence/next07-cn08-body.md`。
 
 - [x] T017 [US3] 实现日志、计数、重复与异常统计，区分请求、资源、文档和块。
 
@@ -169,6 +169,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   完成标准：所有入选采集需求有真实验收证据；未决阈值不得自动判通过。
 
   证据（2026-09-11）：AT-001—AT-024 夹具级验收 27 项（AT 用例，含 AT-005/006/007/016 的补充子句）、报告一致性 2 项、CFG-01—CFG-09 环境用例 9 项与 schema/追溯校验通过；AT-014/AT-024 因 Q11 在报告中固定 blocked，不判通过；校验同时发现并修正 parse_status 与附件状态枚举偏离契约的缺陷，见 `evidence/T019-acceptance.md`。CFG-09 另按交付态 wheel 做普通安装行为复核（工程外导入、无源码根报错、随包 sources.yaml 加载），并在本轮 AT 子句补强后按同一流程复验（新构建 wheel/sdist、构建后端仅来自登记镜像、行为逐条一致），见 `evidence/logs/t019-installed-wheel.txt`；AT 子句补强（AT-001/002/004/005/006/007/008/009/012/016/017/018/019/022/023，含正文分页与接口正文、重复内容附件身份、各类型逐字节归档、PDF→document 契约校验、下载成功+解析失败仍留原件/账本、交付检查不依赖摘要、零失败空失败账、编码错误定位、速率与并发分别建模）后全量 292 passed，真实页面缺陷修复后新增 2 项回归用例、全量 294 passed，见 `evidence/logs/t019-pytest.txt`；历史记录中的“完成”仅覆盖已有工程验证；本次按完整完成标准更正为部分完成，剩余项见下方续作说明。
+  阶段三 NEXT-08 追加：运行契约随 wheel 交付（`src/crawler/contracts/`，与规格契约逐字节一致），`tools/sync_contracts.py --check` 与 `tests/test_contract_resources.py` 防止漂移；在源码外独立 venv 普通安装后，`sources`/`check` 对已有离线交付样本通过、资源缺失以退出码 2 清晰失败，见 `evidence/next08-packaged-contracts.md` 与 `evidence/logs/next08-installed-wheel.txt`。正式业务验收仍未执行。
 
 ## G6 领域扩展 条件任务
 
@@ -219,6 +220,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   完成标准：每个来源有规则版本、样本和结果；未接入来源明确列出，不报告全站点完成。
 
   证据（2026-09-11，部分）：已按用户许可分批对 CN-01/CN-03/IN-01/IN-06 及其余 9 个权威来源做最小请求量核验（五轮共 69 个请求：14 + 9 + 15 + 22 + 9，18 个登记来源均完成浅层核验，遵守 robots、逐来源限速、不重试），记录 robots 判定、发现与解析结果、条件请求退化（无 ETag/Last-Modified）及站点约束——CN-03 全站 Disallow、IN-06 首页为前端壳、IN-01 栏目页可访问但通用发现选中首页、CN-01 栏目页 75 条链接指向旧域/子域、CN-05/06/07 的 robots 508 保守拒绝、IN-03 链接指向别名域、IN-04/部分主机 robots 获取失败——其中 CN-04 的真实页面缺陷已定位修复并本地重解析闭环（见 `evidence/logs/t008-cn04-defect-fix.txt`），完整记录见 `evidence/logs/t026-realsite-smoke.txt`；同日实现 T026 的机制部分（逐来源适配规则：列表链接选择器/正则、分页终止条件、正文范围选择器；未命中显式记录，不静默回退），在固定夹具与真实原件上验证（CN-08 栏目发现 13→3 条文档链接、CN-04 正文 145→2 块），见 `evidence/logs/t026-adapter-mechanism.txt`；五轮核验后的开发数据根交付校验通过（`validate_delivery` ok=True/errors=0、追溯 doc_rate=block_rate=1.0）；适配器（栏目级路径规则/域名别名）、至少 10 词与歧义验证仍待 Q12/Q13；同日按 NEXT-03 完成 CN-08 单站受限试点（试点卡 `pilot-cn08.md`，3 个请求完成栏目发现→文章获取→交付校验，见 `evidence/logs/t026-pilot-cn08.txt` 与 `evidence/T026-pilot-cn08.md`），本任务保持未勾选。
+  阶段三 NEXT-07 追加：按已保存原件修复 CN-08 正文边界（`adapter.content_selector: "#detailContent"`，容器外标题按文档范围回退提取），相关阅读与重复标题不再进入正文，6 个正文段落逐字保留；离线差异与重解析证据见 `evidence/next07-cn08-body.md`。逐站取值版本、至少 10 词与歧义验证仍待 Q12/Q13，本任务保持未勾选。
 
 ## G8 交付收口
 
@@ -229,6 +231,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   完成标准：需求、任务、测试、成果四者对应；只对真实完成项目勾选任务。
 
   证据（2026-09-11，部分）：正式业务 CLI（`crawl`，子命令 sources/collect/plan/resume/check，退出码 0/1/2）与 Linux 运行说明已完成并实际执行，命令输出见 `evidence/logs/t027-cli.txt`，说明见 `runbook.md`，汇总见 `evidence/T027-cli-runbook.md`；闭环中发现并修复“同日同来源多次运行 crawl_id 重复、补抓指向错误原件”的缺陷（回归见 `tests/test_pipeline.py::test_crawl_ids_continue_across_runs`）；阶段候选全量回归 325 passed（`evidence/logs/t027-full-pytest.txt`），锁文件未变、wheel 含 `crawl` 入口（`evidence/logs/t027-lock-wheel.txt`）。本任务保持未勾选：T019/T026 正式验收与来源决定仍未完成。
+  阶段三追加：运行预算与停止报告（退出码 3，`evidence/next06-budget.md`）、随包契约与源码外安装（`evidence/next08-packaged-contracts.md`）已交付，runbook.md 同步真实命令、停止行为、退出码与剩余限制；阶段候选一次全量回归 345 passed（`evidence/logs/stage-three-full-pytest.txt`）。本任务保持未勾选：T019/T026 正式验收与 Q12/Q13 来源决定仍未完成。
 
 ## 里程碑与独立交付
 
@@ -259,4 +262,4 @@ T012：DOCX/XLSX/结构格式及旧格式接口已有证据，真实 LibreOffice
 
 ## 阶段二复核后的续作入口
 
-阶段二基线为 4f07c6f：正式 crawl CLI、运行说明和 CN-08 有限试点已交付；历史全量日志记录 325 passed。当前从 [阶段三计划](stage-three.md) NEXT-06 开始，依次处理运行预算、CN-08 正文边界和随包契约。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
+阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。

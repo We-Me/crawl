@@ -13,6 +13,7 @@
 CRAWL_ENV / CRAWL_DATA_DIR，不提供第二套路径优先级。
 
 退出码：0 成功；1 运行完成但仍有失败或交付校验不通过；2 配置、参数或环境错误。
+3 运行因请求预算或截止时间提前停止（未完成，已归档成果保留）。
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import yaml
 from crawler import __version__
 from crawler.config.registry import SourceRegistry
 from crawler.config.settings import ConfigurationError, load_settings
+from crawler.fetch.budget import BudgetConfigError, RunBudget
 from crawler.fetch.retry import RetryConfigError, RetryPolicy, summarize_plan
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
@@ -38,8 +40,27 @@ from crawler.validate.traceability import trace_delivery
 EXIT_OK = 0
 EXIT_RUN = 1
 EXIT_CONFIG = 2
+EXIT_STOPPED = 3
 
 PROGRAM = "crawl"
+
+
+def _add_budget_arguments(parser: argparse.ArgumentParser) -> None:
+    """collect/resume 共用的运行预算参数；省略时该运行不受这两项限制。"""
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=None,
+        metavar="N",
+        help="本次运行最多发出的 HTTP 请求数（含 robots、重定向每跳、重试、分页、接口与附件）",
+    )
+    parser.add_argument(
+        "--deadline-seconds",
+        type=float,
+        default=None,
+        metavar="S",
+        help="本次运行的墙上时限（秒）；到时不发新请求，等待超过剩余时间也停止",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,6 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument(
         "--no-attachments", action="store_true", help="不下载附件（仅正文页面）"
     )
+    _add_budget_arguments(collect)
     collect.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     collect.set_defaults(handler=_cmd_collect)
 
@@ -117,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-delay-seconds", type=float, default=60.0, help="退避基数秒数（指数增长）"
     )
     resume.add_argument("--max-delay-seconds", type=float, default=3600.0, help="退避上限秒数")
+    _add_budget_arguments(resume)
     resume.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     resume.set_defaults(handler=_cmd_resume)
 
@@ -216,6 +239,11 @@ def _cmd_collect(args) -> int:
     if args.max_items < 0:
         print("参数错误：--max-items 不能为负数", file=sys.stderr)
         return EXIT_CONFIG
+    try:
+        budget = _build_budget(args)
+    except BudgetConfigError as exc:
+        print(f"参数错误：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
     pipeline = CrawlPipeline(registry, settings.data_dir, settings=settings)
     report = pipeline.collect(
         source.source_id,
@@ -225,10 +253,11 @@ def _cmd_collect(args) -> int:
         api_urls=list(args.api),
         include_attachments=not args.no_attachments,
         max_items=args.max_items,
+        budget=budget,
     )
     counters = report.counters
     row = {
-        "ok": counters.failures == 0,
+        "ok": counters.failures == 0 and report.stop_reason is None,
         "source_id": report.source_id,
         "data_dir": str(settings.data_dir),
         "counters": {
@@ -239,6 +268,12 @@ def _cmd_collect(args) -> int:
             "failures": counters.failures,
             "skipped": counters.skipped,
             "not_modified": counters.not_modified,
+        },
+        "budget": report.budget,
+        "stop": {
+            "reason": report.stop_reason,
+            "message": report.stop_message,
+            "unprocessed": report.unprocessed,
         },
         "run_id": (report.metrics or {}).get("run_id"),
         "failures": report.failures,
@@ -253,6 +288,7 @@ def _cmd_collect(args) -> int:
             f"块={counters.blocks} 失败={counters.failures} 跳过={counters.skipped} "
             f"未修改={counters.not_modified}"
         )
+        _print_budget_line(report.budget)
         print(f"数据根 {settings.data_dir}")
         for failure in report.failures:
             print(
@@ -261,8 +297,12 @@ def _cmd_collect(args) -> int:
             )
         for item in report.skipped:
             print(f"  跳过 {item.url} {item.reason}")
+        if report.stop_reason:
+            _print_stop_line(report.stop_reason, report.stop_message, report.unprocessed)
         if counters.failures:
             print(f"存在 {counters.failures} 项失败，可用 {PROGRAM} resume 补抓", file=sys.stderr)
+    if report.stop_reason:
+        return EXIT_STOPPED
     return EXIT_RUN if counters.failures else EXIT_OK
 
 
@@ -310,16 +350,22 @@ def _cmd_resume(args) -> int:
         base_delay_seconds=args.base_delay_seconds,
         max_delay_seconds=args.max_delay_seconds,
     )
+    try:
+        budget = _build_budget(args)
+    except BudgetConfigError as exc:
+        print(f"参数错误：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
     pipeline = CrawlPipeline(registry, settings.data_dir, settings=settings)
     report = pipeline.resume_failures(
         args.source,
         policy=policy,
         max_tasks=args.max_tasks,
         respect_backoff=args.respect_backoff,
+        budget=budget,
     )
     remaining = len(report.failures) + len(report.manual) + len(report.pending)
     row = {
-        "ok": remaining == 0,
+        "ok": remaining == 0 and report.stop_reason is None,
         "source_id": report.source_id,
         "data_dir": str(settings.data_dir),
         "recovered": len(report.recovered),
@@ -327,6 +373,12 @@ def _cmd_resume(args) -> int:
         "manual": len(report.manual),
         "pending": len(report.pending),
         "failed": len(report.failures),
+        "budget": report.budget,
+        "stop": {
+            "reason": report.stop_reason,
+            "message": report.stop_message,
+            "unprocessed": report.unprocessed,
+        },
         "run_id": (report.metrics or {}).get("run_id"),
     }
     if args.json:
@@ -337,12 +389,17 @@ def _cmd_resume(args) -> int:
             f"恢复={row['recovered']} 跳过={row['skipped']} 待人工={row['manual']} "
             f"退避等待={row['pending']} 仍失败={row['failed']}"
         )
+        _print_budget_line(report.budget)
         for task in report.manual:
             print(f"  待人工 {task['url']} {task.get('reason', '')}")
         for task in report.pending:
             print(f"  等待退避 {task['url']} not_before={task['not_before']}")
+        if report.stop_reason:
+            _print_stop_line(report.stop_reason, report.stop_message, report.unprocessed)
         if remaining:
             print(f"仍有 {remaining} 项未关闭，需要人工处理或下次补抓", file=sys.stderr)
+    if report.stop_reason:
+        return EXIT_STOPPED
     return EXIT_RUN if remaining else EXIT_OK
 
 
@@ -405,6 +462,40 @@ def _cmd_check(args) -> int:
 def _load_registry(args) -> SourceRegistry:
     config = Path(args.config) if args.config else None
     return SourceRegistry.load(config)
+
+
+def _build_budget(args):
+    """按 CLI 参数构造本次运行预算；两项都未给出时返回 None（不额外限制）。"""
+    if args.max_requests is None and args.deadline_seconds is None:
+        return None
+    return RunBudget(
+        max_requests=args.max_requests,
+        deadline_seconds=args.deadline_seconds,
+    )
+
+
+def _print_budget_line(budget) -> None:
+    if not budget:
+        print("预算：未设置请求数/截止时间上限（参数见 --max-requests、--deadline-seconds）")
+        return
+    limits = []
+    if budget.get("max_requests") is not None:
+        limits.append(f"请求上限={budget['max_requests']}")
+    if budget.get("deadline_seconds") is not None:
+        limits.append(f"截止={budget['deadline_seconds']:.3g}s")
+    print(
+        "预算：" + "，".join(limits) + f"；实际请求={budget.get('used_requests', 0)} "
+        f"用时={budget.get('elapsed_seconds', 0)}s"
+    )
+
+
+def _print_stop_line(reason, message, unprocessed) -> None:
+    detail = f"停止原因：{reason}"
+    if message:
+        detail += f"（{message}）"
+    if unprocessed is not None:
+        detail += f"；未处理 {unprocessed} 项"
+    print(f"{detail}；已归档成果保留，本次运行未完成（退出码 {EXIT_STOPPED}）", file=sys.stderr)
 
 
 def _validate_contract(registry: SourceRegistry) -> list:

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "原始结构块基础契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。S1 §7；order 起点 0 或 1 都可符合基础类型。表格 text 例外的具体判断是 Q08 候选；建议字段保持可省略。",
+  "type": "object",
+  "properties": {
+    "block_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "唯一结构块 ID"
+    },
+    "doc_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "所属文档 ID"
+    },
+    "order": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "block_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "title/heading/paragraph/list_item/table/table_row/page_note/image_caption 等，开放"
+    },
+    "text": {
+      "type": "string",
+      "description": ""
+    },
+    "heading_level": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "section_path": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": ""
+    },
+    "page_no": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "article_no": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "structured_data": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "source_anchor": {
+      "type": [
+        "string",
+        "object"
+      ]
+    },
+    "extraction_method": {
+      "type": "string",
+      "minLength": 1,
+      "description": "抽取方法"
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "required": [
+    "block_id",
+    "doc_id",
+    "order",
+    "block_type",
+    "extraction_method"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "block_type": {
+            "enum": [
+              "table",
+              "table_row"
+            ]
+          }
+        },
+        "required": [
+          "block_type"
+        ]
+      },
+      "then": {
+        "anyOf": [
+          {
+            "required": [
+              "text"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "required": [
+              "structured_data"
+            ],
+            "properties": {
+              "structured_data": {
+                "type": "object",
+                "minProperties": 1
+              }
+            }
+          }
+        ]
+      },
+      "else": {
+        "required": [
+          "text"
+        ]
+      }
+    }
+  ]
+}
