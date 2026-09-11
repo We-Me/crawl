@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "统一文档基础契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。S1 §6 原表建议字段不加入 required。optional 不自动接受 null，除非原表写明 null。ok 时非空正文/标题是 Q06 候选状态规则。",
+  "type": "object",
+  "properties": {
+    "doc_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "唯一文档 ID"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源 ID"
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源名称"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "canonical_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "title": {
+      "type": "string",
+      "description": "标题；ok 时要求非空"
+    },
+    "full_text": {
+      "type": "string",
+      "description": "完整清洗正文；ok 时要求非空"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 1,
+      "description": "zh/en/hi/mixed 等示例，开放字符串"
+    },
+    "document_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "载体与内容类型未统一，开放字符串"
+    },
+    "publication_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "effective_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "effective_to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "issuer": {
+      "type": "string",
+      "description": ""
+    },
+    "category_hint": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "候选标签；元素字符串是候选类型，不是已确认分类编码"
+    },
+    "section_path": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": ""
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "S1 只定义 array<object>；需要逐项另用 attachment.schema.json 验证候选扩展"
+    },
+    "raw_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+      "description": "候选约束：以 / 分隔、相对于约定数据根，不含父目录跳转、绝对路径或 Windows 盘符"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "S1 允许正文或原文件哈希；对象待 Q04，不自动等同 content_hash"
+    },
+    "crawl_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "string",
+      "description": ""
+    },
+    "is_current": {
+      "type": "boolean"
+    },
+    "extraction_method": {
+      "type": "string",
+      "minLength": 1,
+      "description": "开放字符串"
+    },
+    "parse_status": {
+      "enum": [
+        "ok",
+        "partial",
+        "failed"
+      ]
+    },
+    "raw_date": {
+      "type": "string",
+      "description": "S1 §9 原始日期"
+    },
+    "duplicate_of": {
+      "type": "string",
+      "description": "S1 §3.3 提及，string 类型是候选"
+    },
+    "related_doc_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "S1 §3.3 提及，类型是候选"
+    },
+    "source_status": {
+      "type": "string",
+      "description": "S1 §11 下线状态等，非封闭枚举"
+    },
+    "crawl_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "本次 Q03 候选扩展，非原文必填",
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "本次 Q04 候选扩展；与 S2 同名字段不自动等价"
+    }
+  },
+  "required": [
+    "doc_id",
+    "source_id",
+    "source_name",
+    "source_url",
+    "title",
+    "full_text",
+    "language",
+    "document_type",
+    "raw_path",
+    "sha256",
+    "crawl_time",
+    "extraction_method",
+    "parse_status"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "parse_status": {
+            "const": "ok"
+          }
+        },
+        "required": [
+          "parse_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "title": {
+            "minLength": 1
+          },
+          "full_text": {
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
+}

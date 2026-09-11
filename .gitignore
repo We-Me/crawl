@@ -1,0 +1,17 @@
+# Local runtime configuration; keep the distributable example.
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+/dist/
+.pytest_cache/
+.ruff_cache/
+
+# Development crawl output only; specs/.../examples/data remains tracked.
+/data/

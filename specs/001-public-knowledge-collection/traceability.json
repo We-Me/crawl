@@ -1,0 +1,830 @@
+{
+  "status": "draft",
+  "requirements": [
+    {
+      "id": "FR-001",
+      "title": "公开访问与域名边界",
+      "scope": "采集及领域",
+      "force": "共同要求",
+      "source": "S1 §3.4；S2 §1；S3 C02",
+      "story": "US1",
+      "module": "M01",
+      "task": "T004",
+      "issues": "Q13",
+      "behavior": "仅采集公开可获取内容；遵守来源访问规则；不绕过登录、验证码和访问控制；递归访问限于 allowed_domains。",
+      "action": "构造公开页、登录页、验证码页、域外链接和域外重定向各一项，执行发现与请求。",
+      "expected": "只请求允许资源；受限及域外目标记录原因；重定向每跳检查边界，未绕过限制。",
+      "test": "AT-001"
+    },
+    {
+      "id": "FR-002",
+      "title": "来源配置与适配器",
+      "scope": "采集及领域",
+      "force": "共同目标，结构分别来自两原文",
+      "source": "S1 §14；S2 §11；S3 C13/C14",
+      "story": "US1",
+      "module": "M01",
+      "task": "T004",
+      "issues": "Q10 Q13",
+      "behavior": "采用可维护的来源配置驱动不同采集方式；保留来源标识和维护信息；注册表字段映射按候选设计评审。",
+      "action": "准备 HTML 与 PDF 两种来源配置，修改其中一项入口后重新加载。",
+      "expected": "来源由配置区分；每条结果保留 source_id；一项配置更新不误改另一来源；非法配置明确报错。",
+      "test": "AT-002"
+    },
+    {
+      "id": "FR-003",
+      "title": "页面发现策略",
+      "scope": "采集及领域",
+      "force": "共同目标，顺序存在差别",
+      "source": "S1 §3.1；S2 §17；S3 C03",
+      "story": "US1",
+      "module": "M02",
+      "task": "T005",
+      "issues": "Q12",
+      "behavior": "固定栏目及结构化入口优先，站内关键词补漏；S1 的列表、搜索、sitemap/API、附件、浏览器兜底顺序与 S2 的 P1—P5 分别保留。",
+      "action": "在包含分页栏目、搜索、sitemap、API 和附件的本地站点样本上执行对应策略。",
+      "expected": "所有预期详情与附件可被发现；记录发现方式；不依赖浏览器作为默认；实际策略标识可复查。",
+      "test": "AT-003"
+    },
+    {
+      "id": "FR-004",
+      "title": "宽泛关键词与候选标签",
+      "scope": "采集及领域",
+      "force": "共同要求",
+      "source": "S1 §3.2/§6；S2 §13—14；S3 C04/C05",
+      "story": "US1",
+      "module": "M02",
+      "task": "T005",
+      "issues": "Q02",
+      "behavior": "宽泛主题词主召回，正式名称、年份和地点用于补漏；关键词命中不直接决定最终知识分类；category_hint 只表示候选。",
+      "action": "分别输入宽泛词、正式名称补漏词及一个仅含标签的样本。",
+      "expected": "触发词及用途可追踪；补漏词可找到已知材料；不会因命中直接生成已确认分类。",
+      "test": "AT-004"
+    },
+    {
+      "id": "FR-005",
+      "title": "详情页与正文完整获取",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §3.3/§9；S4 二 §3.3",
+      "story": "US1",
+      "module": "M03",
+      "task": "T006",
+      "issues": "Q06",
+      "behavior": "获取最终 URL、标题、来源可提供的发布日期、机构、栏目、正文和附件链接；还原分页、展开和接口加载的正文。",
+      "action": "使用三页正文、点击展开正文和接口正文的固定样本进行抓取及解析。",
+      "expected": "正文各部分按原顺序保留；requested_url 与 final_url 正确；缺失元数据按 Q06 的已选规则处理。",
+      "test": "AT-005"
+    },
+    {
+      "id": "FR-006",
+      "title": "附件独立下载与关系",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §3.3/§6；S4 一 §1.2 附件",
+      "story": "US1",
+      "module": "M03",
+      "task": "T006",
+      "issues": "Q05 Q07",
+      "behavior": "逐个下载附件，记录 attachment_id、文件名、类型、URL、路径和哈希；正文与附件重复时仍保留原始资源身份及关系。",
+      "action": "抓取含两个附件的详情页，其中一个正文相同、一个下载失败。",
+      "expected": "成功附件有原件与抓取记录；失败附件进入失败账；母页保留两个附件的关联和各自结果，不能只交 URL。",
+      "test": "AT-006"
+    },
+    {
+      "id": "FR-007",
+      "title": "原始资源保真归档",
+      "scope": "采集",
+      "force": "S1 明确，共同有追溯目标",
+      "source": "S1 §4/§13；S2 §18；S3 C07",
+      "story": "US1",
+      "module": "M03",
+      "task": "T007",
+      "issues": "Q05",
+      "behavior": "成功取得的 HTML、PDF、DOC/DOCX、XLS/XLSX/CSV、JSON/XML、图片保留原格式字节；不以纯文本替代原件。",
+      "action": "对每种支持类型归档并与输入字节计算 SHA-256 对照。",
+      "expected": "原件类型和字节一致；raw_path 可访问；每种已启用类型均有证据，未支持类型不得报告已完成。",
+      "test": "AT-007"
+    },
+    {
+      "id": "FR-008",
+      "title": "抓取账本",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §5；S4 二 五",
+      "story": "US1",
+      "module": "M03",
+      "task": "T007",
+      "issues": "Q03 Q15",
+      "behavior": "每个成功取得的资源或 API 响应都有 manifest，记录抓取身份、来源、请求与最终 URL、时间、状态、MIME、原件路径、原件哈希及发现方式。",
+      "action": "执行一次重定向请求和一次带关键词的站内搜索发现抓取。",
+      "expected": "manifest 必填字段齐全；搜索记录有 keyword；资源原件哈希一致；重定向两个 URL 均保存。",
+      "test": "AT-008"
+    },
+    {
+      "id": "FR-009",
+      "title": "完整文档数据",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §6；S3 C06",
+      "story": "US1",
+      "module": "M05",
+      "task": "T009",
+      "issues": "Q03 Q04 Q06 Q08 Q09",
+      "behavior": "一行一份逻辑文档，保留完整清洗正文及文档表中的必填字段；建议、可选和按需字段不被无依据提升为通用必填。",
+      "action": "将完整网页及 PDF 转换成 document，并用文档契约校验。",
+      "expected": "全文不因长度裁剪；必填字段存在；parse_status 与结果相符；元数据来源及未知值可区分。",
+      "test": "AT-009"
+    },
+    {
+      "id": "FR-010",
+      "title": "原始结构块",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §7/§9；S3 C08",
+      "story": "US2",
+      "module": "M04",
+      "task": "T010",
+      "issues": "Q09",
+      "behavior": "保留标题、段落、列表、表格、页块等原始单元及顺序；块属于文档，不能基于语义或 token 重组。",
+      "action": "解析含长段、三级标题、列表及表格的样本，核对原文单元序列。",
+      "expected": "block_id 唯一，doc_id 有效，order 遵循已选起点并递增；长段不按 token 截断或合并。",
+      "test": "AT-010"
+    },
+    {
+      "id": "FR-011",
+      "title": "PDF 与 OCR 定位",
+      "scope": "采集",
+      "force": "S1 明确，页码字段等级保留差异",
+      "source": "S1 §7—9/§13；S2 §18；S3 C08",
+      "story": "US2",
+      "module": "M04",
+      "task": "T011",
+      "issues": "Q04 Q11",
+      "behavior": "文本 PDF 保留页码、段落及表格；扫描 PDF/图片保留 OCR 文本并标注 extraction_method；按源要求保留置信度及页码映射。",
+      "action": "解析两页文本 PDF、扫描 PDF 和低质量扫描样本，回查对应页。",
+      "expected": "文本与页码可定位；OCR 不伪装成直接文本抽取；无法可靠解析时标 partial/failed；置信度缺失不伪造数值。",
+      "test": "AT-011"
+    },
+    {
+      "id": "FR-012",
+      "title": "Office 与结构数据解析",
+      "scope": "采集",
+      "force": "S1 明确，S2 有结构保留目标",
+      "source": "S1 §8/§10；S2 §11 Table/Data Loader；S3 C09",
+      "story": "US2",
+      "module": "M04",
+      "task": "T012",
+      "issues": "Q08",
+      "behavior": "DOC/DOCX 保留标题样式、段落、表格、列表；XLS/XLSX/CSV 保留 sheet、表头、行号、单元格及单位；JSON/XML/API 保留字段结构、分页和请求参数。",
+      "action": "解析一个含列表的 DOCX、两 sheet 表格、CSV、分页 JSON 和 XML 样本。",
+      "expected": "行列、单位及分页未丢失；结构数据不能只剩一段文本；records/full_text 采用 Q08 已选契约。",
+      "test": "AT-012"
+    },
+    {
+      "id": "FR-013",
+      "title": "保真清洗与标准化",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §9；S4 二 九",
+      "story": "US2",
+      "module": "M05",
+      "task": "T013",
+      "issues": "Q06",
+      "behavior": "去除非正文导航、广告和推荐，保留正文顺序、标题、列表及条款；规范日期和 URL；保留无法确定的 raw_date；识别语言但不翻译、改写或摘要。",
+      "action": "对含导航、追踪参数、模糊日期、三种语言及超长段落的样本执行清洗。",
+      "expected": "仅噪声被删除；内容不被补写；模糊日期不编造日值；zh/en/hi 原文保留，raw_date 有依据。",
+      "test": "AT-013"
+    },
+    {
+      "id": "FR-014",
+      "title": "去重与来源关系",
+      "scope": "采集及领域",
+      "force": "共同要求，物理策略待定",
+      "source": "S1 §3.3/§11；S2 §11；S3 C10",
+      "story": "US3",
+      "module": "M06",
+      "task": "T014",
+      "issues": "Q04 Q05 Q11",
+      "behavior": "支持 URL、原件哈希与近似正文重复识别；保留转载、镜像和正文附件关系；不得因相似度丢失不同立场或真实修订。",
+      "action": "输入 URL 变体、同字节不同来源、近似转载及仅一条法律条款改变的四组样本。",
+      "expected": "精确重复可识别且来源不丢；修订保留为版本候选；近似阈值及合并处置有评审记录。",
+      "test": "AT-014"
+    },
+    {
+      "id": "FR-015",
+      "title": "历史版本与失效记录",
+      "scope": "采集及领域",
+      "force": "共同要求",
+      "source": "S1 §11/§13；S2 §6/§18；S3 C11",
+      "story": "US3",
+      "module": "M06",
+      "task": "T014",
+      "issues": "Q04 Q09",
+      "behavior": "内容变化保留新旧版本；历史旧版不得覆盖现行版；页面下线保留历史并记录 source_status；法律有效性不得仅由抓取新旧推断。",
+      "action": "先抓现行版，再抓历史版，模拟一条修订、一条废止和一次页面下线。",
+      "expected": "各版本均可回溯；当前有效性遵照原文证据；下线不删除历史；修订及废止关系不丢。",
+      "test": "AT-015"
+    },
+    {
+      "id": "FR-016",
+      "title": "分类增量更新",
+      "scope": "采集及领域",
+      "force": "共同目标，周期为建议",
+      "source": "S1 §11；S2 §12；S3 C12",
+      "story": "US3",
+      "module": "M07",
+      "task": "T015",
+      "issues": "Q13 Q15",
+      "behavior": "新闻按发布增量，法规检查状态和哈希，统计按版本/年份；支持不同类别更新；保留 ETag/Last-Modified（来源可用时）。",
+      "action": "分别运行新增新闻、未改法规和新年份统计数据，模拟 HTTP 304。",
+      "expected": "增量只产生应更新的数据；未变资源不创建虚假版本；304 关联此前成功资源，不能冒充新响应正文。",
+      "test": "AT-016"
+    },
+    {
+      "id": "FR-017",
+      "title": "失败记录与补抓",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §12/§13；S3 C15",
+      "story": "US3",
+      "module": "M07",
+      "task": "T016",
+      "issues": "Q15",
+      "behavior": "抓取、下载、解析、标准化失败记录来源、URL、时间、阶段、错误类型、信息、重试次数和后续动作，支持复现及补抓。",
+      "action": "分别注入连接失败、附件失败、解析失败和字段标准化失败，再重试可恢复项。",
+      "expected": "失败均有对应账目；成功下载但解析失败仍有原件和 manifest；补抓成功不抹去历史失败记录。",
+      "test": "AT-017"
+    },
+    {
+      "id": "FR-018",
+      "title": "运行日志与交付对账",
+      "scope": "采集",
+      "force": "S1 正文明列强制",
+      "source": "S1 §2/§12—14；S4 一 §1.3 logs",
+      "story": "US3",
+      "module": "M08",
+      "task": "T017",
+      "issues": "Q11 Q15",
+      "behavior": "交付 logs/，记录运行、数量、重复、异常；成功、失败、跳过与处理状态按不同计数口径对账。",
+      "action": "运行混合成功、失败、重复、跳过样本，核对日志、manifest、document、failed record。",
+      "expected": "差异有资源或操作级解释；不把请求次数当文档数；首页摘要漏列 logs 不导致交付缺项。",
+      "test": "AT-018"
+    },
+    {
+      "id": "FR-019",
+      "title": "采集成果文件交付",
+      "scope": "采集",
+      "force": "S1 明确",
+      "source": "S1 §2/§4.2/§15；S4 二 最终交付物",
+      "story": "US4",
+      "module": "M08",
+      "task": "T018",
+      "issues": "Q01 Q14",
+      "behavior": "采集范围采用 S1 时交付 raw/、crawl_manifest.jsonl、documents.jsonl、blocks.jsonl、failed_records.jsonl、logs/；目录示例与代码目录分别标识。",
+      "action": "检查交付包并从目录入口读取各文件；检查无失败场景的失败账。",
+      "expected": "六类成果完整；文件为约定相对位置；零失败可为空 JSONL；不存在未经选定的强制七目录或发布文件要求。",
+      "test": "AT-019"
+    },
+    {
+      "id": "FR-020",
+      "title": "采集阶段边界",
+      "scope": "采集，与领域阶段有冲突",
+      "force": "S1 明确禁止",
+      "source": "S1 §1.2/§7.1/§15；S2 §1/§4/§16/§18；S4 一 §1.1",
+      "story": "US4",
+      "module": "M08",
+      "task": "T018",
+      "issues": "Q01",
+      "behavior": "S1 采集实施范围不生成 chunks.jsonl，不做 token/语义切片、向量化、向量库、BM25/混合索引、重排、Prompt 证据组织或答案生成，不按上下文裁剪。",
+      "action": "审查采集配置、依赖、输出及含长段落样本；再核对选定范围记录。",
+      "expected": "采集成果只有文档与原始块；没有 RAG 处理副作用；若另行选择领域阶段，必须有独立范围和契约。",
+      "test": "AT-020"
+    },
+    {
+      "id": "NFR-001",
+      "title": "端到端可追溯",
+      "scope": "采集及领域",
+      "force": "S1 建议验收口径含 100%",
+      "source": "S1 §13；S2 §18；S3 C01/C16",
+      "story": "US4",
+      "module": "M08",
+      "task": "T019",
+      "issues": "Q03",
+      "behavior": "按 S1 原口径，documents/blocks 100% 可回到 source_url、raw_path 和 crawl_manifest；跨文件关联实现为待决设计。",
+      "action": "全量遍历交付的 documents 与 blocks，验证文档、账本、原件及 URL 链路；另注入一条悬挂块。",
+      "expected": "正常集追溯率为 100%；悬挂块必须检出；空集显示不适用，不得用空集宣称采集成功。",
+      "test": "AT-021"
+    },
+    {
+      "id": "NFR-002",
+      "title": "JSONL 与字段约束",
+      "scope": "采集",
+      "force": "S1 明确验收内容",
+      "source": "S1 §13；S4 二 十三",
+      "story": "US4",
+      "module": "M08",
+      "task": "T019",
+      "issues": "Q06 Q08 Q09",
+      "behavior": "UTF-8，每行一个合法 JSON 对象，必填字段通过与已选范围对应的 schema；必须保留原文必填层级区别。",
+      "action": "校验有效样本，并分别破坏 JSON、编码、必填字段、字段类型和引用。",
+      "expected": "语法、类型和引用错误分别定位到文件及行；schema 通过不替代语义和追溯验收。",
+      "test": "AT-022"
+    },
+    {
+      "id": "NFR-003",
+      "title": "请求控制参数",
+      "scope": "采集",
+      "force": "S1 建议参数",
+      "source": "S1 §3.4；S4 一 §1.3 运行参数",
+      "story": "US1",
+      "module": "M03",
+      "task": "T006",
+      "issues": "Q13",
+      "behavior": "保留单域通常 1—3 req/s、连接约 10 秒、读取约 30 秒、指数退避重试 2—3 次的原文建议；按站点调整，永久性 4xx 不盲重试。",
+      "action": "通过受控响应模拟 429、5xx、超时及永久 404，读取配置和请求时间线。",
+      "expected": "遵守已选站点参数；速率与并发分别建模；退避生效，永久错误不无限重试；不将建议冒充合同阈值。",
+      "test": "AT-023"
+    },
+    {
+      "id": "NFR-004",
+      "title": "内容与结构质量",
+      "scope": "采集及领域",
+      "force": "两原文均要求质量检查，通用阈值缺失",
+      "source": "S1 §13；S2 §18；S3 C16",
+      "story": "US4",
+      "module": "M08",
+      "task": "T019",
+      "issues": "Q11",
+      "behavior": "检查正文、标题、列表、表格、页码及条款完整性；总体召回率、抽样比例、OCR 准确率和近似去重阈值由项目评审定义。",
+      "action": "按已评审的样本集逐项比对原件，记录缺段、错序、缺表和 OCR 错误。",
+      "expected": "输出样本范围、计算分母、缺陷清单与证据；阈值未决时结论为未定，不能写已通过。",
+      "test": "AT-024"
+    },
+    {
+      "id": "KR-001",
+      "title": "来源等级与立场",
+      "scope": "领域，采集扩展待定",
+      "force": "S2 明确",
+      "source": "S2 §1—3/§5/§18；S4 一 §1.2",
+      "story": "US5",
+      "module": "M09",
+      "task": "T020",
+      "issues": "Q01 Q10",
+      "behavior": "保存来源国家/机构、权威性和立场，区分 A1/A2/B/C 证据等级与 A—G 知识类别；双方有争议的陈述分别保留。",
+      "action": "对同一议题的中方、印方、双方联合文件及媒体报道建立记录。",
+      "expected": "CN_OFFICIAL/IN_OFFICIAL/BILATERAL 等有来源依据；分类代码不会被当证据等级；不同表述不自动融合。",
+      "test": "AT-025"
+    },
+    {
+      "id": "KR-002",
+      "title": "协定与机制组织",
+      "scope": "领域",
+      "force": "S2 明确与建议并存",
+      "source": "S2 §4/§16 A",
+      "story": "US5",
+      "module": "M09",
+      "task": "T021",
+      "issues": "Q01 Q02 Q04 Q09",
+      "behavior": "A 类保留正式协议、多语版本、签署/生效日期、正式语言、条款号和引用锚点；按 agreement_id 对齐；原文提出按章条款项切片。",
+      "action": "准备同一协定两种正式语言及一个历史版本，组织关联和条款。",
+      "expected": "语言及版本不覆盖；条款与正式原文对应；切片仅在领域范围获选后执行，不能以 block 代替已实现 chunk。",
+      "test": "AT-026"
+    },
+    {
+      "id": "KR-003",
+      "title": "政策立场与表述组织",
+      "scope": "领域",
+      "force": "S2 明确",
+      "source": "S2 §5/§16 B/§18",
+      "story": "US5",
+      "module": "M09",
+      "task": "T021",
+      "issues": "Q01 Q02 Q10",
+      "behavior": "B 类保留 stance、speaker、organization、event_date、publication_date、issue_tags、related_agreement_ids；发布机构、时间和立场必须可查。",
+      "action": "组织同一会晤的双方发布稿、记者问答和一篇评论。",
+      "expected": "双方分别可查；问答成对；评论与正式表述区分；事件时间不替代发布时间，关联协定有依据。",
+      "test": "AT-027"
+    },
+    {
+      "id": "KR-004",
+      "title": "法律法规组织",
+      "scope": "领域",
+      "force": "S2 明确",
+      "source": "S2 §6/§16 C/§18",
+      "story": "US5",
+      "module": "M09",
+      "task": "T021",
+      "issues": "Q01 Q02 Q04",
+      "behavior": "C 类保存公布、施行、有效性、修改/废止、条款及司法辖区；按章条/Section 组织，版本、时效、废止关系强制保存。",
+      "action": "加载现行法律、旧版、修改决定与政策解读，查询版本及条款关联。",
+      "expected": "旧版不覆盖现行；解读不能替代法规原文；生效和废止信息有证据；缺失强制信息作为异常处理。",
+      "test": "AT-028"
+    },
+    {
+      "id": "KR-005",
+      "title": "事件与证据关联",
+      "scope": "领域",
+      "force": "S2 明确，实体字段为建议",
+      "source": "S2 §7/§16 D",
+      "story": "US6",
+      "module": "M10",
+      "task": "T022",
+      "issues": "Q01 Q02 Q09",
+      "behavior": "D 类建立 event_id，分别关联中方、印方、共同声明、依据协定、地点、参与者、后续事件；不只是堆放新闻全文。",
+      "action": "以同一历史事件的三种立场材料及一条后续会晤构造事件。",
+      "expected": "每条证据可回文档；立场边界保留；followup_event_ids 和 agreements_referenced 无悬挂引用。",
+      "test": "AT-029"
+    },
+    {
+      "id": "KR-006",
+      "title": "内部材料受控导入",
+      "scope": "领域，内部导入单独待定",
+      "force": "S2 明确流程边界",
+      "source": "S2 §1/§7/§11 Controlled Import；S4 一 §1.1",
+      "story": "US6",
+      "module": "M10",
+      "task": "T022",
+      "issues": "Q01 Q16",
+      "behavior": "内部案例、纪要、转写不进入公共爬虫；若纳入项目，离线导入需分类分级、脱敏、权限标签和审计。",
+      "action": "提供一个受控内部样本及无权限访问请求，并核对公共发现队列。",
+      "expected": "公共队列没有内部资源；已选导入流程记录权限和审计；无权限不可读取；未纳入时明确记为范围外。",
+      "test": "AT-030"
+    },
+    {
+      "id": "KR-007",
+      "title": "文化知识区域化",
+      "scope": "领域",
+      "force": "S2 明确，组织键为建议",
+      "source": "S2 §8/§16 E",
+      "story": "US6",
+      "module": "M10",
+      "task": "T023",
+      "issues": "Q01 Q02 Q09",
+      "behavior": "E 类按地区、社区、主题组织；保留 source_region、source_authority 和适用范围；统计信息优先官方表；不将地方习俗泛化为整个国家。",
+      "action": "输入 Leh、Kargil 与 Sikkim 不同社区材料和一份统计表。",
+      "expected": "区域与社区有明确限定；统计保留层级和单位；无法证实的文化断言不补写。",
+      "test": "AT-031"
+    },
+    {
+      "id": "KR-008",
+      "title": "地名地图与来源视角",
+      "scope": "领域",
+      "force": "S2 明确，实体字段为建议",
+      "source": "S2 §9/§16 F；§15 IN-10",
+      "story": "US6",
+      "module": "M10",
+      "task": "T023",
+      "issues": "Q01 Q02 Q09 Q10",
+      "behavior": "F 类保留名称、别名、行政层级、地图版本、来源国家和视角及有效期；中印资料分别保留，争议边界不自动几何融合。",
+      "action": "输入两侧地图元数据、一次区划变更和一个受限地图产品。",
+      "expected": "版本与视角分别可查；旧名和新名有时间关系；受限产品不越权下载；没有自动融合几何。",
+      "test": "AT-032"
+    },
+    {
+      "id": "KR-009",
+      "title": "多语术语实体",
+      "scope": "领域",
+      "force": "S2 明确，字段表为建议",
+      "source": "S2 §10/§16 G",
+      "story": "US5",
+      "module": "M09",
+      "task": "T024",
+      "issues": "Q01 Q02 Q09",
+      "behavior": "G 类以 concept_id 关联 zh/en/hi 正式写法、别名、旧称、推荐译法和来源；依据正式多语材料，保留 jurisdiction 和有效期；不以开放词典覆盖官方译名。",
+      "action": "用有来源对齐的中英印术语，以及缺失印地语写法和司法辖区不同的概念建记录。",
+      "expected": "每种写法有来源；缺失语言不自动生成翻译；不同法律辖区概念不错误合并；原文与推荐译法分开。",
+      "test": "AT-033"
+    },
+    {
+      "id": "KR-010",
+      "title": "领域切片与检索交接",
+      "scope": "领域，与采集范围冲突",
+      "force": "S2 描述目标及最低字段",
+      "source": "S2 §1/§3/§16/§18；S4 一 §1.1",
+      "story": "US5",
+      "module": "M09",
+      "task": "T025",
+      "issues": "Q01 Q02 Q04 Q17",
+      "behavior": "S2 提出结构化、全文、向量、图谱和混合检索组合；chunk 必须带 source_url、citation_anchor、content_hash、crawl_time，PDF 还须页码；模型、索引和部署参数未给定。",
+      "action": "在领域范围和检索契约获选后，对派生 chunk 执行来源定位与字段验证，并按已定检索样本评价。",
+      "expected": "每个 chunk 可回原件及精确位置；采集与派生对象不混淆；检索质量只能按 Q17 已定指标判定。",
+      "test": "AT-034"
+    },
+    {
+      "id": "KR-011",
+      "title": "关键词验证与歧义控制",
+      "scope": "领域来源验收",
+      "force": "S2 最小验收要求",
+      "source": "S2 §13/§18；S4 一 §1.3",
+      "story": "US4",
+      "module": "M02",
+      "task": "T026",
+      "issues": "Q11 Q12 Q13",
+      "behavior": "每来源至少验证 10 个种子关键词并记录无结果/误召回；区分印度与印度尼西亚，LAC 结合 China/India-China 等上下文；主词通常 8—15 个为建议。",
+      "action": "每个入选来源执行不少于 10 个测试词，包含歧义词、正文命中和仅导航命中样本。",
+      "expected": "记录词、预期文档、实际命中、无结果和误召回；导航命中不直接入库；不足 10 词或缺证据不能报该来源完成。",
+      "test": "AT-035"
+    },
+    {
+      "id": "KR-012",
+      "title": "七类更新与建设顺序",
+      "scope": "领域",
+      "force": "S2 建议",
+      "source": "S2 §12；S4 三 §12",
+      "story": "US5",
+      "module": "M07",
+      "task": "T015",
+      "issues": "Q01 Q13",
+      "behavior": "保留 A 每周及重大文件触发、B 每日、C 每周及新法触发、D 每日并历史回填、E 月/季、F 季及区划变更、G 随 A/B/C/F 同步的建议；A/B/C/G 为原文 P0。",
+      "action": "检查已选更新配置与七类建议对照，模拟一次法规和一次区划变更事件。",
+      "expected": "已选类别按配置触发；周期差异有决策依据；原文建设优先级与本文件任务优先级不混为同一排序。",
+      "test": "AT-036"
+    },
+    {
+      "id": "KR-013",
+      "title": "来源专属规则保留",
+      "scope": "来源适配，启用名单待定",
+      "force": "S2 明确，S4 审查曾排除详列",
+      "source": "S2 §4—10/附录/§15/§18；S4 四 §4.1",
+      "story": "US4",
+      "module": "M02",
+      "task": "T026",
+      "issues": "Q12 Q13",
+      "behavior": "保留来源专属入口、过滤条件、主键、采集边界和字段要求；S4 曾暂不整理站点细节，不代表 S2 的原文要求消失。",
+      "action": "选取条约领域筛选、eGazette 会话 URL、Census 表结构和受限地图四种样本逐条验证。",
+      "expected": "边界海洋只作领域标签；eGazette 用稳定标识；Census 保存表代码/年份/地区；地图遵守公开产品边界，现场规则另行核验。",
+      "test": "AT-037"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T001",
+      "phase": "G0 规格评审",
+      "story": "COMMON",
+      "dependencies": "无"
+    },
+    {
+      "id": "T002",
+      "phase": "G0 规格评审",
+      "story": "COMMON",
+      "dependencies": "T001 的相关契约决策"
+    },
+    {
+      "id": "T003",
+      "phase": "G1 公共基础",
+      "story": "COMMON",
+      "dependencies": "T002"
+    },
+    {
+      "id": "T004",
+      "phase": "G1 公共基础",
+      "story": "US1",
+      "dependencies": "T003"
+    },
+    {
+      "id": "T005",
+      "phase": "G2 采集闭环",
+      "story": "US1",
+      "dependencies": "T004"
+    },
+    {
+      "id": "T006",
+      "phase": "G2 采集闭环",
+      "story": "US1",
+      "dependencies": "T005"
+    },
+    {
+      "id": "T007",
+      "phase": "G2 采集闭环",
+      "story": "US1",
+      "dependencies": "T006"
+    },
+    {
+      "id": "T008",
+      "phase": "G2 采集闭环",
+      "story": "US1",
+      "dependencies": "T007"
+    },
+    {
+      "id": "T009",
+      "phase": "G2 采集闭环",
+      "story": "US1",
+      "dependencies": "T008"
+    },
+    {
+      "id": "T010",
+      "phase": "G3 多格式结构",
+      "story": "US2",
+      "dependencies": "T009"
+    },
+    {
+      "id": "T011",
+      "phase": "G3 多格式结构",
+      "story": "US2",
+      "dependencies": "T010"
+    },
+    {
+      "id": "T012",
+      "phase": "G3 多格式结构",
+      "story": "US2",
+      "dependencies": "T010"
+    },
+    {
+      "id": "T013",
+      "phase": "G3 多格式结构",
+      "story": "US2",
+      "dependencies": "T011 T012"
+    },
+    {
+      "id": "T014",
+      "phase": "G4 更新与恢复",
+      "story": "US3",
+      "dependencies": "T013"
+    },
+    {
+      "id": "T015",
+      "phase": "G4 更新与恢复",
+      "story": "US3",
+      "dependencies": "T014"
+    },
+    {
+      "id": "T016",
+      "phase": "G4 更新与恢复",
+      "story": "US3",
+      "dependencies": "T015"
+    },
+    {
+      "id": "T017",
+      "phase": "G4 更新与恢复",
+      "story": "US3",
+      "dependencies": "T016"
+    },
+    {
+      "id": "T018",
+      "phase": "G5 采集验收",
+      "story": "US4",
+      "dependencies": "T017"
+    },
+    {
+      "id": "T019",
+      "phase": "G5 采集验收",
+      "story": "US4",
+      "dependencies": "T018"
+    },
+    {
+      "id": "T020",
+      "phase": "G6 领域扩展 条件任务",
+      "story": "US5",
+      "dependencies": "T002；Q01/Q10 已选择；T009 或等价固定文档样本"
+    },
+    {
+      "id": "T021",
+      "phase": "G6 领域扩展 条件任务",
+      "story": "US5",
+      "dependencies": "T020；Q02/Q04/Q09 已选择"
+    },
+    {
+      "id": "T022",
+      "phase": "G6 领域扩展 条件任务",
+      "story": "US6",
+      "dependencies": "T020；Q02/Q09 已选择；内部子任务另需 Q16"
+    },
+    {
+      "id": "T023",
+      "phase": "G6 领域扩展 条件任务",
+      "story": "US6",
+      "dependencies": "T020；Q02/Q09/Q10 已选择"
+    },
+    {
+      "id": "T024",
+      "phase": "G6 领域扩展 条件任务",
+      "story": "US5",
+      "dependencies": "T021；Q02/Q09 已选择"
+    },
+    {
+      "id": "T025",
+      "phase": "G7 检索交接 条件任务",
+      "story": "US5",
+      "dependencies": "T021 T024；Q01/Q17 已选择；单独检索规格完成"
+    },
+    {
+      "id": "T026",
+      "phase": "G5 来源验证",
+      "story": "US4",
+      "dependencies": "T019；Q12/Q13 已选择；领域指标按 Q01 范围启用"
+    },
+    {
+      "id": "T027",
+      "phase": "G8 交付收口",
+      "story": "COMMON",
+      "dependencies": "T019 T026；所有被选中的领域任务"
+    }
+  ],
+  "issues": [
+    {
+      "id": "Q01",
+      "status": "OPEN",
+      "title": "阶段范围与文档适用关系"
+    },
+    {
+      "id": "Q02",
+      "status": "OPEN",
+      "title": "七类知识的组织和交付"
+    },
+    {
+      "id": "Q03",
+      "status": "OPEN",
+      "title": "抓取到文档的关联"
+    },
+    {
+      "id": "Q04",
+      "status": "OPEN",
+      "title": "哈希 引用 版本语义"
+    },
+    {
+      "id": "Q05",
+      "status": "OPEN",
+      "title": "原件身份与物理去重"
+    },
+    {
+      "id": "Q06",
+      "status": "OPEN",
+      "title": "元数据缺失与必填冲突"
+    },
+    {
+      "id": "Q07",
+      "status": "OPEN",
+      "title": "附件对象与文档关系"
+    },
+    {
+      "id": "Q08",
+      "status": "OPEN",
+      "title": "结构数据与 full_text"
+    },
+    {
+      "id": "Q09",
+      "status": "OPEN",
+      "title": "ID 顺序 枚举与关系"
+    },
+    {
+      "id": "Q10",
+      "status": "OPEN",
+      "title": "来源字段和等级继承"
+    },
+    {
+      "id": "Q11",
+      "status": "OPEN",
+      "title": "质量阈值与样本分母"
+    },
+    {
+      "id": "Q12",
+      "status": "OPEN",
+      "title": "两套发现流程及站点规则"
+    },
+    {
+      "id": "Q13",
+      "status": "OPEN",
+      "title": "启用来源 时间范围 运行参数与规模"
+    },
+    {
+      "id": "Q14",
+      "status": "OPEN",
+      "title": "工程与成果目录边界"
+    },
+    {
+      "id": "Q15",
+      "status": "OPEN",
+      "title": "失败 部分成功和恢复对账"
+    },
+    {
+      "id": "Q16",
+      "status": "OPEN",
+      "title": "内部导入职责和控制"
+    },
+    {
+      "id": "Q17",
+      "status": "OPEN",
+      "title": "领域检索与边缘部署目标"
+    }
+  ],
+  "common_requirement_mapping": {
+    "C01": "FR-007 FR-008 FR-009 NFR-001",
+    "C02": "FR-001",
+    "C03": "FR-003",
+    "C04": "FR-004",
+    "C05": "FR-004 KR-011",
+    "C06": "FR-009 KR-001",
+    "C07": "FR-007 NFR-001",
+    "C08": "FR-010 FR-011 KR-010",
+    "C09": "FR-012",
+    "C10": "FR-014",
+    "C11": "FR-015 KR-004",
+    "C12": "FR-016 KR-012",
+    "C13": "FR-002 FR-011 FR-012",
+    "C14": "FR-002",
+    "C15": "FR-017 FR-018",
+    "C16": "NFR-001 NFR-002 NFR-004 KR-011",
+    "C17": "FR-004 KR-002 KR-003 KR-004 KR-005 KR-007 KR-008 KR-009"
+  }
+}

@@ -1,0 +1,3 @@
+{"block_id": "DEMO_D1_B0", "doc_id": "DEMO_D1", "order": 0, "block_type": "title", "text": "虚构采集示例", "source_anchor": {"dom_path": "main > h1"}, "extraction_method": "html_parser"}
+{"block_id": "DEMO_D1_B1", "doc_id": "DEMO_D1", "order": 1, "block_type": "paragraph", "text": "本页仅用于验证文档契约。", "source_anchor": {"dom_path": "main > p"}, "extraction_method": "html_parser"}
+{"block_id": "DEMO_D2_B0", "doc_id": "DEMO_D2", "order": 0, "block_type": "paragraph", "text": "虚构附件正文。", "source_anchor": {"dom_path": "main > p"}, "extraction_method": "html_parser"}

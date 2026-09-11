@@ -1,0 +1,1 @@
+{"source_id": "DEMO", "url": "https://example.invalid/unavailable.pdf", "time": "2026-09-11T12:00:00+08:00", "stage": "download", "error_type": "http_error", "message": "虚构 404，仅用于验证失败对象", "retry_count": 0, "final_action": "record_only"}

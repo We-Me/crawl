@@ -1,0 +1,24 @@
+# Copy to the project root only when pyproject.toml does not already exist.
+# Bootstrap template: no crawler dependencies or build backend selected yet.
+[project]
+name = "public-knowledge-collection"
+version = "0.1.0"
+description = "Public knowledge collection and standardized data delivery"
+requires-python = ">=3.9,<3.10"
+dependencies = []
+
+[dependency-groups]
+dev = []
+
+[tool.uv]
+prerelease = "disallow"
+index-strategy = "first-index"
+# T003: remove package=false after selecting/configuring a compatible build
+# backend and src package discovery, then verify editable and regular installs.
+package = false
+
+[[tool.uv.index]]
+name = "tsinghua"
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+# Replace the built-in PyPI default; do not add an official-PyPI fallback.
+default = true

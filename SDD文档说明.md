@@ -1,0 +1,65 @@
+# 公开知识采集项目 SDD 文档说明
+
+版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
+
+本套文件根据工作区的两份 Word 原始规范和两份 Markdown 需求审查生成，将公开资料采集与七类知识组织转成需求、设计、契约、任务和验收追踪。按规格驱动开发理解 SDD，参考 GitHub Spec Kit 的文档结构。没有默认某个版本覆盖另一版本，所有未决事项明确保留。
+
+本次已经完成的是标准文档编制和文档/契约样例核验；尚未进行业务范围批准、爬虫实现、真实采集或系统验收。文档采用 Markdown，方便开发和版本维护；四份输入统一存放于 docs/；两份 Word 字节不变，两份需求审查仅更新链接，业务内容不变。
+
+## 项目目录与迁移
+
+四份输入文件统一放在项目根目录的 docs/ 下；.specify/ 和 specs/ 保持现有位置。新项目开发时整体复制以下内容，保持相对路径：
+
+```text
+新项目/
+├── .env.example           开发环境配置样例
+├── .gitignore             排除本地环境与开发数据
+├── AGENTS.md              Agent 启动与 Python 开发约束
+├── docs/                  两份 Word 原件和两份需求审查 Markdown
+├── .specify/memory/        项目原则
+├── specs/001-public-knowledge-collection/  完整规格 契约 样例和追踪
+├── templates/uv/pyproject.toml  uv 镜像环境模板
+├── tools/verify_sdd_documents.py
+├── tools/verify_sdd_documents.ps1
+└── SDD文档说明.md
+```
+
+来源登记的 path 字段相对于项目根目录，指向 docs/；两份审查文件内部也使用相对链接。复制时包含隐藏目录 .specify，以及 .env.example 和 .gitignore；不要复制真实 .env、.venv 或开发 data/。build_sdd_documents.py 是初始生成脚本，可不复制；不要通过重跑它覆盖已评审的规格。
+
+## 文档导航
+
+| 文件 | 用途 |
+| --- | --- |
+| [项目原则](.specify/memory/constitution.md) | 规格治理、保真追溯、来源和范围原则 |
+| [需求规格](specs/001-public-knowledge-collection/spec.md) | 用户场景、37 条需求、成功标准和边界 |
+| [待决事项](specs/001-public-knowledge-collection/clarifications.md) | 17 项冲突/缺口、候选处理和受影响工作 |
+| [技术设计](specs/001-public-knowledge-collection/plan.md) | 模块职责、数据流、恢复、目录与风险 |
+| [Python 开发约束与选型](specs/001-public-knowledge-collection/tech-stack.md) | Python 与 uv 已明确；优先 3.9；保守引入成熟稳定依赖，框架待选 |
+| [项目起步说明](specs/001-public-knowledge-collection/project-startup.md) | src 布局、环境变量、开发与生产数据目录及 9 项待执行配置验收 |
+| [设计依据](specs/001-public-knowledge-collection/research.md) | SDD 方法依据、7 项候选决策及新增目录配置决定 |
+| [数据模型](specs/001-public-knowledge-collection/data-model.md) | 原字段层级、对象关系和领域映射 |
+| [数据契约](specs/001-public-knowledge-collection/contracts/README.md) | 6 份 JSON Schema 与虚构 JSONL 样例 |
+| [实施任务](specs/001-public-knowledge-collection/tasks.md) | 27 项待实施任务、依赖和完成标准 |
+| [验收规范](specs/001-public-knowledge-collection/acceptance.md) | 37 项未执行用例、指标和验收证据格式 |
+| [追踪矩阵](specs/001-public-knowledge-collection/traceability.md) | 来源到需求、模块、任务、用例的对应 |
+| [来源登记](specs/001-public-knowledge-collection/sources.md) | 四份输入的指纹和 Word 结构转录 |
+| [来源适配输入](specs/001-public-knowledge-collection/source-adapters.md) | S2 的 18 个首批来源及专站规则登记 |
+| [质量检查表](specs/001-public-knowledge-collection/checklists/requirements.md) | 已核查的文档项和后续实施/验收门槛 |
+| [交接指南](specs/001-public-knowledge-collection/quickstart.md) | 阅读顺序、文档校验和后续开发使用方式 |
+| [一致性核验](specs/001-public-knowledge-collection/analysis.md) | 本次实际检查结果及仍未解决的业务问题 |
+
+## 关键范围处理
+
+S1 V1.1 明确采集阶段不做 RAG 切片和索引，S2 V1.3 确实包含七类实体、切片、索引及边缘目标。两侧都被保留：采集要求及领域条件要求分别可追踪。Q01 的范围选择尚未完成，因此这是一套可评审草案，不能冒充无待决项的实施基线。
+
+原文未给出完整的附件对象、抓取到文档的关联、哈希统一含义和领域交付格式。本套提供可审查候选，明确哪些是新增设计；不把此前无依据的发布目录、分类审核状态或引用清单恢复成强制要求。每个来源的现场规则、数据规模和验收阈值仍按原文事实保留为待定。
+
+## 验证与后续使用
+
+运行 [verify_sdd_documents.ps1](tools/verify_sdd_documents.ps1) 可以复核文档链接、编号映射、四份原文件指纹、Schema 样例、哈希和引用。核验不会联网采集。按照待决事项确定当前范围后，再执行任务文档；真实软件和数据验收按验收规范记录。
+
+文档组织参考 [GitHub Spec Kit 快速指南](https://github.github.com/spec-kit/quickstart.html)，字段契约采用 [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12)。引用用于说明方法，不表示项目通过外部标准认证，也不表示安装或执行了 Spec Kit 工具。
+
+## uv 镜像模板与 Linux 开发
+
+项目 Python 包必须使用镜像源，复制项目时包含 templates/。从 [uv 镜像模板与 Linux 使用说明](specs/001-public-knowledge-collection/uv-template.md) 开始，先复制或合并配置，再由 Codex 按任务推进；当前模板无业务依赖，不是已完成的业务环境。

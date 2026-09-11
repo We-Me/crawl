@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "失败记录基础契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。S1 §12 至少字段；原文未给类型表，类型与非空约束为本次工程表达。",
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源 ID"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1,
+      "description": "fetch/download/parse/normalize 等，开放"
+    },
+    "error_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "错误类型"
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "错误信息"
+    },
+    "retry_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "final_action": {
+      "type": "string",
+      "minLength": 1,
+      "description": "后续处理动作"
+    }
+  },
+  "required": [
+    "source_id",
+    "url",
+    "time",
+    "stage",
+    "error_type",
+    "message",
+    "retry_count",
+    "final_action"
+  ],
+  "additionalProperties": true
+}

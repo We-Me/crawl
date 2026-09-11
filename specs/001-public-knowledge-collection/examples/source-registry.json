@@ -1,0 +1,27 @@
+{
+  "source_id": "DEMO",
+  "source_name": "虚构示例来源",
+  "base_domain": "example.invalid",
+  "allowed_domains": [
+    "example.invalid"
+  ],
+  "enabled": false,
+  "seed_terms": [
+    "印度",
+    "中印",
+    "边境",
+    "边界",
+    "协定",
+    "条约",
+    "会谈",
+    "关系",
+    "合作",
+    "机制"
+  ],
+  "request_rate_per_second": 1,
+  "max_concurrency": 1,
+  "connect_timeout_seconds": 10,
+  "read_timeout_seconds": 30,
+  "max_retries": 2,
+  "robots_policy": "示例，不访问网络；真实来源须核验"
+}

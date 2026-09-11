@@ -1,0 +1,58 @@
+[
+  {
+    "id": "S1",
+    "filename": "一般爬虫采集与标准化数据交付需求规范_V1.1_仅采集整理.docx",
+    "bytes": 51519,
+    "sha256": "488c210129d21a5e31746ae975bf9f374103a220f171372884114b83bca9b155",
+    "path": "docs/一般爬虫采集与标准化数据交付需求规范_V1.1_仅采集整理.docx",
+    "relocation_history": {
+      "from_path": "一般爬虫采集与标准化数据交付需求规范_V1.1_仅采集整理.docx",
+      "to_path": "docs/一般爬虫采集与标准化数据交付需求规范_V1.1_仅采集整理.docx",
+      "previous_bytes": 51519,
+      "previous_sha256": "488c210129d21a5e31746ae975bf9f374103a220f171372884114b83bca9b155",
+      "change": "Moved to docs; bytes unchanged"
+    }
+  },
+  {
+    "id": "S2",
+    "filename": "七类知识库知识来源与采集方案_V1.3_宽泛检索关键词版.docx",
+    "bytes": 71664,
+    "sha256": "ff665c97313b080f47a4199137125e0f971e4cfc5d5dedf404768e5a42e984e3",
+    "path": "docs/七类知识库知识来源与采集方案_V1.3_宽泛检索关键词版.docx",
+    "relocation_history": {
+      "from_path": "七类知识库知识来源与采集方案_V1.3_宽泛检索关键词版.docx",
+      "to_path": "docs/七类知识库知识来源与采集方案_V1.3_宽泛检索关键词版.docx",
+      "previous_bytes": 71664,
+      "previous_sha256": "ff665c97313b080f47a4199137125e0f971e4cfc5d5dedf404768e5a42e984e3",
+      "change": "Moved to docs; bytes unchanged"
+    }
+  },
+  {
+    "id": "S3",
+    "filename": "需求审查_共同要求.md",
+    "bytes": 5538,
+    "sha256": "18cea3fa952c0eadf05fa434f78540e023af31e0e289933d4043faaae2faf001",
+    "path": "docs/需求审查_共同要求.md",
+    "relocation_history": {
+      "from_path": "需求审查_共同要求.md",
+      "to_path": "docs/需求审查_共同要求.md",
+      "previous_bytes": 5628,
+      "previous_sha256": "307164b3f649a7d494379dd988eafe79e63204be08de13d9b410c87073fad01d",
+      "change": "Moved to docs; Markdown link targets changed to portable relative paths only"
+    }
+  },
+  {
+    "id": "S4",
+    "filename": "需求审查_差异与单方要求.md",
+    "bytes": 50636,
+    "sha256": "b8f390f7cff574cb51a58425668a2b6ed7234c53b23faf0b686e2abbb3612698",
+    "path": "docs/需求审查_差异与单方要求.md",
+    "relocation_history": {
+      "from_path": "需求审查_差异与单方要求.md",
+      "to_path": "docs/需求审查_差异与单方要求.md",
+      "previous_bytes": 50726,
+      "previous_sha256": "1951e9f83c5cad606ac9edace2cce1e6e2b58a735c36533282d3891509689022",
+      "change": "Moved to docs; Markdown link targets changed to portable relative paths only"
+    }
+  }
+]

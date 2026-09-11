@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "来源配置候选契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。整体为 Q10/Q12/Q13 的设计候选。S2 §11 是建议字段表，不是已确认的通用强制 schema；额外字段明确写在 description。",
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源标识"
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源名称"
+    },
+    "base_domain": {
+      "type": "string",
+      "minLength": 1,
+      "description": "不含协议的域名"
+    },
+    "country": {
+      "type": "string",
+      "description": "S2 注册表国家"
+    },
+    "authority_level": {
+      "enum": [
+        "A1",
+        "A2",
+        "B",
+        "C"
+      ]
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "A—G 候选类别；映射待 Q02"
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": ""
+    },
+    "blocked_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": ""
+    },
+    "crawl_mode": {
+      "type": "string",
+      "description": ""
+    },
+    "update_interval": {
+      "type": "string",
+      "description": "可读策略；正式调度语法待选"
+    },
+    "parser_type": {
+      "type": "string",
+      "description": ""
+    },
+    "language": {
+      "type": "string",
+      "description": ""
+    },
+    "stance_default": {
+      "enum": [
+        "CN_OFFICIAL",
+        "IN_OFFICIAL",
+        "BILATERAL",
+        "NEUTRAL"
+      ]
+    },
+    "robots_policy": {
+      "type": "string",
+      "description": "规则和核验结果"
+    },
+    "terms_checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_success_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "owner": {
+      "type": "string",
+      "description": ""
+    },
+    "allowed_domains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "S1 §3.4，合并为配置是候选",
+      "minItems": 1
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "本次候选字段，示例关闭"
+    },
+    "seed_terms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "S2 建议通常 8—15 个常规词；测试词另记"
+    },
+    "supplement_terms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "候选补漏词字段"
+    },
+    "exclude_terms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "候选排除词字段"
+    },
+    "request_rate_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "max_concurrency": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "connect_timeout_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "read_timeout_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "source_id",
+    "source_name",
+    "base_domain",
+    "allowed_domains",
+    "enabled"
+  ],
+  "additionalProperties": true
+}

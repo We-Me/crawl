@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "附件对象候选契约",
+  "$comment": "评审草案 0.1.0；未获业务批准。S1 §3.3 未给完整对象 schema；此文件整体是 Q07 候选，尤其是字段名/status/关联。成功附件必须有路径和哈希；失败附件另在失败账记录。",
+  "type": "object",
+  "properties": {
+    "attachment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S1 §3.3 原文信息项"
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1,
+      "description": "候选字段名，原始文件名"
+    },
+    "file_type": {
+      "type": "string",
+      "description": "候选字段名，文件类型/MIME 表达须冻结"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "raw_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+      "description": "候选约束：以 / 分隔、相对于约定数据根，不含父目录跳转、绝对路径或 Windows 盘符"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "crawl_id": {
+      "type": "string",
+      "description": "候选：成功获取记录"
+    },
+    "doc_id": {
+      "type": "string",
+      "description": "候选：解析后的逻辑文档"
+    },
+    "status": {
+      "enum": [
+        "downloaded",
+        "failed"
+      ]
+    }
+  },
+  "required": [
+    "attachment_id",
+    "filename",
+    "file_type",
+    "url",
+    "status"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "downloaded"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "raw_path",
+          "sha256",
+          "crawl_id"
+        ]
+      }
+    }
+  ]
+}
