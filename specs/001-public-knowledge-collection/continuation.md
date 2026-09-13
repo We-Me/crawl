@@ -2,11 +2,11 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 ## 阶段总体状态（2026-09-13 补充）
 
-第四阶段整体尚未完成，当前仅 NEXT-09 工程交接清单和 NEXT-05A 决策输入准备已完成。NEXT-04 已因用户提供的 WSL 安装证据转为 READY_FOR_VALIDATION；真实 DOC/XLS 成功转换尚未验证。本轮仅记录用户证据，未重跑目标 WSL 命令；模拟转换通过不能代替真实文件验收。T012/T019/T026/T027 保持部分完成，正式业务待决与环境阻塞分别记录。
+第四阶段整体尚未完成：NEXT-09 工程交接清单、NEXT-05A 决策输入、NEXT-04 真实旧格式验证已完成（T012 勾选）。NEXT-04 不再停留在 READY_FOR_VALIDATION：转换、结构保留、失败路径与原件追溯均已在目标 Linux 用真实组件执行并留证，未用模拟转换器代替。T019/T026/T027 保持部分完成，正式业务待决与执行环境限制分别记录。
 
 本次检查范围：现有源码、依赖声明、任务、验收及留存日志；未重新运行业务测试或请求真实站点。下述工程流程根据用户提出的“反复测试导致瓶颈”补充，不代替未决业务范围选择。本文件是已开发项目的续作入口；新空项目仍按 project-startup.md 初始化。
 
@@ -60,7 +60,7 @@
 | NEXT-01 | DONE，正式 CLI 已交付 | 复用既有入口，不重新实现 |
 | NEXT-02 | DONE，运行说明初版已交付 | 随具体功能更正命令和限制 |
 | NEXT-03 | DONE（工程试点），正式来源验收待决 | CN-08 三请求闭环已有证据；正文缺口转 NEXT-07 |
-| NEXT-04 | BLOCKED_ENV，环境核实完成 | Linux 组件/权限改变后恢复真实转换验证 |
+| NEXT-04 | DONE（2026-09-13）：真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯已验证，T012 勾选 | 复用 [NEXT-04 证据](evidence/next04-legacy-office.md)；5 项依赖组件的用例已于 2026-09-13 在目标 Linux 正常 shell 复跑通过（13 passed），无需重复安装组件 |
 | NEXT-05 | WAITING_DECISION | 复用 decision-requests.md，按采集相关决定收口 |
 | NEXT-06 | DONE（工程交付），预算与停止报告已验证 | 复用 `--max-requests`/`--deadline-seconds` 与退出码 3；正式验收不受影响 |
 | NEXT-07 | DONE（工程修复），CN-08 正文边界已按原件修复 | 逐站正文取值与 T026 正式验收仍待 Q12/Q13 |
@@ -72,8 +72,8 @@
 [evidence/T027-cli-runbook.md](evidence/T027-cli-runbook.md) 与 [evidence/logs/t027-cli.txt](evidence/logs/t027-cli.txt)）；
 NEXT-03 已产出 [CN-08 试点卡](pilot-cn08.md) 并完成一次受限试点（3 个请求闭环，见
 [evidence/logs/t026-pilot-cn08.txt](evidence/logs/t026-pilot-cn08.txt)），正式来源验收仍待 Q12/Q13；
-NEXT-04 记录目标 Linux 的 LibreOffice 获取方式与 root 权限阻塞（见
-[evidence/logs/t012-libreoffice-env.txt](evidence/logs/t012-libreoffice-env.txt)）；
+NEXT-04 当时记录目标 Linux 的 LibreOffice 获取方式与 root 权限阻塞（见
+[evidence/logs/t012-libreoffice-env.txt](evidence/logs/t012-libreoffice-env.txt)）；该阻塞已由 2026-09-13 的真实转换验证关闭（[NEXT-04 证据](evidence/next04-legacy-office.md)）；
 NEXT-05 仍待业务决定，所需决定与选项见 [阶段交付决策请求](decision-requests.md)。闭环中发现并修复同日多次运行 crawl_id 重复导致补抓指向错误原件的缺陷。
 
 阶段三进展（2026-09-11 追加）：NEXT-06/NEXT-07/NEXT-08 已完成工程交付——
@@ -83,9 +83,9 @@ CN-08 正文边界修复与离线差异证据（[evidence/next07-cn08-body.md](e
 阶段候选一次全量回归 345 passed（[evidence/logs/stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)）。
 正式 CLI 仍为 crawl，命令与退出码以 runbook.md 为准。
 
-剩余阻塞：NEXT-04（目标 Linux 的 LibreOffice 组件/权限未变）与 NEXT-05（Q11—Q15 等业务决定）。
-NEXT-06—NEXT-08 完成不勾选 T012/T019/T026/T027 的正式验收；下一轮若无新的缺陷或决定，
-不重开已完成项，也不通过增加测试数量维持工作。
+剩余阻塞：NEXT-05（Q11—Q15 等业务决定）与 NEXT-10 的分块含义确认（材料已给出，未回答前沿用现有 blocks）。
+2026-09-13 追加：NEXT-04 已关闭，T012 勾选完成；NEXT-06—NEXT-08 完成不勾选 T019/T026/T027 的正式验收；
+下一轮若无新的缺陷或决定，不重开已完成项，也不通过增加测试数量维持工作。
 
 ## 守规真实站点测试 DEV-012
 
@@ -114,8 +114,10 @@ NEXT-06—NEXT-08 完成不勾选 T012/T019/T026/T027 的正式验收；下一�
 ## 当前调度入口：阶段四
 
 阶段三提交 d39bdc0 已完成 NEXT-06/07/08。以 [阶段四交付收口](stage-four.md) 为当前入口：NEXT-09 已交付
-[工程交付清单](delivery-inventory.md)，NEXT-05A 已在 [决策请求](decision-requests.md) 备好确认栏；NEXT-04 仅环境条件改变后恢复，
-NEXT-05B/C 等相关业务决定确认后实施。不要重开已完成工程项；独立工作已完成，当前只剩业务决定与环境阻塞，应交接等待，不扩大测试。
+[工程交付清单](delivery-inventory.md)，NEXT-05A 已在 [决策请求](decision-requests.md) 备好确认栏；
+NEXT-04 真实旧格式验证已于 2026-09-13 完成（T012 勾选），NEXT-10 的澄清材料已给出并等待一次回答；
+NEXT-05B/C 等相关业务决定确认后实施。不要重开已完成工程项；NEXT-04/NEXT-09/NEXT-05A 不重做，
+不扩大测试，也不在没有新证据时重复全量回归。
 
 ## 2026-09-13 当前范围与续作
 

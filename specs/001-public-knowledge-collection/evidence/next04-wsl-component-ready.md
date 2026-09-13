@@ -14,3 +14,8 @@ $ uv run --locked --no-python-downloads python -c "from crawler.parser.legacy_pa
 用户明确确认安装成功；以上将消息中 Markdown 转义的下划线恢复为实际 Python 标识符。结论：目标 WSL 中组件可用且现有项目解析器可发现，历史“缺组件、待安装”阻塞解除。NEXT-04 状态为 READY_FOR_VALIDATION，真实 DOC/XLS 成功转换、结构完整性与原件追溯仍未验证，T012 不自动勾选，第四阶段整体仍未完成。
 
 无需重新安装或再次请求安装授权；下一 Agent 在同一 WSL 项目复用已选 Python、uv 和锁文件，开展真实 OLE2 DOC/XLS 各一份的转换与管线验证。其他主机不能直接继承此环境结论。旧环境日志作为历史记录保留，最新状态以本证据为准。
+
+2026-09-13 后续：上述组件已按本文件要求用于真实转换验证，结果见
+[NEXT-04 真实旧式 Office 转换与追溯](next04-legacy-office.md)。NEXT-04 已由
+READY_FOR_VALIDATION 转为完成，T012 勾选；本文件保留为“组件就绪”时点的记录，
+其环境结论仍有效（组件未重装、版本未变）。

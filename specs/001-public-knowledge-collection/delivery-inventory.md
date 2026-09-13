@@ -2,7 +2,7 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 版本：0.1.0｜日期：2026-09-11｜状态：工程交接清单；工程交接完成不等于正式验收完成
 
@@ -15,6 +15,25 @@
 - **未随仓库交付的本机产物**：被 `.gitignore` 排除的 `dist/`、`data/`、`.venv/` 等（存在则给哈希，未留存则如实写未交付）。
 
 本清单不改变 [验收规范](acceptance.md) 的用例状态和 [待决事项](clarifications.md) 的 Q 项结论。
+
+## 2026-09-13 增量（不重写上文 2026-09-11 基线）
+
+- NEXT-04 真实旧式 DOC/XLS 验证已完成，T012 勾选；两条记录随之更新：
+  旧式转换环境（第 5 节表内 `t012-libreoffice-env.txt` 行）已由
+  [NEXT-04 证据](evidence/next04-legacy-office.md) 关闭；系统组件缺口（第 6 节）中
+  LibreOffice 已安装并用于验证，不再是缺口。
+- 源码基线前进：`src/crawler/parser/legacy_parser.py`（失败消息区分退出码/无输出）、
+  `src/crawler/pipeline.py`（新增 `legacy_converter` 注入点）；新增
+  `tests/fixtures/office/notice.doc`、`notice.xls`、`tests/test_legacy_office_real.py`、
+  `tools/make_legacy_fixtures.py`。第 1 节的 `d39bdc0` 基线仅适用于 2026-09-11 版清单。
+- 候选产物已重建，与历史产物的哈希对比见 [NEXT-04 证据](evidence/next04-legacy-office.md)；
+  `dist/` 仍不随仓库交付。
+- 本轮交付（NEXT-04/T012、NEXT-10 澄清材料、决策输入与「仍需解读事项（含阶段四归属）」）已提交，
+  并按用户要求合并为一条阶段四提交，提交号以 `git log -1` 为准，工作树干净；组件用例级证据
+  （13 passed）与沙箱内诊断见 [NEXT-04 证据](evidence/next04-legacy-office.md)。
+- 未交付范围与业务待决（Q01 剩余分块含义、Q11、Q12、Q13、Q14）不变；NEXT-10 澄清材料见
+  [当前范围与分块](scope-and-blocking.md)，仍需解读事项及其阶段四归属见
+  [决策请求](decision-requests.md) 的「仍需解读事项（含阶段四归属）」一节。
 
 ## 1. 版本基线
 
@@ -64,6 +83,9 @@
 | `dist/public_knowledge_collection-0.1.0.tar.gz` | 715340 字节 | `2c7399c52a128846abc04882aab46a156a70c3898dc85935ebf0309c053e96d0` |
 
 - 构建时间 2026-09-11 21:40，构建命令与安装验证见 [next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)（`uv build`，构建后端 hatchling 来自登记清华镜像）。
+- 阶段四续作（2026-09-13）已重建候选产物（源码修复 + 测试/文档收尾快照）：当前候选哈希、
+  逐成员比对与 `--no-build-isolation` 的沙箱构建方式见 [NEXT-04 证据](evidence/next04-legacy-office.md)；
+  本表仍只记录 2026-09-11 历史产物，两者不要混用。
 - 阶段四 part1 的只读核验记录：wheel 内 70 个 `crawler/**` 的 `.py`/`.json`/`.yaml` 成员与 `src/` 同名文件 SHA-256 全部一致，wheel 与当前源码对应；未重建 wheel。
 - wheel 含控制台入口（`crawl = crawler.cli:main`）、`crawler/config/sources.yaml` 与 6 份契约；阶段三随包契约的源码外普通安装证据见 [next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)。
 - 历史日志中的临时目录（`/tmp/t027-wheel`、`/tmp/next08-venv`、`/tmp/next08-run`、`/tmp/cn08-pilot`）已不存在，**未随仓库交付**；需要时按 [运行说明](runbook.md) 重新安装/重建。

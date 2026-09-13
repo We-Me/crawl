@@ -2,7 +2,7 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
@@ -104,7 +104,7 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
 
   证据（2026-09-11）：文本 PDF 逐页段落/表格、扫描件 OCR 页码与置信度、空页与部分/全部失败状态均有固定样本用例，见 `evidence/T010-T013-parsers.md`；本任务已完成。
 
-- [ ] T012 [US2] 实现 Office、CSV、JSON/XML/API 的原始结构保留及已冻结的结构数据表达。
+- [x] T012 [US2] 实现 Office、CSV、JSON/XML/API 的原始结构保留及已冻结的结构数据表达。
 
   依赖：T010。角色：解析开发。计划路径：`src/crawler/parser/docx_parser.py；src/crawler/parser/xlsx_parser.py；src/crawler/parser/api_parser.py`。需求：FR-012。
 
@@ -113,6 +113,8 @@ T001 按相关 Q 项逐项推进，不必等全部领域问题决定后才处理
   证据（2026-09-11）：DOCX/XLSX/CSV/JSON/XML 结构夹具通过，分派器按内容与扩展名选择解析器；旧式 DOC/XLS 经 OLE2 识别 + LibreOffice 转换路线验证（本机无 soffice，缺组件时明确报错），见 `evidence/T010-T013-parsers.md`；历史记录中的“完成”仅覆盖已有工程验证；本次按完整完成标准更正为部分完成，剩余项见下方续作说明。
 
   证据（2026-09-11，环境核实）：目标 Linux（Ubuntu 24.04.4 LTS）未安装 LibreOffice，apt 候选 `libreoffice-writer`/`libreoffice-calc` 4:24.2.7 可用（Ubuntu 镜像），但 sudo 需密码、无 root 授权，本轮未安装；缺组件时 `parse_legacy` 显式抛出 `LegacyFormatError`，不静默回退，见 `evidence/logs/t012-libreoffice-env.txt`。
+
+  证据（2026-09-13，真实旧格式转换完成）：用户先前安装的 LibreOffice 24.2.7.2 420(Build:2)（`/usr/bin/soffice`）已用于真实 OLE2 样本验证。新增自产固定样本 `tests/fixtures/office/notice.doc`（sha256 `71dd62f6…`，MS Word 97）与 `notice.xls`（sha256 `aa8bbcb0…`，MS Excel 97-2003），由 `tools/make_legacy_fixtures.py` 从既有 OOXML 夹具经系统组件生成（DOC 走 ODT 中转以保留表格），非改扩展名伪文件。经现有 `parse_attachment`→`parse_legacy`→`soffice_converter` 路线实测：DOC 转出 6 块（heading L1/paragraph/heading L2/list_item×2/table，表头 `Item/Quantity/Amount` 与 2 行数据保留）；XLS 转出 3 个 sheet 状态 `ok/ok/empty`，Summary 表头（含单位）、2 行数据、Notes 表保留，空 sheet 记 `sheet_3_empty`；截断 OLE2 触发显式 `LegacyFormatError`，无空成功。原件保留与 documents/blocks 追溯链路经 `tests/test_legacy_office_real.py` 覆盖（含注入转换器的管线接线用例，已通过）。本轮同时修复失败消息误报退出码的缺陷（LibreOffice 无法加载源文件时以 0 退出且不产出文件，原实现报 `code=0`）。完整记录、样本来源与限制见 `evidence/next04-legacy-office.md`。受限沙箱内 5 项依赖组件的用例按能力探测 skip（`which` 到二进制但转换被沙箱拒绝，如实报 skip 而非失败；`needs_soffice` 已从“二进制存在”改为“样本真的转换成功一次”）；13 项用例已全部通过——8 项不依赖组件在沙箱内通过（含 OLE2 流结构校验），5 项依赖组件的用例已于 2026-09-13 在目标 Linux 正常 shell 复跑通过（命令见证据文件），不影响已完成的能力验证。
 
 - [x] T013 [US2] 统一清洗、日期、URL、语言和不改写约束，复核各解析器全文一致性。
 
@@ -259,20 +261,20 @@ T002 按 [uv 模板说明](uv-template.md) 核验登记镜像、依赖兼容性�
 
 ## 当前续作优先级与状态更正
 
-以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01/02 已完成，NEXT-03 工程试点已完成；NEXT-06/07/08 已完成；NEXT-09 交付清单与 NEXT-05A 决策确认栏已交付，NEXT-04 待环境条件改变，NEXT-05B/C 待相关业务决定。NEXT 是现有任务子项，不改变 27 个 T 编号。
+以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01/02 已完成，NEXT-03 工程试点已完成；NEXT-06/07/08 已完成；NEXT-09 交付清单与 NEXT-05A 决策确认栏已交付；NEXT-04 真实旧格式验证已完成（见下）；NEXT-10 澄清材料已给出，等待需求方一次确认；NEXT-05B/C 待相关业务决定。NEXT 是现有任务子项，不改变 27 个 T 编号。
 
-T012：DOCX/XLSX/结构格式及旧格式接口已有证据，真实 LibreOffice DOC/XLS 转换尚缺，故部分完成。T019：夹具级验证已完成，AT-014/AT-024 及正式业务验收尚缺，故部分完成。取消勾选不表示删除代码或重做既有有效测试。T003 依赖 T002 的已验证环境部分；T013 及后续已有工程结果在已验证格式上继续有效。T026 工程机制和有限探测可使用 T019 已有工程证据；正式来源验收仍依赖有关业务决定。T027 的 CLI 与交接准备可提前实施，但总体验收保留原依赖。
+2026-09-13 更正：T012 已完成并勾选——DOCX/XLSX/CSV/JSON/XML 结构保留已有证据，真实 LibreOffice 24.2.7.2 下的 OLE2 DOC/XLS 转换、结构保留与失败路径已实测，原件追溯链路已由用例覆盖，见 `evidence/next04-legacy-office.md`；依赖组件的 5 项用例已于 2026-09-13 在目标 Linux 正常 shell 复跑通过（该文件 13 passed），能力已验证的事实得到用例级确认。T019：夹具级验证已完成，AT-014/AT-024 及正式业务验收尚缺，故保持部分完成。取消勾选不表示删除代码或重做既有有效测试。T003 依赖 T002 的已验证环境部分；T013 及后续已有工程结果在已验证格式上继续有效。T026 工程机制和有限探测可使用 T019 已有工程证据；正式来源验收仍依赖有关业务决定。T027 的 CLI 与交接准备可提前实施，但总体验收保留原依赖。
 
 2026-09-11 续作进展：NEXT-01/NEXT-02 完成（正式 CLI 与 Linux 运行说明，见 `runbook.md`）；NEXT-03 产出 CN-08 试点卡并完成一次受限真实试点；NEXT-04 记录 LibreOffice 环境阻塞；NEXT-05 仍待 Q01/Q11/Q12/Q13 业务决定。
 
 ## 阶段二复核后的续作入口
 
-阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
+阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。（原文记 NEXT-04 受 Linux 组件权限阻塞；该阻塞已由 2026-09-13 的真实转换验证关闭。）NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T019/T026/T027 保留部分完成状态。
 
 ## 阶段三后的当前入口
 
-NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付，按 [阶段四交付收口](stage-four.md) 等待业务确认与 Linux 组件条件；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
+NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付；NEXT-04 的真实旧格式验证已于 2026-09-13 完成（T012 勾选），剩余正式业务待决见 [阶段四交付收口](stage-four.md)。T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
 
 ## 2026-09-13 当前范围与续作
 
-以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成，NEXT-10 仅澄清原始结构分块与跨段语篇组合的差异。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量、来源与旧格式组件缺口继续保留，不因范围收敛自动通过。
+以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成；NEXT-04 真实旧格式验证与 T012 勾选已完成（`evidence/next04-legacy-office.md`）；NEXT-10 已给出原始结构块与跨段语篇组合的短示例并请求一次确认，未回答前沿用现有 blocks。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量与来源缺口继续保留，不因范围收敛自动通过。

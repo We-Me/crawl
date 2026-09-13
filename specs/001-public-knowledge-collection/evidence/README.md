@@ -20,7 +20,8 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [T019 采集验收与环境用例](T019-acceptance.md) | AT-001—AT-024 夹具级验收、schema/追溯校验、CFG-01—CFG-09（含交付态 wheel 普通安装复核与 AT 子句补强后的复验） | 已完成；AT-014/AT-024 因 Q11 标 blocked；真实来源待 Q12/Q13 |
 | [T027 正式 CLI、运行说明与缺陷修复](T027-cli-runbook.md) | NEXT-01/NEXT-02：`crawl` 子命令、Linux 运行说明、同日重复运行 crawl_id 缺陷的修复与回归 | 已完成并通过本机闭环（14 项 CLI 用例、全量 325 passed、wheel 含入口，见 [logs/t027-cli.txt](logs/t027-cli.txt)、[logs/t027-full-pytest.txt](logs/t027-full-pytest.txt)、[logs/t027-lock-wheel.txt](logs/t027-lock-wheel.txt)）；T027 总体验收仍待 T019/T026 正式收口 |
 | [CN-08 有限试点证据](T026-pilot-cn08.md) | NEXT-03：站点卡、离线选择器复算与一次 3 请求的受限真实闭环 | 工程试点已完成（[logs/t026-pilot-cn08.txt](logs/t026-pilot-cn08.txt)）；至少 10 词、歧义与逐站规则仍待 Q12/Q13 |
-| [T012 旧格式转换环境核实](logs/t012-libreoffice-env.txt) | NEXT-04：目标 Linux 的 LibreOffice 获取方式、权限阻塞与缺组件行为 | 环境阻塞已记录（sudo 需密码）；真实 DOC/XLS 转换仍未验证 |
+| [T012 旧格式转换环境核实](logs/t012-libreoffice-env.txt) | NEXT-04：目标 Linux 的 LibreOffice 获取方式、权限阻塞与缺组件行为 | 历史时点记录（缺组件、sudo 需密码）；该阻塞已由下方 2026-09-13 记录关闭 |
+| [NEXT-04 真实旧式 Office 转换与追溯](next04-legacy-office.md) | T012：真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯 | 已在 LibreOffice 24.2.7.2 完成真实转换、结构核对与失败路径验证，原件→documents/blocks→追溯校验链路通过；5 项用例依赖系统组件，受限沙箱内按能力探测 skip；5 项已于 2026-09-13 在正常 shell 复跑通过，13 项全部通过 |
 | [NEXT-06 运行预算与停止报告](next06-budget.md) | T006/T016/T026/T027：统一请求预算、截止时间、stop 报告与退出码 3 | 已完成工程交付；本地夹具 + 可注入时钟 14 项用例，见 [logs/stage-three-full-pytest.txt](logs/stage-three-full-pytest.txt) |
 | [NEXT-07 CN-08 正文边界修复](next07-cn08-body.md) | T008/T013/T026：正文选择器、容器外标题回退、原 10 块 → 6 块（正文逐字保留） | 已完成工程修复；离线差异 [logs/next07-cn08-offline-diff.txt](logs/next07-cn08-offline-diff.txt)、离线重解析 [logs/next07-cn08-reparse.txt](logs/next07-cn08-reparse.txt) |
 | [NEXT-08 随包契约与源码外安装](next08-packaged-contracts.md) | T003/T019/T027：契约随 wheel 交付、一致性校验、源码外 sources/check | 已完成工程交付；安装与负向检查见 [logs/next08-installed-wheel.txt](logs/next08-installed-wheel.txt) |
@@ -58,5 +59,17 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 NEXT-09 工程交接清单见 [delivery-inventory.md](../delivery-inventory.md)；NEXT-05A 的确认栏见
 [决策请求](../decision-requests.md)。本轮只做只读核对（wheel 成员与源码哈希比对）与文档校验，
 未新增证据文件、未改变本目录中的历史执行结果；T012/T019/T026/T027 仍为部分完成。
+
+## 阶段四续作记录（2026-09-13）
+
+NEXT-04 按 [NEXT-04 证据](next04-legacy-office.md) 完成真实旧式 DOC/XLS 转换、结构保留与
+追溯验证（组件为用户先前已安装的 LibreOffice 24.2.7.2，未重复安装）；NEXT-10 的分块含义
+确认材料见 [当前范围与分块](../scope-and-blocking.md)，等待需求方一次性回答。
+本轮另修正失败消息误报退出码的缺陷并新增 `tests/test_legacy_office_real.py`；用例门禁改为
+能力探测（真的转换成功一次才算组件可用），避免受限环境误报失败、也避免失败路径用例因
+组件不可用而以错误的原因通过。T019/T026/T027 与第四阶段整体不因本记录改变；受限沙箱内
+5 项依赖 LibreOffice 的用例在受限沙箱内按能力探测 skip；13 项中 8 项（含 OLE2 流结构、
+Word FIB 与 BIFF8 首部校验）已在沙箱内通过，另 5 项已于 2026-09-13 在目标 Linux 正常
+shell 复跑通过（13 passed），用例级证据闭合。
 
 最新环境更新：[用户提供的 WSL 组件就绪证据](next04-wsl-component-ready.md)。NEXT-04 为 READY_FOR_VALIDATION，历史缺组件日志保留，真实转换尚待验证。

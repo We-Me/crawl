@@ -68,6 +68,11 @@ def parse_legacy(
 
 
 def soffice_converter(content: bytes, extension: str) -> Tuple[bytes, str]:
+    """用系统 LibreOffice headless 转换；任一失败都抛 LegacyFormatError。
+
+    实测 LibreOffice 24.2 在源文件无法加载时会以 0 退出且不产出文件，因此不能只
+    看退出码：退出码非 0 与“未生成目标文件”分别报错，都不会当作空成功放行。
+    """
     soffice = find_soffice()
     if soffice is None:
         raise LegacyFormatError(
@@ -97,8 +102,12 @@ def soffice_converter(content: bytes, extension: str) -> Tuple[bytes, str]:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LegacyFormatError(f"LibreOffice 转换失败：{exc}") from exc
         output = Path(workdir) / f"source{target_extension}"
-        if result.returncode != 0 or not output.is_file():
-            message = result.stderr.decode("utf-8", errors="replace").strip()
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        if result.returncode != 0:
             raise LegacyFormatError(f"LibreOffice 转换失败（code={result.returncode}）：{message}")
+        if not output.is_file():
+            raise LegacyFormatError(
+                f"LibreOffice 未生成转换结果 {target_extension}（源文件无法转换）：{message}"
+            )
         logger.info("旧式 %s 已转换为 %s", extension, target_extension)
         return output.read_bytes(), target_extension

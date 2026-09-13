@@ -39,6 +39,7 @@ from crawler.output.raw_store import RawStore
 from crawler.output.jsonl import read_jsonl
 from crawler.parser.dispatcher import parse_attachment
 from crawler.parser.html_parser import decode_html, parse_html
+from crawler.parser.legacy_parser import Converter
 from crawler.parser.parsed_page import ParsedBlock, ParsedPage
 from crawler.dedup.fingerprint import text_hash
 from crawler.fetch.retry import (
@@ -136,12 +137,19 @@ class CrawlPipeline:
         state_store: Optional[IncrementalStateStore] = None,
         settings: Optional[Settings] = None,
         duplicate_threshold: Optional[float] = None,
+        legacy_converter: Optional[Converter] = None,
     ) -> None:
+        """编排一次采集/补抓；legacy_converter 用于替换旧式 DOC/XLS 转换器。
+
+        不传时用系统 LibreOffice（parser.legacy_parser.soffice_converter）；注入点与
+        parse_legacy(converter=...) 一致，供无组件环境或后续替换实现使用。
+        """
         self.registry = registry
         self.data_dir = Path(data_dir)
         self.layout = DeliveryLayout(self.data_dir)
         self.settings = settings
         self.duplicate_threshold = duplicate_threshold
+        self.legacy_converter = legacy_converter
         self.http = http or HttpClient(registry)
         self.downloader = Downloader(self.http)
         self.store = RawStore(self.data_dir)
@@ -1209,7 +1217,7 @@ class CrawlPipeline:
             document_type = source.parser_type or "html_page"
         else:
             parsed = normalize_page(
-                parse_attachment(content, filename, url),
+                parse_attachment(content, filename, url, converter=self.legacy_converter),
                 language_hints=(source.language,),
                 base_url=url,
             )

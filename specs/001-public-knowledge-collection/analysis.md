@@ -2,7 +2,7 @@
 
 ## WSL 安装成功后的复核（2026-09-13）
 
-用户提供 LibreOffice 24.2.7.2 420(Build:2)、/usr/bin/soffice 及 uv 环境发现输出，组件缺失阻塞解除，NEXT-04 为 READY_FOR_VALIDATION。已同步当前入口并保留历史阻塞记录；本轮未执行真实转换或业务测试，不关闭 T012 或阶段四。文档校验 PASS：50 份 Markdown、529 个本地链接、4 份原始输入指纹；diff 空白检查通过。
+用户提供 LibreOffice 24.2.7.2 420(Build:2)、/usr/bin/soffice 及 uv 环境发现输出，组件缺失阻塞解除。2026-09-13：NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证（[NEXT-04 证据](evidence/next04-legacy-office.md)），T012 勾选完成；T019/T026/T027 与阶段四整体仍未完成。文档校验 PASS：50 份 Markdown、529 个本地链接（本轮新增证据文件后需重跑校验）、4 份原始输入指纹。
 
 ## 最新复核：2026-09-13 阶段四 part1
 

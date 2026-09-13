@@ -2,7 +2,7 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 版本：0.1.0｜日期：2026-09-11｜状态：本阶段交付的运行手册。原始阶段二命令在 Linux 环境执行；本轮按源码更正安装与配置传递说明，未重新执行全部示例。阶段三新增运行预算、CN-08 正文选择器与随包契约，命令与退出码已按下述实际实现更新。历史原始输出见
 [证据日志](evidence/logs/t027-cli.txt)；命令只包装既有采集管线，不改变来源边界、robots、限速或质量阈值。
@@ -30,8 +30,33 @@
 | Python | CPython 3.9.25，由 uv 管理 | `.python-version` 固定；不由系统 Python 替代 |
 | uv | 0.11.28（已验证；更高稳定版应同时复核） | uv 自身安装来源不属于 PyPI 镜像 |
 | 网络 | 首次安装需可访问登记的清华镜像 | 镜像配置见 [uv 模板说明](uv-template.md)；失败先排查，禁止回退官方 PyPI |
+| LibreOffice | 仅在需要解析旧式 `.doc`/`.xls` 时必需：`soffice` 或 `libreoffice` 在 PATH 上（已在 Ubuntu 24.04 用 24.2.7.2 420(Build:2) 验证） | 由发行版包管理器安装（`libreoffice-writer`/`libreoffice-calc`）；不是 Python 依赖，不走 PyPI 镜像，也不写入 `pyproject.toml`。仅解析现代 `.docx`/`.xlsx` 时不需要 |
 
 解释器与系统组件来源单独核验（DEV-009）：`uv python install` 使用 uv 的解释器源，与 Python 包镜像不是同一件事。
+
+组件可用性检查（只确认发现，不触发转换；生产/服务环境同样用运行爬虫的用户执行）：
+
+```bash
+command -v soffice libreoffice          # 期望至少一个非空
+soffice --version                       # 期望 24.2.7.2 420(Build:2) 或兼容版本
+uv run --locked --no-python-downloads python -c \
+  "from crawler.parser.legacy_parser import find_soffice; p=find_soffice(); print(p); assert p, 'LibreOffice not found in runtime PATH'"
+```
+
+注意：上面只证明二进制存在。受限沙箱（AppArmor/seccomp）里 `soffice --version` 正常，
+但完整初始化会失败（`soffice.bin` 自我重启两次后静默 `exit 1`），因此真实旧格式转换与
+`tests/test_legacy_office_real.py` 的 5 项组件用例必须在**目标 Linux 的正常 shell** 运行
+（2026-09-13 已在本机正常 shell 复跑通过：`13 passed in 4.63s`）：
+
+```bash
+uv run --locked --no-python-downloads pytest tests/test_legacy_office_real.py -q   # 期望 13 passed
+```
+
+缺组件或转换失败时 `parse_legacy` 抛 `LegacyFormatError`，失败进 `failed_records.jsonl` 的
+`parse` 阶段，不返回空文档、不静默降级；补装或提供可用转换器后用 `crawl resume` 重解析
+已归档原件（0 次下载）。若无法安装系统组件，可由运维提供满足既有 `parse_legacy(converter=...)`
+函数接口的转换器并经 `CrawlPipeline(legacy_converter=...)` 注入，替换前需记录选型与针对验证；
+当前没有对应的 CLI 开关，也没有 `CRAWL_*` 转换器路径配置项。
 
 ## 3. 安装
 
@@ -168,7 +193,9 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 契约随包交付（`crawler/contracts/`，与规格契约一致）；`sources` 与 `check` 在源码外的普通安装可用。
   资源缺失或损坏时以退出码 2 明确失败，不静默跳过契约校验（[NEXT-08 证据](evidence/next08-packaged-contracts.md)）。
 - 随包来源注册表只有禁用的 DEMO；真实来源接入待 Q12/Q13。
-- 无后台调度/守护进程与并发采集，CLI 为单进程同步执行；旧式 DOC/XLS 转换需要系统 LibreOffice（本机尚未安装，见 NEXT-04 记录）。
+- 无后台调度/守护进程与并发采集，CLI 为单进程同步执行；旧式 DOC/XLS 转换需要系统 LibreOffice，
+  本机已在 LibreOffice 24.2.7.2 上验证（[NEXT-04 证据](evidence/next04-legacy-office.md)）；
+  组件缺失或受限沙箱会显式失败，不降级为空文档。转换是同步阻塞调用，单次上限 120 秒。
 - 预算的同步调用终止延迟：单次连接/读取超时下限 0.1s，不宣称硬实时中断；同一数据根仍只允许一个写进程。
 - 未设置预算的运行不受请求数/时间限制；线上运行必须显式给出 `--max-requests` 与 `--deadline-seconds`。
 - 本节只列运行相关限制；完整局限清单、未交付范围与所需业务输入见 [局限与所需输入报告](limitations-report.md)。
@@ -180,6 +207,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 运行预算与停止报告：[NEXT-06 证据](evidence/next06-budget.md)、阶段三完整回归 [stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)（345 passed）
 - CN-08 正文边界修复（离线差异与重解析）：[NEXT-07 证据](evidence/next07-cn08-body.md)
 - 随包契约与源码外安装：[NEXT-08 证据](evidence/next08-packaged-contracts.md)、[next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)
+- 旧式 DOC/XLS 真实转换、结构保留与原件追溯：[NEXT-04 证据](evidence/next04-legacy-office.md)；夹具重建 `uv run --locked --no-python-downloads python tools/make_legacy_fixtures.py`（需系统组件）
 - 环境与镜像复现历史证据：[t019-lock-provenance.txt](evidence/logs/t019-lock-provenance.txt)、[T003 环境验证](evidence/T003-environment.md)
 - 测试：`uv run --locked --no-python-downloads pytest -q tests/test_cli.py` → 14 passed（见证据日志）
 

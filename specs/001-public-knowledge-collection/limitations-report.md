@@ -2,7 +2,7 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 版本：0.1.0｜日期：2026-09-11｜状态：第四阶段整体未完成；工程交接材料已完成，NEXT-04 组件已就绪、真实转换待验证，正式验收仍待决定
 
@@ -26,7 +26,7 @@
 
 | # | 局限 | 影响 | 现状依据 | 恢复条件 |
 | --- | --- | --- | --- | --- |
-| L1 | 旧式 DOC/XLS（OLE2）真实转换未验证；目标 Linux 未安装 LibreOffice，且无 root 授权 | 不能承诺解析真实 `.doc`/`.xls`；缺组件时显式报错 `LegacyFormatError`，不静默回退 | [t012 环境记录](evidence/logs/t012-libreoffice-env.txt)、[选型记录](tech-stack.md) TD-08g | 在目标 Linux 安装 LibreOffice（或提供可注入转换器），随后按 NEXT-04 用真实 DOC/XLS 各一份验证 |
+| L1 | 旧式 DOC/XLS（OLE2）已在 LibreOffice 24.2.7.2 上完成真实转换验证（2026-09-13），该缺口关闭；剩余限制是样本为自产夹具，未覆盖复杂真实文档与替代转换器 | 固定样本上的转换、结构保留与原件追溯可承诺；复杂排版（合并单元格、文本框、宏、加密）与真实机构文档未验证，缺组件时显式报错 `LegacyFormatError`，不静默回退 | [NEXT-04 证据](evidence/next04-legacy-office.md)、[选型记录](tech-stack.md) TD-08g | 若业务需要复杂文档或替代组件：用真实站点原件重跑 NEXT-04 流程，并记录组件版本与样本哈希 |
 | L2 | 真实来源未启用；随包来源注册表只有默认禁用的虚构 DEMO | 只能采集登记示例；采集真实站点须显式 `--config` 指向候选配置，且该配置不代表获准接入 | `src/crawler/config/sources.yaml`、[运行说明](runbook.md) 第 1/4 节 | Q12/Q13 确认来源与规则后逐站接入 |
 | L3 | 正式业务验收未完成；AT-014/AT-024 因 Q11 未决保持 blocked | 质量结论不能用于生产承诺；当前只有夹具级与试点证据 | [T019 验收记录](evidence/T019-acceptance.md)（passed 22 / blocked 2 / not_applicable 13） | Q11 等决定确认后执行 NEXT-05B 有限正式验收 |
 | L4 | 逐站适配规则未定值；至少 10 词与歧义验证未做 | 部分来源可能发现不到栏目或正文选择器未命中（未命中会显式记 `adapter_selector_miss`） | [来源适配输入](source-adapters.md)、[实施任务](tasks.md) T026 | Q12 决定后按站固化规则取值并补 10 词/歧义证据 |
@@ -66,14 +66,15 @@
 
 | 需求 | 现状 | 获得条件 |
 | --- | --- | --- |
-| LibreOffice（`soffice`/`libreoffice` headless） | 未安装；`sudo` 需密码，Agent 无 root | 由管理员在目标 Linux 安装（Ubuntu 24.04 候选版本 4:24.2.7-0ubuntu0.24.04.6，如 `libreoffice-writer`、`libreoffice-calc`）；安装后恢复 NEXT-04 |
+| LibreOffice（`soffice`/`libreoffice` headless） | 已安装：`/usr/bin/soffice`，24.2.7.2 420(Build:2)；已用于 NEXT-04 真实验证 | 不再是缺口。运行该能力仍须在运行用户的 PATH 上可发现组件；受限沙箱会拒绝其初始化（属执行环境限制），生产/服务环境按 [运行说明](runbook.md) 第 2 节检查 |
 | 网络与镜像 | 首次安装需可访问登记清华镜像；解释器来源单独核验 | 已登记规则，故障时按 [uv 模板说明](uv-template.md) 排查 |
 | 其他系统组件 | 无：PDF/OCR/DOCX/XLSX/CSV/JSON/XML 解析均由随包 pip 依赖提供 | — |
 
 ## 6. 恢复路径
 
 1. 收到任一业务决定 → 按 [决策请求](decision-requests.md) 对应行的「决定后动作」执行；涉及验收时先做 NEXT-05B 有限正式验收，再按 NEXT-05C 输出交付报告与剩余事项。
-2. 目标环境具备 LibreOffice 或转换器 → 恢复 NEXT-04 真实 DOC/XLS 验证。
+2. （已完成 2026-09-13）目标环境具备 LibreOffice 或转换器 → NEXT-04 真实 DOC/XLS 验证已关闭；
+   后续如需复杂真实文档或替代转换器，按 [NEXT-04 证据](evidence/next04-legacy-office.md) 的流程重跑。
 3. 代码/依赖/契约发生变化 → 只做受影响模块与一条端到端闭环的定向验证；只有形成新的阶段候选才做一次全量回归。
 4. 以上条件均未满足 → 保持等待，不新增清单、测试或来源探测（本报告即为该状态下的交接材料）。
 

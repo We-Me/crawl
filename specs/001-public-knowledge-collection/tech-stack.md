@@ -2,7 +2,7 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
 
 状态：Python 与 uv 已由用户明确，Python 3.9 为首选基线；2026-09-11 T002/T003 完成起步环境，T011/T012 完成 PDF/OCR 与 Office 解析选型（TD-08 已选定），记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md) 与 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。业务待决 Q 项未改变，完整交付环境仍随未完成模块推进。本文补充四份业务文档，不改变原始需求来源。
 
@@ -46,7 +46,7 @@
 | TD-08d | DOCX 解析 python-docx | 不解析二进制 DOC；样式/表格接口稳定、复用已有 lxml | `>=1.1,<2` → 1.2.0 | 标题/段落/列表/表格夹具通过 |
 | TD-08e | XLSX 解析 openpyxl | 只读模式内存可控；pandas/openpyxl 组合超出当前需求 | `>=3.1,<4` → 3.1.5；传递 et-xmlfile 2.0.0 | sheet/表头/行号/单位与空 sheet 状态用例通过 |
 | TD-08f | CSV/JSON 标准库、XML defusedxml | pandas 属不必要大依赖；defusedxml 已在锁文件，本任务首次使用 | csv/json 标准库；defusedxml 0.7.1 | 编码/分隔符/路径/实体炸弹用例通过 |
-| TD-08g | 旧式 DOC/XLS 路线 | 无成熟纯 Python 解析器；路线为 OLE2 识别 + 系统 LibreOffice headless 转换，转换器可注入 | 不新增依赖；本机无 soffice，缺组件时 `LegacyFormatError` 明确报错 | 路线与显式失败路径单测通过；实机转换未验证 |
+| TD-08g | 旧式 DOC/XLS 路线 | 无成熟纯 Python 解析器；路线为 OLE2 识别 + 系统 LibreOffice headless 转换；转换器可注入到 `parse_legacy(converter=...)` 与 `CrawlPipeline(legacy_converter=...)` | 不新增 Python 依赖；系统组件由发行版包管理器提供（不是 PyPI 制品），缺组件时 `LegacyFormatError` 明确报错 | 已在 LibreOffice 24.2.7.2 用真实 OLE2 DOC/XLS 各一份验证转换、结构与原件追溯（[NEXT-04 证据](evidence/next04-legacy-office.md)）；仅覆盖自产夹具，复杂真实文档与替代转换器未验证 |
 
 ## TD-09 已执行记录（2026-09-11，T015）
 
@@ -173,7 +173,7 @@ uv sync --locked
 
 ## 续作环境边界
 
-当前复用已记录的 Python 3.9.25、uv 与锁文件，不重复初始化或空缓存安装来证明未变化环境。TD-08g 旧式 DOC/XLS 的真实 LibreOffice 转换仍未验证；不能把现有包环境测试通过称为包含该能力的完整环境通过。按 [阶段续作说明](continuation.md) NEXT-04 关闭该实际缺口；仅相关依赖/环境变化才触发新环境验证。
+当前复用已记录的 Python 3.9.25、uv 与锁文件，不重复初始化或空缓存安装来证明未变化环境。TD-08g 的旧式 DOC/XLS 真实转换已于 2026-09-13 用系统 LibreOffice 24.2.7.2 验证（[NEXT-04 证据](evidence/next04-legacy-office.md)），该缺口关闭；未新增 Python 依赖，`uv.lock` 未变。仅相关依赖或系统组件变化时才触发新的环境验证。
 
 ## 运行契约的打包方式（NEXT-08，无新增依赖）
 
