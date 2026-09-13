@@ -833,11 +833,13 @@
     "rag": "out_of_current_scope",
     "T025": "out_of_current_scope_not_completed",
     "T020-T024": "not_selected_conditional",
-    "blocking_semantics": "DECIDED: independent structural blocks and blank lines inside div; abstract base plus minimal dummy",
+    "blocking_semantics": "DECIDED_AND_IMPLEMENTED: structural blocks and div blank lines; no semantic regrouping",
     "requirements_preserved": true,
-    "sources": "all 18; implementation and verification pending",
+    "sources": "18 selected; 9 finite-sample verified and 9 restricted historically, coverage incomplete",
     "quality": "raw integrity and traceability first; advanced processing deferred",
-    "delivery": "Git development only; release deferred",
-    "format": "original base requirements retained; extensions compared separately"
+    "delivery": "Git development only; publishing remains deferred",
+    "format": "original base requirements retained; extensions compared separately",
+    "implementation_baseline": "61e34d8",
+    "current_plan": "stage-five.md: raw archiving, pagination, attachments, continuation and development verification"
   }
 }

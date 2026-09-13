@@ -1,5 +1,7 @@
 # T026 十八来源状态记录（raw 优先开发）
 
+> 61e34d8 后复核口径：下文 9/0/9/0 为原执行时点的有限样本与访问状态，保留原统计；不表示“无剩余实现”。已验证来源仍可能缺列表分页、附件覆盖与发现响应归档。TLS/网络、边界与明确 robots 禁止需分因处理；当前任务见 [阶段五](../stage-five.md)。
+
 日期：2026-09-13（Asia/Shanghai）。依据：`raw-first-development.md`（全部 18 来源、运行时起始时间、
 最小结构分块）、`scope-and-blocking.md`、DEV-010（按交付物选择最小必要验证）与 DEV-012（有限真实站点测试）。
 本轮代码基线含：按站发现抽象（`src/crawler/discover/strategies.py`）、运行时起始日 `--start-date`

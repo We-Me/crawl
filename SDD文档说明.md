@@ -1,5 +1,11 @@
 # 公开知识采集项目 SDD 文档说明
 
+## 当前使用方式（复核 61e34d8 后）
+
+从根目录 AGENTS.md 开始。先读 [已确认范围](specs/001-public-knowledge-collection/raw-first-development.md)，再按 [阶段五开发说明](specs/001-public-knowledge-collection/stage-five.md) 执行。当前目标是补齐 raw 归档、列表/附件覆盖与有限预算下的继续执行；不再等待分块或 18 来源选择，不进入发布部署。
+
+文档职责：spec/constitution 管需求原则；raw-first-development 管用户决定；stage-five 管唯一当前工作顺序；tasks 管 T 编号与证据状态；decision-requests 管真正需要外部输入的事项；continuation 与阶段三/四保存历史。不要在每个文件复制最新统计和待办表；只更新实际受影响的契约、代码说明与证据。下方早期复制/初始化说明用于空项目，现有项目不重新初始化。
+
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
 本套文件根据工作区的两份 Word 原始规范和两份 Markdown 需求审查生成，将公开资料采集与七类知识组织转成需求、设计、契约、任务和验收追踪。按规格驱动开发理解 SDD，参考 GitHub Spec Kit 的文档结构。没有默认某个版本覆盖另一版本，所有未决事项明确保留。
