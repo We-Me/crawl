@@ -56,3 +56,27 @@ S1 §13 原文为“documents/blocks 100% 可回到 source_url、raw_path 和 cr
 6. T027：开发成果随 Git 留证，汇总 18 来源实际状态和剩余缺口；最终发布交付暂缓。
 
 数据格式差异若涉及业务语义改变，先提出具体差异；不以待确认扩展为由停止不受影响的 raw 开发。无需再问用户同样的六项决定。当前阶段仍是开发，不承诺生产就绪。
+
+## 实施状态（2026-09-13）
+
+以上“当前工作顺序”中的 1—6 项在本日提交中已产生可执行实现与有限验证，状态区分如下（详细逐站记录见
+[十八来源状态](evidence/t026-eighteen-sources.md)，线上运行登记与结果见
+[第六至九轮记录](evidence/logs/t026-round6-limited.txt)）：
+
+- **已实现并有夹具+真实原件证据**：
+  - 按站发现抽象：`src/crawler/discover/strategies.py`（`DiscoveryStrategy` abc + list/search/sitemap/api/未实现实现类），
+    状态区分 `ok`/`zero_results`/`selector_miss`/`not_implemented`/`access_restricted`/`request_error`，
+    共用同一 HttpClient（robots、边界、限速、重试、预算）。CN-08、CN-01、CN-04 已在真实站点验证；CN-02/IN-06 记未实现且不发页面请求。
+  - 运行时起始时间：`crawl collect --start-date YYYY-MM-DD`（`src/crawler/schedule/scope.py`），
+    以 `publication_date` 为包含式下界；范围外只留原件与账本、不产文档（`out_of_window`），
+    未知日期保留并记原因；恢复任务/失败账保留 `scope_start_date`。真实数据边界：CN-08 2026-09-06 收录、2026-09-05 排除。
+  - 最小结构分块：`src/crawler/normalize/segmenter.py`（`BlockSegmenter` abc + `StructuralBlankLineSegmenter` dummy v1 +
+    `PreParsedSegmenter`），标题/段落/列表项/表格独立块，div 内正文按空行拆块，嵌套容器不重复，源码缩进不拆块；
+    `extraction_method` 记为 `<基础>+structural_blank_line_v1`。
+- **部分完成**（保留未勾选）：CN-04 政策文件列表分页与允许的检索方式、CN-02/IN-06 发现入口、
+  IN-01/IN-02/IN-05/IN-10 的栏目级规则，以及 8 个受限来源的访问方式（多属 Q12/Q13 外部决定）。
+- **明确未做**：后处理质量阈值、OCR 准确率、近似去重、附件专项、发布/部署；不因本轮 dummy 通过而宣称正式验收。
+
+本轮未执行 `tools/build_sdd_documents.py`，未改动四份业务输入；新增运行期字段（`adapter.discovery`、
+`failure.scope_start_date`、`metrics` 的 `scope`/`discovery`/`date_decisions`、`counters.out_of_window`）
+的兼容性记录见 [结构对照](structure-comparison.md) 与 [data-model](data-model.md)。

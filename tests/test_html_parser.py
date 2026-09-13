@@ -4,8 +4,12 @@ from pathlib import Path
 
 from crawler.parser.html_parser import decode_html, parse_html
 from crawler.normalize.block_schema import build_blocks
+from crawler.normalize.segmenter import DEFAULT_HTML_SEGMENTER, extraction_method_for
 
 SITE = Path(__file__).resolve().parent / "fixtures" / "site"
+
+DOM_METHOD = extraction_method_for("bs4_lxml_dom", DEFAULT_HTML_SEGMENTER)
+SELECTOR_METHOD = extraction_method_for("bs4_lxml_selector", DEFAULT_HTML_SEGMENTER)
 
 
 def parse_fixture(name="detail_1.html"):
@@ -147,7 +151,7 @@ def test_content_selector_limits_scope_and_records_method():
     content = (SITE / "detail_adapter.html").read_bytes()
     page = parse_html(content, "http://127.0.0.1/detail_adapter.html", content_selector="div.article-body")
     assert page.content_selector_missed is False
-    assert page.extraction_method == "bs4_lxml_selector"
+    assert page.extraction_method == SELECTOR_METHOD
     assert page.title == "虚构适配样本：正文与噪声"
     assert [block.text for block in page.blocks] == [
         "虚构适配样本：正文与噪声",
@@ -163,7 +167,7 @@ def test_content_selector_miss_is_reported_not_hidden():
     content = (SITE / "detail_adapter.html").read_bytes()
     page = parse_html(content, "http://127.0.0.1/detail_adapter.html", content_selector="div.absent")
     assert page.content_selector_missed is True
-    assert page.extraction_method == "bs4_lxml_dom"
+    assert page.extraction_method == DOM_METHOD
     assert "相关阅读" in page.full_text  # 降级结果包含相关阅读噪声，因此必须由调用方按失败处理
 
 
@@ -176,7 +180,7 @@ def test_content_selector_excludes_related_reading_and_keeps_outer_title():
         content_selector="#detailContent",
     )
     assert page.content_selector_missed is False
-    assert page.extraction_method == "bs4_lxml_selector"
+    assert page.extraction_method == SELECTOR_METHOD
     # 标题在容器之外：按文档范围回退，不退化成带站点后缀的 <title>
     assert page.title == "虚构新闻：标题在正文容器之外"
     assert [block.text for block in page.blocks] == [
@@ -185,3 +189,84 @@ def test_content_selector_excludes_related_reading_and_keeps_outer_title():
     ]
     for noise in ("相关阅读", "新闻链接", "责任编辑", "页脚"):
         assert noise not in page.full_text
+
+
+def test_date_selector_extracts_publication_date_from_element():
+    """IN-06 PIB reader 页：日期在 `#PrDateTime` 元素文本中（英文缩写月份）。"""
+    html = """<html lang="en"><body><main>
+    <h2>Press Release</h2>
+    <div id="PrDateTime" class="text-center">प्रविष्टि तिथि: 12 SEP 2026 4:08PM by PIB Delhi</div>
+    <p>Release body.</p>
+    </main></body></html>"""
+    page = parse_html(
+        html.encode("utf-8"),
+        "https://example.invalid/release",
+        date_selector="#PrDateTime",
+    )
+    assert page.publication_date == "2026-09-12"
+    assert page.raw_date_text == "प्रविष्टि तिथि: 12 SEP 2026 4:08PM by PIB Delhi"
+
+
+def test_date_selector_miss_falls_back_without_fabricating():
+    html = """<html><body><main><h2>无日期页</h2><p>正文。</p></main></body></html>"""
+    page = parse_html(
+        html.encode("utf-8"),
+        "https://example.invalid/release",
+        date_selector="#PrDateTime",
+    )
+    assert page.publication_date is None
+    assert page.raw_date_text is None
+    assert "publication_date" in page.metadata_missing
+
+
+def test_firstpublishedtime_meta_is_used_as_publication_date():
+    """CN-04 政策文件页用 <meta name="firstpublishedtime">：首次发布日期即 publication_date。"""
+    html = (
+        '<html><head>'
+        '<meta name="firstpublishedtime" content="2026-09-11-17:00:00">'
+        '<meta name="lastmodifiedtime" content="2026-09-12-09:30:00">'
+        "</head><body><main><p>政策正文</p></main></body></html>"
+    ).encode("utf-8")
+    page = parse_html(html, "https://www.gov.cn/zhengce/content/202609/content_1.htm")
+    assert page.publication_date == "2026-09-11"
+    assert page.raw_date_text == "2026-09-11-17:00:00"
+    assert "publication_date" not in page.metadata_missing
+
+
+def test_content_inside_form_is_kept_but_controls_are_dropped():
+    """ASP.NET 等站点把整页包在 <form> 内（IN-10）：保留正文，只丢控件。"""
+    html = (
+        '<html><body><form action="./Home.aspx" method="post">'
+        '<h2>Quick Access</h2><p>Administrative Boundary Database</p>'
+        '<ul><li>State Maps</li></ul>'
+        '<input type="text" value="Search"><select><option>选项A</option></select>'
+        '<button>Go</button>'
+        "</form></body></html>"
+    ).encode("utf-8")
+    page = parse_html(html, "https://example.invalid/Home.aspx")
+    kinds = [block.block_type for block in page.blocks]
+    assert kinds == ["heading", "paragraph", "list_item"]
+    assert page.blocks[0].text == "Quick Access"
+    assert page.blocks[1].text == "Administrative Boundary Database"
+    assert "Search" not in page.full_text
+    assert "选项A" not in page.full_text
+    assert "Go" not in page.full_text
+
+
+def test_fragment_only_next_link_is_not_body_pagination():
+    """轮播/回到顶部等 rel=next 只指向本页锚点时，不得当作正文分页继续取。"""
+    html = (
+        '<html><body><main><p>正文一段</p>'
+        '<a rel="next" href="#myCarousel">下一页</a>'
+        "</main></body></html>"
+    ).encode("utf-8")
+    page = parse_html(html, "https://example.invalid/Home.aspx")
+    assert page.next_page_url is None
+
+    html2 = (
+        '<html><body><main><p>正文一段</p>'
+        '<a rel="next" href="part2.html">下一页</a>'
+        "</main></body></html>"
+    ).encode("utf-8")
+    page2 = parse_html(html2, "https://example.invalid/a/part1.html")
+    assert page2.next_page_url == "https://example.invalid/a/part2.html"

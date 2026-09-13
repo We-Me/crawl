@@ -239,7 +239,7 @@ def test_cli_plan_and_resume_reparse(site_server, tmp_path, cli_env, capsys):
     out = capsys.readouterr().out
     assert "恢复=1" in out and "仍失败=0" in out
     documents = read_jsonl(cli_env / "normalized" / "documents.jsonl")
-    assert documents[0]["extraction_method"] == "bs4_lxml_selector"
+    assert documents[0]["extraction_method"].startswith("bs4_lxml_selector+")
 
     assert main(["check"]) == 0
     assert "追溯：documents 1/1（100.0000%）" in capsys.readouterr().out
@@ -309,3 +309,30 @@ def test_cli_resume_reports_manual_failures(site_server, tmp_path, cli_env, caps
     assert plan["summary"] == {"manual": 1}
     assert main(["resume", "--config", str(config), "--source", "TESTSRC"]) == 1
     assert "待人工=1" in capsys.readouterr().out
+
+
+def test_cli_collect_manual_url_takes_only_given_page(site_server, tmp_path, cli_env, capsys):
+    """--url：只按给定 URL 采集（manual），不隐式跑来源入口。"""
+    config = _write_sources(tmp_path / "sources.yaml", site_server)
+    code = main(
+        [
+            "collect",
+            "--config",
+            str(config),
+            "--source",
+            "TESTSRC",
+            "--url",
+            f"{site_server}/detail_2.html",
+            "--no-attachments",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["counters"]["resources"] == 1
+    assert payload["counters"]["documents"] == 1
+    assert [row["stage"] for row in payload["discovery"]] == ["manual"]
+
+    manifest = read_jsonl(cli_env / "manifests" / "crawl_manifest.jsonl")
+    assert [row["discovery_method"] for row in manifest] == ["manual"]
+    assert manifest[0]["requested_url"] == f"{site_server}/detail_2.html"

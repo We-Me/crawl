@@ -32,6 +32,7 @@ class FailureWriter:
         final_action: str = "record_only",
         crawl_id: Optional[str] = None,
         referrer_url: Optional[str] = None,
+        scope_start_date: Optional[str] = None,
     ) -> dict:
         if stage not in FAILURE_STAGES:
             raise ValueError(f"未知失败阶段：{stage!r}")
@@ -51,6 +52,9 @@ class FailureWriter:
             row["crawl_id"] = crawl_id
         if referrer_url is not None:
             row["referrer_url"] = referrer_url
+        if scope_start_date is not None:
+            # 运行范围（--start-date）随失败一起保存：补抓沿用原范围，不混入新窗口。
+            row["scope_start_date"] = scope_start_date
         append_jsonl(self.path, [row])
         logger.warning(
             "失败记录 stage=%s url=%s type=%s message=%s", stage, url, error_type, message

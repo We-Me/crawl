@@ -61,6 +61,9 @@ class Discoverer:
         self.max_pages = max_pages
         self.max_items = max_items
         self.skipped: List[SkippedTarget] = []
+        # 适配选择器未命中的显式记录（T005/T026）：与“真实零结果”分开报告，
+        # 由策略层（discover/strategies.py）读取为 selector_miss 状态。
+        self.selector_misses: List[dict] = []
         self._seen: set = set()
 
     def discover_list(self, entry_urls: Optional[Sequence[str]] = None) -> List[DiscoveredTarget]:
@@ -90,12 +93,13 @@ class Discoverer:
                 page_url = self._next_page_url(response.content, response.final_url)
         return targets[: self.max_items]
 
-    def discover_search(self, keyword: str) -> List[DiscoveredTarget]:
+    def discover_search(self, keyword: str, *, url: Optional[str] = None) -> List[DiscoveredTarget]:
+        """站内搜索发现；url 已由调用方按运行范围渲染时直接使用，否则用配置模板。"""
         template = self.source.search_url_template
-        if not template:
+        if url is None and not template:
             raise ValueError(f"来源 {self.source.source_id} 未配置 search_url_template")
-        url = template.replace("{query}", quote_plus(keyword))
-        response = self.http.get(url, source_id=self.source.source_id)
+        target_url = url or template.replace("{query}", quote_plus(keyword))
+        response = self.http.get(target_url, source_id=self.source.source_id)
         results, _ = self._list_page_targets(response.content, response.final_url, "search")
         return [replace_keyword(target, keyword) for target in results]
 
@@ -141,10 +145,13 @@ class Discoverer:
 
     def attachments_from_html(self, content: bytes, page_url: str) -> List[DiscoveredTarget]:
         soup = BeautifulSoup(decode_html(content), "lxml")
+        adapter = self.source.adapter
         targets = []
         for anchor in soup.find_all("a", href=True):
             url = urljoin(page_url, anchor["href"])
             if _attachment_extension(url) is None:
+                continue
+            if adapter.attachment_pattern and not re.search(adapter.attachment_pattern, url):
                 continue
             decision = self.registry.check_access(url, self.source.source_id)
             if not decision.allowed:
@@ -171,6 +178,9 @@ class Discoverer:
             if anchors is None:
                 reason = f"adapter_list_selector_miss:{adapter.list_link_selector}"
                 self.skipped.append(SkippedTarget(page_url, reason, page_url))
+                self.selector_misses.append(
+                    {"url": page_url, "selector": adapter.list_link_selector, "method": method}
+                )
                 logger.warning(
                     "列表选择器未命中，本页不发现目标 url=%s selector=%s",
                     page_url,
@@ -187,6 +197,8 @@ class Discoverer:
             url = urljoin(page_url, anchor["href"])
             if adapter.list_link_pattern and not re.search(adapter.list_link_pattern, url):
                 continue
+            if adapter.list_link_rewrite:
+                url = _apply_link_rewrite(adapter.list_link_rewrite, url, page_url)
             if _is_fragment_or_action(url):
                 continue
             if url.split("#")[0] == page_url.split("#")[0]:
@@ -287,3 +299,18 @@ def _attachment_extension(url: str) -> Optional[str]:
 def _is_fragment_or_action(url: str) -> bool:
     parts = urlsplit(url)
     return parts.scheme not in ("http", "https") or not parts.netloc
+
+
+def _apply_link_rewrite(
+    rewrite: Sequence[Tuple[str, str]], url: str, page_url: str
+) -> str:
+    """按来源登记的等价形态改写列表目标 URL（第一条命中生效）。
+
+    规则作用于链接解析后的绝对 URL（re.sub 语义）；替换结果先按列表页 URL 归一化，
+    相对路径与绝对路径都可使用；跨域改写需在正则中匹配完整 URL，改写结果同样要
+    通过来源边界检查，越界按跳过记录。
+    """
+    for pattern, replacement in rewrite:
+        if re.search(pattern, url):
+            return urljoin(page_url, re.sub(pattern, replacement, url, count=1))
+    return url

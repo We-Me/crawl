@@ -86,8 +86,17 @@ uv run --locked --no-python-downloads crawl --help
 uv run --locked --no-python-downloads --env-file .env crawl sources
 ```
 
-来源注册表：默认读取随包的 `src/crawler/config/sources.yaml`（仅含禁用的 DEMO）；采集其他来源时用 `--config PATH` 指定 YAML。
+来源注册表：默认读取随包的 `src/crawler/config/sources.yaml`（18 个开发来源 + 禁用 DEMO）；采集其他来源时用 `--config PATH` 指定 YAML。
 字段语义与访问边界见 [来源适配输入](source-adapters.md)，配置在加载期校验（域、路径、速率、超时、选择器正则）。
+
+`--url URL`（可重复）按操作者指定的页面/附件直接采集（账本 `discovery_method=manual`），用于已核验
+具体地址的补取或按站适配时的离线分析；仍受访问边界、robots、`--start-date` 与请求预算约束。
+只给 `--url` 时不隐式跑来源入口（不会把“取一页”扩大成一次栏目采集）；越界 URL 只记跳过、不请求。
+
+`adapter.discovery` 声明该来源已实现/已核验的发现方式（`list`/`search`/`sitemap`/`api`）。未声明的方式在
+常规运行中记为 `not_implemented` 且不发请求；命令行显式给出 `--entry-url`/`--keyword`/`--sitemap`/`--api` 时
+按用户明确意图运行通用实现，但结果注明“来源未声明该发现方式，未计入已实现”，供有限核验与逐站适配收口。
+逐站实现状态见 [十八来源状态](evidence/t026-eighteen-sources.md)。
 
 ## 5. 命令与退出码
 
@@ -98,7 +107,8 @@ uv run --locked --no-python-downloads --env-file .env crawl sources
 crawl sources [--config PATH] [--json]          # 校验来源配置并列出来源
 crawl collect --source ID [--config PATH]       # 指定来源采集
     [--entry-url URL ...] [--keyword WORD ...] [--sitemap URL ...] [--api URL ...]
-    [--max-items N] [--no-attachments] [--max-requests N] [--deadline-seconds S] [--json]
+    [--url URL ...] [--max-items N] [--no-attachments] [--start-date YYYY-MM-DD]
+    [--max-requests N] [--deadline-seconds S] [--json]
 crawl plan [--source ID] [--config PATH] [--ready-only] [--json]    # 补抓计划（只读）
 crawl resume --source ID [--config PATH] [--max-tasks N]            # 执行补抓
     [--respect-backoff] [--max-attempts N] [--base-delay-seconds S] [--max-delay-seconds S]
@@ -121,9 +131,38 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   要求的等待超过剩余时间时同样停止，已归档原件/账本/文档/块保留；分页或附件阶段停止时父文档先落盘（`parse_status=partial`）。
 - 停止时输出 `stop.reason`、实际请求数、用时与未处理完的目标数（`stop.unprocessed`），
   `logs/metrics.json` 记 `status=partial`/`stopped` 与 `budget` 明细，退出码为 `3`。
-- 预算停止不是网站失败：失败账不追加记录，下次可用 `crawl plan` / `crawl resume` 继续。
+- 预算停止不是网站失败：失败账不追加记录，已归档原件/账本/文档/块保留，`logs/metrics.json` 记
+  `status=partial|stopped` 与 `stop.unprocessed`。继续该来源可重跑 `crawl collect`（重新发现目标；站点返回
+  可用校验信息时按条件请求复用未变化原件）；`crawl plan` / `crawl resume` 处理失败账中**未解决**的失败任务
+  （每个任务保留其 `scope_start_date` 原运行范围），预算停止本身不入队。
 - 守规线上试点按 DEV-012 取最严格预算：一个来源、`--max-requests 10`（robots、重定向、重试均计入）、
   `--deadline-seconds 300`，并发 1 与来源限速照旧生效。
+
+### 运行时起始日期（`--start-date`）
+
+`--start-date YYYY-MM-DD` 是**内容发布日期**的包含式下界，抓取时间不参与判定；省略时不设日期范围。
+
+- 判定发生在原件与账本落盘之后、产出文档之前：范围内（`in_window`，含等于下界的当天）或
+  发布日期未知（`date_unknown`，保留候选并记原因）才产文档；早于下界（`before_start_date`）
+  只保留原件与账本、不产出文档，运行汇总单列 `out_of_window`。
+- 附件继承母页采集上下文；站点支持日期查询时，搜索模板里的 `{start_date}`/`{end_date}`/`{year}`/`{month}`
+  由本参数填充（未给起始日时含日期占位符的模板记为未实现，不静默改用无日期模板）。
+- 运行输出新增 `运行范围：起始日 …`、`发现 <stage> 策略=… 状态=… 目标=N` 与逐目标日期判定；
+  `logs/metrics.json` 增加 `scope`、`discovery`、`date_decisions`，恢复任务保留原运行范围
+  （`crawl plan`/`crawl resume` 显示 `scope_start_dates`，待人工行标注原起始日）。
+- 开发验证请显式选择近期窗口（例如运行日前 7 天）并记录实际日期；该窗口不是业务默认，也
+  不代表无预算回溯历史。
+
+### 离线复算已归档原件（不发网络）
+
+`tools/offline_replay.py`（开发工具）用**当前**发现规则与分块实现对 `data/raw/` 中的真实原件复算，
+输出每份原件的标题、块数/块类型、发布日期、日期判定与发现目标；只读数据根，不写交付目录：
+
+```bash
+uv run --locked --no-python-downloads python tools/offline_replay.py \
+  --config src/crawler/config/sources.yaml --data-dir data --start-date 2026-09-06 \
+  [--source CN-08] [--json /tmp/offline-replay.json]
+```
 
 ## 6. 运行数据与成果
 

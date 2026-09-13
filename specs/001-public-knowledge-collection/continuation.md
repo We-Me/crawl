@@ -126,3 +126,100 @@ NEXT-05B/C 等相关业务决定确认后实施。不要重开已完成工程项
 ## 2026-09-13 当前范围与续作
 
 以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成，NEXT-10 仅澄清原始结构分块与跨段语篇组合的差异。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量、来源与旧格式组件缺口继续保留，不因范围收敛自动通过。
+
+## 2026-09-13 本轮交付（按站发现抽象、运行时起始日期、最小结构分块）
+
+按 raw-first-development.md 的 1—6 项推进，本轮完成的工程交付与验证：
+
+- 代码：`src/crawler/discover/strategies.py`（发现策略抽象与实现、状态区分）、`src/crawler/schedule/scope.py`
+  与 `crawl collect --start-date`（内容发布日期包含式下界，贯通发现/采集/失败账/恢复）、
+  `src/crawler/normalize/segmenter.py`（分块抽象 + 最小 dummy，div 空行与嵌套去重）、
+  配置 `adapter.discovery`（18 来源全部登记，CN-02/IN-06 显式未实现）、
+  `tools/offline_replay.py`（已归档原件离线复算，只读）。
+- 验证：`pytest` 全量通过（384 项，含日期边界、恢复原范围、div 空行/嵌套去重、发现状态用例）；
+  契约同步检查通过；第六至九轮真实站点有限运行合计 40 个请求、0 失败（登记与结果见
+  [evidence/logs/t026-round6-limited.txt](evidence/logs/t026-round6-limited.txt)）：
+  CN-08 以 2026-09-06 起始日完成收录/排除边界，CN-01 三篇 2026-09-12 文章判 in_window，
+  CN-04 取到 3 份政策文件并在离线复算中解析出 `firstpublishedtime` 日期。
+- 证据：逐站状态见 [evidence/t026-eighteen-sources.md](evidence/t026-eighteen-sources.md)。
+  第 10—41 轮续作后：已实现并验证 9 个（CN-01、CN-02、CN-04、CN-08、IN-01、IN-02、IN-05、IN-06、IN-10）；
+  实现待验证 0 个；访问受限 9 个（CN-03、CN-05、CN-06、CN-07、IN-03、IN-04、IN-07、IN-08、IN-09，均可复现）；
+  未完成 0 个。线上累计 171 请求、0 失败、0 绕过（1 次截止停止如实记录）；T026 仍为部分完成。
+- 续作新增能力：站点自身列表端点作入口（IN-02）、`list_link_rewrite` 等价形态改写（IN-06）、
+  `attachment_pattern` 按来源限幅（IN-02）、`date_selector` 来源日期（IN-06）；恢复语义经实测确认为
+  “预算/截止停止不入 `crawl plan` 队列，继续方式为重跑该来源 collect”，runbook 已修正。
+- 未完成/暂缓：受限来源的访问方式与域名别名（Q12/Q13）、CN-04 政策列表分页与检索接口、
+  正文分页（已归档文章页均为单页，能力已具备，出现多页正文再登记）、后处理质量与附件专项；
+  第九轮 CN-04 已写文档的发布日期未回填（保留修复前事实）。
+- 下一轮起点：受限来源只登记不绕过；正式全范围验收等待 Q12/Q13 外部决定；无新证据不重跑全量回归。
+
+## 2026-09-13 收口记录（第 42 轮）：进度、问题与复现命令
+
+本轮为 raw 优先开发的收口轮：不新增采集能力，只同步状态、记录交付基线回归并整理可复现路径。
+本轮全部改动（开发、证据与说明）已按要求合并为单一提交，提交说明概括能力、18 来源状态、验证、缺口与命令。
+
+### 推进进度
+
+- 18 来源状态（全部有真实记录，见 [evidence/t026-eighteen-sources.md](evidence/t026-eighteen-sources.md)）：
+  已实现并验证 9（CN-01、CN-02、CN-04、CN-08、IN-01、IN-02、IN-05、IN-06、IN-10）；
+  实现待验证 0；访问受限 9（CN-03、CN-05、CN-06、CN-07、IN-03、IN-04、IN-07、IN-08、IN-09）；未完成 0。
+- 线上登记：第 6—41 轮合计 171 请求、0 失败、0 绕过（1 次截止停止如实记录，0 次登录/验证码/拒绝绕过），
+  见 [evidence/logs/t026-round6-limited.txt](evidence/logs/t026-round6-limited.txt)。
+- 交付基线回归：**406 passed**（[evidence/logs/t026-full-pytest.txt](evidence/logs/t026-full-pytest.txt)）；
+  契约同步 6 文件一致；SDD 文档校验 PASS；`crawl check`：manifest=63、documents=52、blocks=2452、
+  failures=2、raw_files=59、追溯 100%。
+- 合并提交涵盖：按站发现抽象与 `--start-date`、最小结构分块、逐站适配（CN-02 检索、IN-01/IN-02 入口与附件、
+  IN-05 栏目、IN-06 目标改写与来源日期、IN-10 form 正文）、受限来源复核、逐站分页/附件核验、
+  18 来源状态同步与本收口记录；此前分步提交已压缩，不再保留在 `main` 历史中。
+- 仍为部分完成：T019/T026/T027 的正式全范围验收未做（依赖 Q12/Q13），本记录不等于验收通过。
+
+### 遇到的问题（均已登记，未绕过）
+
+| 问题 | 现象与证据 | 处理 |
+| --- | --- | --- |
+| 受限来源 CN-03 | robots `Disallow /`，只取到 robots.txt | 停采并登记，等待 Q12 允许的访问方式 |
+| 受限来源 CN-05/06/07 | robots HTTP 508，第 37 轮三轮稳定复现 | 按不可用保守拒绝，等待 Q12 确认可达性 |
+| TLS 信任链失败 IN-04/07/08/09 | robots 获取失败，curl `verify=1`/`verify=20` 复现 | 按不可用保守拒绝，等待 Q12 确认信任链/访问方式 |
+| 域名别名 IN-03、CN-01 旧域 | 站内链接指向别名域，按来源边界跳过 | 只登记不扩展边界，等待 Q12 决定别名归属 |
+| CN-04 列表分页与检索通道 | “最新政策”为前端渲染、静态页无分页链接；检索库 `sousuo.www.gov.cn` robots `Disallow /` | 只采可访问列表页；分页/检索等待 Q12，不构造未公开接口 |
+| MEA（IN-01/IN-02）慢响应 | 单请求约 20s，早期轮次预算/截止停止（未冒充成功） | 提高预算；用站点自身列表端点 `--entry-url` 直达第 N 页 |
+| IN-10 正文 0 块 | ASP.NET 整页包在 `<form>` 内，早期解析丢弃正文 | 改为只丢控件、保留 form 正文；离线复算 0 → 33 块，线上 66 块 |
+| PIB 占位 ETag | 常量 `XXXXXXXX`，带/不带 `If-None-Match` 实测均返回 200 | 仅当状态库中 ETag 非空且真实时用于条件请求，占位值不触发 304 |
+| 预算停止后的继续方式 | 第 38 轮 `deadline` 停止后 `crawl plan` 为 0 项（失败账仅 CN-04） | runbook 修正：重跑该来源 `collect` 重新发现；`plan`/`resume` 只处理失败账未解决任务 |
+| 正文分页无样本 | 已归档文章页均为单页（仅 IN-02 列表级 `?page=N`，`max_pages: 1` 限幅） | 能力保留（pipeline parts + 夹具），出现多页正文再登记 `pagination_selector` |
+
+### 复现命令
+
+离线（不发网络；在仓库根执行，`UV_CACHE_DIR` 可按本机情况替换）：
+
+```bash
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads pytest -q
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python -m crawler.cli check
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python tools/sync_contracts.py --check
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python tools/verify_sdd_documents.py
+UV_CACHE_DIR=/tmp/crawl-uv-cache uv run --locked --no-python-downloads python tools/offline_replay.py \
+  --config src/crawler/config/sources.yaml --data-dir data --start-date 2026-09-06
+```
+
+线上（需先按 DEV-012 登记目的/来源/预算/窗口；示例为 CN-01，其它来源替换 `--source` 与入口参数）：
+
+```bash
+UV_CACHE_DIR=/tmp/crawl-uv-cache timeout 200 uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-01 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 240
+```
+
+受限来源复核（只取 robots，预算 3 个请求，遵守 Retry-After）：
+
+```bash
+UV_CACHE_DIR=/tmp/crawl-uv-cache timeout 60 uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-05 --start-date 2026-09-06 \
+  --max-items 1 --max-requests 3 --deadline-seconds 60
+```
+
+## 当前调度入口：阶段五（2026-09-13 追加）
+
+用户要求加入阶段五：在阶段四 raw 优先开发（可执行部分已完成）之后进入正式验收与交付收口。
+计划、前置决定（Q11/Q12/Q13/Q14、Q01／NEXT-10）、工作项（S5-01—S5-07）与退出条件见
+[阶段五计划](stage-five.md)。阶段四的能力与证据直接复用，不重做、不重跑已适用回归；
+未确认对应决定前不启动相关工作项，也不另造准备性任务或延长运行。

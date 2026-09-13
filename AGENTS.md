@@ -4,7 +4,7 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md、raw-first-development.md、structure-comparison.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、stage-four.md、stage-five.md、scope-and-blocking.md、raw-first-development.md、structure-comparison.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
 
 ## 开发约束
 

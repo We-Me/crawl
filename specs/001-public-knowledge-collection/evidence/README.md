@@ -25,6 +25,8 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [NEXT-06 运行预算与停止报告](next06-budget.md) | T006/T016/T026/T027：统一请求预算、截止时间、stop 报告与退出码 3 | 已完成工程交付；本地夹具 + 可注入时钟 14 项用例，见 [logs/stage-three-full-pytest.txt](logs/stage-three-full-pytest.txt) |
 | [NEXT-07 CN-08 正文边界修复](next07-cn08-body.md) | T008/T013/T026：正文选择器、容器外标题回退、原 10 块 → 6 块（正文逐字保留） | 已完成工程修复；离线差异 [logs/next07-cn08-offline-diff.txt](logs/next07-cn08-offline-diff.txt)、离线重解析 [logs/next07-cn08-reparse.txt](logs/next07-cn08-reparse.txt) |
 | [NEXT-08 随包契约与源码外安装](next08-packaged-contracts.md) | T003/T019/T027：契约随 wheel 交付、一致性校验、源码外 sources/check | 已完成工程交付；安装与负向检查见 [logs/next08-installed-wheel.txt](logs/next08-installed-wheel.txt) |
+| [十八来源状态记录](t026-eighteen-sources.md) | T026/T005/T010/T013：按站发现抽象、`--start-date`、最小结构分块在 18 个来源上的实现/验证状态 | 已实现并验证 3 个、实现待验证 4 个、访问受限 9 个、未完成 2 个；T026/T019 仍为部分完成 |
+| [第六至九轮有限线上记录](logs/t026-round6-limited.txt) | T026/T005/T015：文章级发现、起始日包含式下界、政策文件与日期 meta 的真实站点验证（登记+结果） | 40 个请求、0 失败；CN-08 边界收录/排除、CN-01 3 篇 in_window、CN-04 政策文件与 `firstpublishedtime` |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -73,3 +75,7 @@ Word FIB 与 BIFF8 首部校验）已在沙箱内通过，另 5 项已于 2026-0
 shell 复跑通过（13 passed），用例级证据闭合。
 
 最新环境更新：[用户提供的 WSL 组件就绪证据](next04-wsl-component-ready.md)。NEXT-04 为 READY_FOR_VALIDATION，历史缺组件日志保留，真实转换尚待验证。
+
+2026-09-13 追加：按站发现抽象（`discover/strategies.py`）、运行时起始日（`schedule/scope.py` + `collect --start-date`）、
+最小结构分块（`normalize/segmenter.py`）与本轮 18 来源状态记录已交付；全量测试 384 passed，
+契约同步检查通过，第六至九轮真实站点有限运行见 [logs/t026-round6-limited.txt](logs/t026-round6-limited.txt)。

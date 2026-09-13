@@ -34,6 +34,15 @@ def test_list_discovery_skips_out_of_boundary_links(site_server, registry_factor
     assert skipped["https://outside.invalid/secret"] == "domain_not_allowed:outside.invalid"
 
 
+def test_adapter_attachment_pattern_narrows_attachments(site_server, registry_factory):
+    """T026：附件规则按来源登记（如 IN-02 只取条约 PDF，不取页面站点级 footer PDF）。"""
+    registry = registry_factory(site_server, adapter={"attachment_pattern": r"notice\.csv$"})
+    discoverer = make_discoverer(registry)
+    content = Path("tests/fixtures/site/detail_1.html").read_bytes()
+    targets = discoverer.attachments_from_html(content, f"{site_server}/detail_1.html")
+    assert [target.url for target in targets] == [f"{site_server}/attachments/notice.csv"]
+
+
 def test_attachments_are_discovered_separately(site_server, registry_factory):
     registry = registry_factory(site_server)
     discoverer = make_discoverer(registry)
@@ -110,6 +119,36 @@ def test_adapter_list_selector_miss_is_recorded_not_fallen_back(site_server, reg
     assert targets == []
     assert discoverer.skipped[0].url == f"{site_server}/index.html"
     assert discoverer.skipped[0].reason == "adapter_list_selector_miss:div.not-here a"
+
+
+def test_adapter_list_link_rewrite_maps_to_equivalent_form(site_server, registry_factory):
+    """T026：来源登记的等价形态改写（如 IN-06 详情壳页 → 站点自身 reader 页）。"""
+    registry = registry_factory(
+        site_server,
+        adapter={
+            "list_link_pattern": r"detail_1\.html$",
+            "list_link_rewrite": [[r"detail_1\.html$", "reader_1.html"]],
+        },
+    )
+    discoverer = make_discoverer(registry)
+    targets = discoverer.discover_list([f"{site_server}/index.html"])
+    assert [target.url for target in targets] == [f"{site_server}/reader_1.html"]
+
+
+def test_adapter_list_link_rewrite_still_subject_to_boundary(site_server, registry_factory):
+    registry = registry_factory(
+        site_server,
+        adapter={
+            "list_link_pattern": r"detail_1\.html$",
+            # 跨域等价形态：正则需匹配完整 URL（含来源），替换结果再进入边界判定
+            "list_link_rewrite": [[r"^https?://[^/]+/detail_1\.html$", "https://outside.invalid/reader.html"]],
+        },
+    )
+    discoverer = make_discoverer(registry)
+    targets = discoverer.discover_list([f"{site_server}/index.html"])
+    assert targets == []
+    skipped = {item.url: item.reason for item in discoverer.skipped}
+    assert skipped["https://outside.invalid/reader.html"] == "domain_not_allowed:outside.invalid"
 
 
 def test_adapter_max_pages_is_pagination_stop_condition(site_server, registry_factory):

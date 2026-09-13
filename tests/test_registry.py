@@ -37,11 +37,24 @@ def base_source(**overrides):
     return entry
 
 
-def test_shipped_config_disables_real_crawling():
+def test_shipped_config_registers_eighteen_development_sources():
+    """随包注册表登记 18 个开发来源（启用）与 1 个禁用示例。
+
+    启用表示“开发范围可执行”（raw-first-development.md），不等于正式启用验收：
+    访问仍逐请求受 robots 与边界约束，正式启用名单/调度待 Q13。
+    """
     registry = load_registry()
-    assert registry.config_version == "0.1.0"
+    assert registry.config_version == "0.2.0"
     assert registry.get("DEMO").enabled is False
-    assert registry.enabled_sources() == ()
+    expected = {f"CN-{index:02d}" for index in range(1, 9)} | {
+        f"IN-{index:02d}" for index in range(1, 11)
+    }
+    assert {source.source_id for source in registry.enabled_sources()} == expected
+    assert len(registry.sources) == len(expected) + 1
+    # 未实现发现策略的来源显式登记为空清单，不以通用规则冒充已接入。
+    assert registry.get("CN-02").adapter.discovery == ("search",)  # 2026-09-13 站内检索通道已实现
+    assert registry.get("IN-06").adapter.discovery == ("list",)  # 2026-09-13 桌面列表入口与 reader 页已核验
+    assert registry.get("CN-08").adapter.discovery == ("list",)
     assert registry.config_digest
 
 
@@ -222,6 +235,10 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
             "pagination_selector": "a.next-page",
             "max_pages": 3,
             "content_selector": "div.article-body",
+            "date_selector": "#PrDateTime",
+            "attachment_pattern": r"tykfiles/.*\.pdf$",
+            "list_link_rewrite": [[r"detail\.aspx\?id=(\d+)", r"reader.aspx?id=\1"]],
+            "discovery": ["list", "search"],
         }
     )
     adapter = SourceRegistry.load(write_config(tmp_path, [entry])).get("DEMO").adapter
@@ -230,6 +247,10 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
     assert adapter.pagination_selector == "a.next-page"
     assert adapter.max_pages == 3
     assert adapter.content_selector == "div.article-body"
+    assert adapter.date_selector == "#PrDateTime"
+    assert adapter.attachment_pattern == r"tykfiles/.*\.pdf$"
+    assert adapter.list_link_rewrite == ((r"detail\.aspx\?id=(\d+)", r"reader.aspx?id=\1"),)
+    assert adapter.discovery == ("list", "search")
 
 
 @pytest.mark.parametrize(
@@ -240,6 +261,15 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
         ({"max_pages": 0}, "max_pages"),
         ({"max_pages": True}, "max_pages"),
         ({"content_selector": "div["}, "CSS 选择器"),
+        ({"date_selector": "div["}, "CSS 选择器"),
+        ({"attachment_pattern": "("}, "attachment_pattern"),
+        ({"list_link_rewrite": []}, "list_link_rewrite"),
+        ({"list_link_rewrite": [["("]]}, "list_link_rewrite"),
+        ({"list_link_rewrite": [[12, "x"]]}, "list_link_rewrite"),
+        ({"list_link_rewrite": [["a", "b", "c"]]}, "list_link_rewrite"),
+        ({"list_link_rewrite": [[r"(a)", r"\2"]]}, "list_link_rewrite"),
+        ({"discovery": ["unknown-stage"]}, "discovery"),
+        ({"discovery": "list"}, "discovery"),
         ({"unknown_rule": "x"}, "未知字段"),
         ("not-a-mapping", "必须是映射"),
     ],

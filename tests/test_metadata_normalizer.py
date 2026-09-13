@@ -67,6 +67,15 @@ def test_normalize_date_accepts_known_formats():
     assert normalize_date("2026-09-10T10:30:00+08:00") == "2026-09-10"
 
 
+def test_normalize_date_accepts_month_abbreviations():
+    """IN-06 PIB 发布日期行为 '12 SEP 2026 4:08PM by PIB Delhi'；缩写月份同样只认到日精度。"""
+    assert normalize_date("12 SEP 2026 4:08PM by PIB Delhi") == "2026-09-12"
+    assert normalize_date("12 Sept 2026") == "2026-09-12"
+    assert normalize_date("5 Mar 2026") == "2026-03-05"
+    assert normalize_date("SEP 12, 2026") == "2026-09-12"
+    assert normalize_date("12 Springfield 2026") is None
+
+
 def test_normalize_date_does_not_fabricate():
     assert normalize_date("2026-02-30") is None
     assert normalize_date("2026年9月") is None

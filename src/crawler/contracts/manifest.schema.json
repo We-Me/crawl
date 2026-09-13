@@ -61,8 +61,11 @@
         "sitemap",
         "api",
         "attachment",
-        "manual"
-      ]
+        "manual",
+        "pagination",
+        "retry"
+      ],
+      "description": "list/search/sitemap/api/attachment/manual 为原文集合；pagination（正文分页部分）与 retry（补抓重取）是本实现的候选扩展，待 Q12/Q15 冻结映射"
     },
     "keyword": {
       "type": "string",

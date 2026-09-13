@@ -33,7 +33,7 @@ flowchart LR
 
 必填：crawl_id、source_id、requested_url、final_url、crawl_time、http_status、content_type、raw_path、sha256、discovery_method。建议：referrer_url。条件必填：站内搜索发现时 keyword。可选：etag、last_modified。
 
-S1 列举 discovery_method 为 list/search/sitemap/api/attachment/manual；机器契约按该集合编码为候选枚举。S1/S2 同时提到 RSS、浏览器兜底和限域发现，但未给新枚举值；不擅自归到 manual 或 sitemap，应由 Q12 冻结映射。raw_path 相对于配置的数据根；开发默认项目根下 data/，生产通过 CRAWL_DATA_DIR 指定绝对路径，见 [项目起步说明](project-startup.md)。manifest.sha256 明确为原始字节 SHA-256。
+S1 列举 discovery_method 为 list/search/sitemap/api/attachment/manual；机器契约按该集合编码为候选枚举。S1/S2 同时提到 RSS、浏览器兜底和限域发现，但未给新枚举值；不擅自归到 manual 或 sitemap，应由 Q12 冻结映射。2026-09-13：实现在执行器已使用两个扩展值并写入账本——`pagination`（正文分页的后续部分，与母页同文档、按部分序号合并）与 `retry`（失败补抓重取）。机器契约把两者列入枚举并在描述中标注为候选扩展、待 Q12/Q15 冻结；未把它们改名成 manual 或 sitemap 以规避决策。raw_path 相对于配置的数据根；开发默认项目根下 data/，生产通过 CRAWL_DATA_DIR 指定绝对路径，见 [项目起步说明](project-startup.md)。manifest.sha256 明确为原始字节 SHA-256。
 
 ### 文档
 
@@ -47,13 +47,19 @@ document.sha256 在 S1 中允许正文或原文件哈希，基础 schema 保留�
 
 必填：block_id、doc_id、order、block_type、extraction_method。text 条件必填；表格可另存 structured_data。建议：heading_level（integer/null）、section_path、source_anchor（string/object）。PDF/扫描件建议：page_no（integer/null）。法规/条约建议：article_no（string/null）。表格等建议：structured_data（object/null）。OCR/自动抽取可选：confidence（number/null，0—1）。
 
+2026-09-13 实现扩展（不改变必填层级）：`extraction_method` 采用 `<基础抽取>+<分块器>_<版本>` 形式，
+例如 `bs4_lxml_dom+structural_blank_line_v1`、`bs4_lxml_selector+structural_blank_line_v1`、`pre_parsed`；
+分块器名称与版本可识别，便于区分 dummy 与后续替换实现。契约把该字段定义为开放字符串，格式约定不构成新枚举。
+
 order 原文允许从 0 或 1 开始，基础 schema 只规定非负整数；候选统一起点 0 尚属 Q09。block_type 的 title/heading/paragraph/list_item/table/table_row/page_note/image_caption 等是示例，不封死其他原文结构。对 table/table_row，候选规则允许有非空 text，或有非空 structured_data；其他块必须有 text 字段。真实内容完整性不能只看字段存在。
 
 source_anchor 可记录 DOM selector、paragraph_index、page_no、article_no、sheet/range 等，但这些子字段并没有统一必填集合。HTML 正文分页合并时，候选实现用同一 page_no 记录正文部分序号（1..n，翻页控件不入正文）；这是本项目的实现约定，不是 S1 的字段新定义，若 Q09 冻结顺序语义需一并复核。原文对引用和页码的验收目标比部分字段的“建议”等级更强，按 NFR-001、FR-011 和入选 S2 条件检查，不能简单把所有 source_anchor 升成全对象必填。
 
 ### 失败记录
 
-至少包含 source_id、url、time、stage、error_type、message、retry_count、final_action。S1 未给完整字段类型表，契约类型和重试计数非负约束是合理的候选工程表达。stage 保持开放字符串，fetch/download/parse/normalize 为推荐值。重试成功不能抹去原失败事实；补抓关联字段需 Q15 定稿。
+至少包含 source_id、url、time、stage、error_type、message、retry_count、final_action。2026-09-13 实现扩展：可选
+`scope_start_date`（YYYY-MM-DD）记录该失败发生时所处运行的内容发布日期下界，供恢复任务保留原窗口；
+缺省为空表示原运行未设起始日，不改变失败核心字段与必填层级。S1 未给完整字段类型表，契约类型和重试计数非负约束是合理的候选工程表达。stage 保持开放字符串，fetch/download/parse/normalize 为推荐值。重试成功不能抹去原失败事实；补抓关联字段需 Q15 定稿。
 
 ## S1 正文中的补充字段
 
@@ -75,7 +81,7 @@ document.crawl_ids、document.content_hash 以及附件对象的 doc_id/crawl_id
 
 | 对象 | 原文字段或组织键 | 引用与限制 |
 | --- | --- | --- |
-| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner/adapter | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选。`robots_policy` 记录逐站核验结论（T026）；robots.txt 的获取与执行由客户端按 FR-001 自动完成，不依赖该文本字段。`adapter` 是 T026 机制部分新增的候选块（list_link_selector/list_link_pattern/pagination_selector/max_pages/content_selector），逐来源取值待 Q12/Q13；未配置时使用通用规则 |
+| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner/adapter | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选。`robots_policy` 记录逐站核验结论（T026）；robots.txt 的获取与执行由客户端按 FR-001 自动完成，不依赖该文本字段。`adapter` 是 T026 机制部分新增的候选块（list_link_selector/list_link_pattern/list_link_rewrite/attachment_pattern/pagination_selector/max_pages/content_selector/date_selector），逐来源取值待 Q12/Q13；未配置时使用通用规则 |
 | 通用文档或片段 | doc_id/chunk_id/title/text/source_name/source_url/source_country/source_authority/document_type/topic/publication_date/event_date/effective_from/effective_to/version/is_current/language/jurisdiction/stance/citation_anchor/content_hash/supersedes/superseded_by/抓取时间 | S2 §3 为建议；不是要求每个 document 必须同时具有 chunk_id |
 | A 协定 | agreement_id，签署/生效、正式语言、条款、双方名称、引用锚点 | 一份协定的语言和版本分别保留；条款切片属领域对象 |
 | B 政策表述 | stance/speaker/organization/event_date/publication_date/issue_tags/related_agreement_ids | 发布机构、时间和立场按 S2 §18 强制保留；联合文件不因站点国别自动标单方 |

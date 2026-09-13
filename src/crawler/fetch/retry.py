@@ -56,6 +56,7 @@ class RecoveryTask:
     crawl_id: Optional[str] = None
     referrer_url: Optional[str] = None
     raw_path: Optional[str] = None
+    scope_start_date: Optional[str] = None
     reason: str = ""
 
     def as_row(self) -> dict:
@@ -68,7 +69,7 @@ class RecoveryTask:
             "retry_count": self.retry_count,
             "not_before": self.not_before.isoformat(),
         }
-        for key in ("crawl_id", "referrer_url", "raw_path"):
+        for key in ("crawl_id", "referrer_url", "raw_path", "scope_start_date"):
             value = getattr(self, key)
             if value:
                 row[key] = value
@@ -121,6 +122,7 @@ def plan_retry(
         "not_before": now + timedelta(seconds=backoff_delay(attempt, policy)),
         "crawl_id": failure.get("crawl_id"),
         "referrer_url": failure.get("referrer_url"),
+        "scope_start_date": failure.get("scope_start_date"),
     }
     if stage in NETWORK_STAGES:
         if is_permanent(failure):

@@ -59,3 +59,12 @@ def test_corrupt_and_missing_contract_files_fail_clearly(tmp_path):
         load_contract("block", directory=tmp_path)
     with pytest.raises(SchemaConfigError, match="未知契约"):
         load_contract("absent")
+
+
+def test_manifest_discovery_method_includes_pagination_and_retry_extensions():
+    """正文分页部分与补抓重取的账本值必须在枚举内，否则 crawl check 会判契约不通过。"""
+    manifest = load_contract("manifest")
+    enum = manifest["properties"]["discovery_method"]["enum"]
+    assert {"list", "search", "sitemap", "api", "attachment", "manual"} <= set(enum)
+    assert {"pagination", "retry"} <= set(enum)
+    assert "候选扩展" in manifest["properties"]["discovery_method"]["description"]

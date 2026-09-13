@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
@@ -17,6 +17,9 @@ from bs4 import BeautifulSoup, Tag
 from crawler.normalize.date_utils import normalize_date
 from crawler.normalize.text_utils import collapse_whitespace
 from crawler.parser.parsed_page import ParsedBlock, ParsedPage
+
+if TYPE_CHECKING:  # pragma: no cover - 仅类型标注；运行期在 parse_html 内按需导入
+    from crawler.normalize.segmenter import BlockSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +31,17 @@ META_DATE_KEYS = (
     "publishdate",
     "publish-date",
     "pubdate",
+    "firstpublishedtime",
     "date",
     "article:published_time",
     "dc.date",
 )
-HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 PAGINATION_TEXTS = frozenset({"下一页", "下一部分", "下页", "后一页", "next", "next page"})
 BODY_API_TYPE = "application/json"
-DROP_TAGS = ("script", "style", "noscript", "template", "nav", "footer", "aside", "form")
+DROP_TAGS = ("script", "style", "noscript", "template", "nav", "footer", "aside")
+# 表单控件不产出正文；但不整段丢弃 <form>：ASP.NET 等站点把整页内容包在 form 里
+# （IN-10 Home.aspx：4 h2/17 p/2 table 全在 form 内），整段丢弃会得到 0 块。
+DROP_FORM_CONTROLS = ("input", "select", "option", "textarea", "button")
 
 
 def decode_html(content: bytes, encoding_hint: Optional[str] = None) -> str:
@@ -60,16 +66,34 @@ def parse_html(
     page_url: str,
     encoding_hint: Optional[str] = None,
     content_selector: Optional[str] = None,
+    date_selector: Optional[str] = None,
+    segmenter: Optional[BlockSegmenter] = None,
 ) -> ParsedPage:
     """解析 HTML 为顺序块。
 
     content_selector 是逐来源适配规则给出的正文范围（T026）：命中时只抽取该范围，
     并以 `bs4_lxml_selector` 记录抽取方式；未命中时不静默使用通用范围，而是设置
     `content_selector_missed` 交给调用方按失败处理。
+
+    date_selector 是逐来源适配规则给出的发布日期元素（T026）：命中且文本可验证到日精度时
+    作为 publication_date；未命中或无法验证时回落到 meta/正文启发式，并保留 raw_date_text，
+    不补造日期。
+
+    segmenter 是分块实现（T010/T013 新增的分块抽象）：默认使用
+    StructuralBlankLineSegmenter（独立结构块 + div 空行拆块），记录在
+    extraction_method 中；替换实现不改变 ParsedBlock 与输出契约。
     """
+    # 延迟导入：normalize.segmenter 依赖 ParsedBlock，而本模块在 parser 包初始化时被导入。
+    from crawler.normalize.segmenter import (
+        DEFAULT_HTML_SEGMENTER,
+        SegmentRequest,
+        extraction_method_for,
+    )
+
+    segmenter = segmenter or DEFAULT_HTML_SEGMENTER
     text = decode_html(content, encoding_hint)
     soup = BeautifulSoup(text, "lxml")
-    extraction_method = EXTRACTION_METHOD
+    base_method = EXTRACTION_METHOD
     selector_missed = False
     if content_selector:
         selected = soup.select_one(content_selector)
@@ -79,11 +103,14 @@ def parse_html(
             scope = soup.find("main") or soup.find("article") or soup.body or soup
         else:
             scope = selected
-            extraction_method = "bs4_lxml_selector"
+            base_method = "bs4_lxml_selector"
     else:
         scope = soup.find("main") or soup.find("article") or soup.body or soup
     for tag in scope.find_all(DROP_TAGS):
         tag.decompose()
+    for tag in scope.find_all(DROP_FORM_CONTROLS):
+        tag.decompose()
+    extraction_method = extraction_method_for(base_method, segmenter)
 
     title = ""
     for heading in scope.find_all(["h1", "h2"]):
@@ -108,62 +135,17 @@ def parse_html(
     canonical = soup.find("link", rel=lambda value: value and "canonical" in value)
     canonical_url = canonical.get("href") if isinstance(canonical, Tag) else None
     next_anchor = _next_page_anchor(scope)
-    next_page_url = urljoin(page_url, next_anchor["href"]) if next_anchor is not None else None
+    next_page_url = _next_page_url(page_url, next_anchor)
     body_api_url = _body_api_endpoint(soup, page_url)
 
-    blocks: list = []
-    for element in scope.find_all(HEADING_TAGS + ("p", "li", "table")):
-        if element.name != "table" and element.find_parent("table") is not None:
-            continue
-        if _is_pagination_control(element, next_anchor):
-            continue
-        if element.name in HEADING_TAGS:
-            text = _clean_text(element)
-            if text:
-                blocks.append(
-                    ParsedBlock(
-                        block_type="heading",
-                        text=text,
-                        heading_level=int(element.name[1]),
-                        source_anchor=_anchor(element, scope),
-                    )
-                )
-        elif element.name == "p":
-            text = _clean_text(element)
-            if text:
-                blocks.append(
-                    ParsedBlock(
-                        block_type="paragraph", text=text, source_anchor=_anchor(element, scope)
-                    )
-                )
-        elif element.name == "li":
-            text = _clean_text(element)
-            if text:
-                blocks.append(
-                    ParsedBlock(
-                        block_type="list_item", text=text, source_anchor=_anchor(element, scope)
-                    )
-                )
-        elif element.name == "table":
-            rows, headers = _table_rows(element)
-            if not rows:
-                continue
-            table_text = "\n".join("\t".join(row) for row in rows)
-            blocks.append(
-                ParsedBlock(
-                    block_type="table",
-                    text=table_text,
-                    structured_data={
-                        "headers": headers,
-                        "rows": rows[1:] if headers else rows,
-                        "caption": _clean_text(element.caption) if element.caption else None,
-                    },
-                    source_anchor=_anchor(element, scope),
-                )
-            )
+    blocks = segmenter.segment(
+        SegmentRequest(dom=scope, page_url=page_url, next_page_anchor=next_anchor)
+    )
 
     full_text = "\n".join(block.text for block in blocks if block.text)
-    publication_date, raw_date_text = _extract_publication_date(soup, blocks)
+    publication_date, raw_date_text = _extract_publication_date(
+        soup, blocks, date_selector=date_selector, page_url=page_url
+    )
     if publication_date is None:
         metadata_missing.append("publication_date")
     language = None
@@ -189,6 +171,16 @@ def parse_html(
     )
 
 
+def _next_page_url(page_url: str, anchor: Optional[Tag]) -> Optional[str]:
+    """下一页地址；忽略只改锚点的“翻页”链接（轮播/回到顶部等 rel=next 误报）。"""
+    if anchor is None:
+        return None
+    candidate = urljoin(page_url, str(anchor["href"]))
+    if candidate.split("#")[0] == str(page_url).split("#")[0]:
+        return None
+    return candidate
+
+
 def _next_page_anchor(scope: Tag) -> Optional[Tag]:
     """内容区内的下一页链接：rel=next 或明确的翻页文案，不跟随站外“上一篇/下一篇”推荐。"""
     for anchor in scope.find_all("a", href=True):
@@ -197,16 +189,6 @@ def _next_page_anchor(scope: Tag) -> Optional[Tag]:
         if "next" in rels or text in PAGINATION_TEXTS:
             return anchor
     return None
-
-
-def _is_pagination_control(element: Tag, next_anchor: Optional[Tag]) -> bool:
-    """纯翻页控件不进入正文：段落/列表项文本与下一页链接文本一致时跳过。"""
-    if next_anchor is None or element.name not in ("p", "li"):
-        return False
-    anchors = element.find_all("a", href=True)
-    if anchors != [next_anchor]:
-        return False
-    return _clean_text(element) == _clean_text(next_anchor)
 
 
 def _body_api_endpoint(soup: BeautifulSoup, page_url: str) -> Optional[str]:
@@ -226,35 +208,31 @@ def _clean_text(element: Tag) -> str:
     return collapse_whitespace(element.get_text(" ", strip=True))
 
 
-def _table_rows(table: Tag) -> Tuple[list, list]:
-    rows = []
-    headers: list = []
-    for row_index, tr in enumerate(table.find_all("tr")):
-        cells = tr.find_all(["th", "td"])
-        values = [_clean_text(cell) for cell in cells]
-        if not values:
-            continue
-        rows.append(values)
-        if row_index == 0 and any(cell.name == "th" for cell in cells):
-            headers = values
-    return rows, headers
-
-
-def _anchor(element: Tag, scope: Tag) -> dict:
-    parts = []
-    current: Optional[Tag] = element
-    while isinstance(current, Tag) and current is not scope:
-        same_tag = [sib for sib in current.parent.find_all(current.name, recursive=False)]
-        position = same_tag.index(current) + 1
-        parts.append(f"{current.name}:nth-of-type({position})")
-        current = current.parent if isinstance(current.parent, Tag) else None
-    parts.append(scope.name)
-    return {"selector": " > ".join(reversed(parts))}
-
-
 def _extract_publication_date(
-    soup: BeautifulSoup, blocks: Sequence[ParsedBlock]
+    soup: BeautifulSoup,
+    blocks: Sequence[ParsedBlock],
+    date_selector: Optional[str] = None,
+    page_url: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
+    if date_selector:
+        element = soup.select_one(date_selector)
+        if element is None:
+            logger.warning(
+                "发布日期选择器未命中 url=%s selector=%s；回落 meta/正文启发式",
+                page_url,
+                date_selector,
+            )
+        else:
+            raw = _clean_text(element)
+            normalized = _normalize_date(raw)
+            if normalized:
+                return normalized, raw or None
+            logger.warning(
+                "发布日期选择器文本无法验证到日精度 url=%s selector=%s text=%r",
+                page_url,
+                date_selector,
+                raw,
+            )
     for meta in soup.find_all("meta"):
         key = (meta.get("name") or meta.get("property") or "").lower()
         if key in META_DATE_KEYS:

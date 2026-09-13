@@ -25,6 +25,21 @@ from crawler.discover.discoverer import (
     DiscoveredTarget,
     SkippedTarget,
 )
+from crawler.discover.strategies import (
+    STATUS_NOT_IMPLEMENTED,
+    STATUS_OK,
+    STATUS_REQUEST_ERROR,
+    STAGE_API,
+    STAGE_LIST,
+    STAGE_MANUAL,
+    STAGE_SEARCH,
+    STAGE_SITEMAP,
+    DiscoveryContext,
+    DiscoveryRequest,
+    DiscoveryResult,
+    declared_stages,
+    resolve_strategy,
+)
 from crawler.fetch.downloader import Downloader
 from crawler.fetch.budget import BudgetStop, RunBudget
 from crawler.fetch.http_client import FetchError, HttpClient, RobotsDisallowed
@@ -61,6 +76,7 @@ from crawler.monitor.metrics import (
     write_metrics,
 )
 from crawler.schedule.incremental import plan_incremental
+from crawler.schedule.scope import RunScope, ScopeConfigError, parse_start_date
 from crawler.schedule.state import IncrementalStateStore
 from crawler.util.paths import PathSafetyError, sanitize_filename
 
@@ -84,6 +100,7 @@ class RunCounters:
     failures: int = 0
     skipped: int = 0
     not_modified: int = 0
+    out_of_window: int = 0
 
 
 @dataclass
@@ -93,6 +110,9 @@ class RunReport:
     failures: List[dict] = field(default_factory=list)
     skipped: List[SkippedTarget] = field(default_factory=list)
     documents: List[str] = field(default_factory=list)
+    discovery: List[DiscoveryResult] = field(default_factory=list)
+    scope: RunScope = RunScope()
+    date_decisions: List[dict] = field(default_factory=list)
     metrics: Optional[dict] = None
     stop_reason: Optional[str] = None
     stop_message: str = ""
@@ -160,6 +180,8 @@ class CrawlPipeline:
         self.failures_ledger = FailureLedger(self.data_dir)
         self.now = now or (lambda: datetime.now(timezone.utc).astimezone())
         self._sequences: dict = {}
+        # 本次运行范围：失败记录与补抓计划据此保留原窗口（恢复不混入新窗口）。
+        self._run_scope: RunScope = RunScope()
 
     def collect(
         self,
@@ -169,13 +191,18 @@ class CrawlPipeline:
         search_keywords: Sequence[str] = (),
         sitemap_urls: Sequence[str] = (),
         api_urls: Sequence[str] = (),
+        manual_urls: Sequence[str] = (),
         include_attachments: bool = True,
         max_items: int = 100,
         budget: Optional[RunBudget] = None,
+        scope: Optional[RunScope] = None,
     ) -> RunReport:
+        """按来源执行一次采集；scope 为本次运行范围（起始日期下界）。"""
         source = self.registry.get(source_id)
         if not source.enabled:
             raise ValueError(f"来源未启用，不能采集：{source_id}")
+        scope = scope or RunScope()
+        self._run_scope = scope
         started = self.now()
         self.layout.ensure()
         configure_run_logging(self.data_dir)
@@ -184,11 +211,20 @@ class CrawlPipeline:
         before = output_stats(self.data_dir)
         requests_before = self.http.request_attempts
         report = RunReport(source_id=source_id)
+        report.scope = scope
         if budget is not None:
             budget.start()
             self.http.attach_budget(budget)
             report.budget = budget
         discoverer = Discoverer(self.http, self.registry, source, max_items=max_items)
+        context = DiscoveryContext(
+            source=source,
+            registry=self.registry,
+            http=self.http,
+            discoverer=discoverer,
+            scope=scope,
+            max_items=max_items,
+        )
         moment = self.now()
         crawl_date = moment.date().isoformat()
         crawl_time = moment.isoformat()
@@ -197,47 +233,46 @@ class CrawlPipeline:
         planned = 0
         processed = 0
         try:
-            wants_list = entry_urls is None or len(entry_urls) > 0
-            if wants_list:
-                entries = list(entry_urls) if entry_urls is not None else list(source.entry_urls)
-                targets.extend(
-                    self._discover(
-                        report, "list", lambda: discoverer.discover_list(entries), source_id
-                    )
-                )
-            for keyword in search_keywords:
-                targets.extend(
-                    self._discover(
-                        report,
-                        "search",
-                        lambda keyword=keyword: discoverer.discover_search(keyword),
-                        source_id,
-                    )
-                )
-            for sitemap_url in sitemap_urls:
-                targets.extend(
-                    self._discover(
-                        report,
-                        "sitemap",
-                        lambda sitemap_url=sitemap_url: discoverer.discover_sitemap(sitemap_url),
-                        source_id,
-                    )
-                )
-            for api_url in api_urls:
-                targets.extend(
-                    self._discover(
-                        report,
-                        "api",
-                        lambda api_url=api_url: discoverer.discover_api(api_url),
-                        source_id,
-                    )
+            default_list = not (
+                manual_urls
+                and entry_urls is None
+                and not (search_keywords or sitemap_urls or api_urls)
+            )
+            for request in self._discovery_requests(
+                entry_urls,
+                search_keywords,
+                sitemap_urls,
+                api_urls,
+                scope,
+                max_items,
+                include_default_list=default_list,
+            ):
+                result = self._run_discovery(report, request, context)
+                report.discovery.append(result)
+                targets.extend(result.targets)
+            if any(
+                result.status == STATUS_NOT_IMPLEMENTED for result in report.discovery
+            ):
+                logger.warning(
+                    "来源存在未实现的发现方式 source=%s 明细=%s",
+                    source_id,
+                    [result.as_row() for result in report.discovery],
                 )
 
+            if manual_urls:
+                targets.extend(self._manual_targets(report, source, manual_urls))
             selected = targets[:max_items]
             planned = len(selected)
             for target in selected:
                 self._collect_target(
-                    source, discoverer, target, crawl_date, crawl_time, include_attachments, report
+                    source,
+                    discoverer,
+                    target,
+                    crawl_date,
+                    crawl_time,
+                    include_attachments,
+                    report,
+                    scope,
                 )
                 processed += 1
         except BudgetStop as stop:
@@ -245,7 +280,11 @@ class CrawlPipeline:
             report.stop_message = stop.message
             logger.warning("采集按预算停止 reason=%s message=%s", stop.reason, stop.message)
         report.unprocessed = planned - processed if planned else None
-        report.skipped.extend(discoverer.skipped)
+        # 发现阶段的跳过已随策略结果并入；采集阶段（如附件发现）新写入
+        # discoverer.skipped 的条目在此补记，避免重复计数。
+        accounted = sum(len(result.skipped) for result in report.discovery)
+        if len(discoverer.skipped) > accounted:
+            report.skipped.extend(discoverer.skipped[accounted:])
         report.counters.skipped = len(report.skipped)
         report.metrics = self._finish_run(
             report,
@@ -257,6 +296,122 @@ class CrawlPipeline:
             request_controls=self._request_controls(source),
         )
         return report
+
+    def _manual_targets(self, report, source, manual_urls: Sequence[str]):
+        """把显式 --url 转成发现目标；越界或 robots 规则内的 URL 只记跳过，不请求。"""
+        result = DiscoveryResult(
+            stage=STAGE_MANUAL,
+            strategy="manual_url",
+            status=STATUS_OK,
+            note="显式 --url：按操作者指定 URL 直接采集（manifest.discovery_method=manual）",
+        )
+        for url in manual_urls:
+            decision = self.registry.check_access(url, source.source_id)
+            if not decision.allowed:
+                result.skipped.append(SkippedTarget(url, decision.reason, None))
+                continue
+            result.targets.append(DiscoveredTarget(url=url, discovery_method="manual"))
+        report.discovery.append(result)
+        report.skipped.extend(result.skipped)
+        return result.targets
+
+    @staticmethod
+    def _discovery_requests(
+        entry_urls: Optional[Sequence[str]],
+        search_keywords: Sequence[str],
+        sitemap_urls: Sequence[str],
+        api_urls: Sequence[str],
+        scope: RunScope,
+        max_items: int,
+        include_default_list: bool = True,
+    ) -> List[DiscoveryRequest]:
+        """把本轮参数转成发现请求；未给出的方式不发起（不隐式扩大范围）。
+
+        `include_default_list=False` 用于只给了 --url 的显式采集：不隐式跑来源入口，
+        避免把“按给定 URL 取一页”扩大成一次栏目采集。
+        """
+        requests: List[DiscoveryRequest] = []
+        if include_default_list and (entry_urls is None or len(entry_urls) > 0):
+            requests.append(
+                DiscoveryRequest(
+                    stage=STAGE_LIST,
+                    scope=scope,
+                    entries=tuple(entry_urls or ()),
+                    max_items=max_items,
+                )
+            )
+        for keyword in search_keywords:
+            requests.append(
+                DiscoveryRequest(
+                    stage=STAGE_SEARCH, scope=scope, keyword=keyword, max_items=max_items
+                )
+            )
+        for sitemap_url in sitemap_urls:
+            requests.append(
+                DiscoveryRequest(
+                    stage=STAGE_SITEMAP, scope=scope, sitemap_url=sitemap_url, max_items=max_items
+                )
+            )
+        for api_url in api_urls:
+            requests.append(
+                DiscoveryRequest(
+                    stage=STAGE_API, scope=scope, api_url=api_url, max_items=max_items
+                )
+            )
+        return requests
+
+    def _run_discovery(
+        self,
+        report: RunReport,
+        request: DiscoveryRequest,
+        context: DiscoveryContext,
+    ) -> DiscoveryResult:
+        """执行一个发现策略；访问受限与请求错误分别记账，不冒充零结果。"""
+        strategy = resolve_strategy(
+            context.source,
+            request.stage,
+            explicit_entry=bool(
+                request.entries or request.keyword or request.sitemap_url or request.api_url
+            ),
+        )
+        try:
+            result = strategy.discover(request, context)
+        except RobotsDisallowed as exc:
+            reason = f"robots_disallowed: {exc.rule or exc}"
+            report.skipped.append(SkippedTarget(exc.url, reason))
+            return DiscoveryResult(
+                stage=request.stage,
+                strategy=strategy.name,
+                status="access_restricted",
+                note=reason,
+            )
+        except FetchError as exc:
+            self._record_failure(
+                report,
+                source_id=context.source.source_id,
+                url=exc.url,
+                stage="discover",
+                error_type="http_error" if exc.status_code else "request_error",
+                message=str(exc),
+                attempts=exc.attempts,
+                retryable=exc.retryable,
+            )
+            return DiscoveryResult(
+                stage=request.stage,
+                strategy=strategy.name,
+                status=STATUS_REQUEST_ERROR,
+                note=str(exc),
+            )
+        if (
+            request.stage not in declared_stages(context.source)
+            and result.status != STATUS_NOT_IMPLEMENTED
+        ):
+            # 显式入口可运行通用实现（有限核验/逐站适配），但必须标明来源尚未声明该方式，
+            # 不把一次显式核验记成“已实现”。
+            marker = "来源未声明该发现方式，本轮按显式入口运行通用实现（未计入已实现）"
+            result.note = f"{result.note}；{marker}" if result.note else marker
+        report.skipped.extend(result.skipped)
+        return result
 
     @staticmethod
     def _request_controls(source) -> dict:
@@ -306,6 +461,7 @@ class CrawlPipeline:
             "failures": report.counters.failures,
             "skipped": report.counters.skipped,
             "not_modified": report.counters.not_modified,
+            "out_of_window": report.counters.out_of_window,
         }
         metrics = build_metrics(
             source_id=report.source_id,
@@ -324,6 +480,9 @@ class CrawlPipeline:
             stop_message=report.stop_message,
             unprocessed=report.unprocessed,
             budget=budget_row,
+            scope=report.scope.as_row(),
+            discovery=[result.as_row() for result in report.discovery],
+            date_decisions=report.date_decisions,
         )
         write_metrics(self.data_dir, metrics)
         logger.info(
@@ -351,33 +510,6 @@ class CrawlPipeline:
             )
         return metrics.as_row()
 
-    def _discover(
-        self,
-        report: RunReport,
-        stage: str,
-        action: Callable[[], List[DiscoveredTarget]],
-        source_id: str,
-    ) -> List[DiscoveredTarget]:
-        try:
-            return action()
-        except RobotsDisallowed as exc:
-            report.skipped.append(
-                SkippedTarget(exc.url, f"robots_disallowed: {exc.rule or exc}")
-            )
-            return []
-        except FetchError as exc:
-            self._record_failure(
-                report,
-                source_id=source_id,
-                url=exc.url,
-                stage="discover",
-                error_type="http_error" if exc.status_code else "request_error",
-                message=str(exc),
-                attempts=exc.attempts,
-                retryable=exc.retryable,
-            )
-            return []
-
     def _collect_target(
         self,
         source,
@@ -387,7 +519,9 @@ class CrawlPipeline:
         crawl_time: str,
         include_attachments: bool,
         report: RunReport,
+        scope: Optional[RunScope] = None,
     ) -> None:
+        scope = scope or RunScope()
         try:
             state = self.state.get(target.url)
             plan = plan_incremental(source.resource_kind, state, now=self.now())
@@ -467,6 +601,7 @@ class CrawlPipeline:
                     response.final_url,
                     encoding_hint=_charset(response.headers.get("Content-Type", "")),
                     content_selector=source.adapter.content_selector,
+                    date_selector=source.adapter.date_selector,
                 ),
                 language_hints=(source.language,),
                 base_url=response.final_url,
@@ -498,6 +633,35 @@ class CrawlPipeline:
                 retryable=False,
                 referrer_url=target.referrer_url,
                 crawl_id=crawl_id,
+            )
+            return
+
+        # 运行范围（--start-date）：以内容发布日期为包含式下界。原件与账本已经落盘，
+        # 范围外目标只跳过文档产出；日期未知保留候选并记录原因，不静默丢弃。
+        decision = scope.decide(parsed.publication_date)
+        report.date_decisions.append(
+            {
+                "url": response.final_url,
+                "decision": decision.kind,
+                "publication_date": decision.publication_date,
+                "reason": decision.reason or None,
+                "stage": "content",
+            }
+        )
+        if not decision.retained:
+            report.counters.out_of_window += 1
+            report.skipped.append(
+                SkippedTarget(
+                    target.url,
+                    f"before_start_date:{decision.publication_date}",
+                    target.referrer_url,
+                )
+            )
+            logger.info(
+                "目标早于起始日期，保留原件与账本但不产出文档 url=%s publication_date=%s start_date=%s",
+                target.url,
+                decision.publication_date,
+                scope.start_date.isoformat() if scope.start_date else None,
             )
             return
 
@@ -681,6 +845,7 @@ class CrawlPipeline:
                         part.final_url,
                         encoding_hint=_charset(part.headers.get("Content-Type", "")),
                         content_selector=source.adapter.content_selector,
+                        date_selector=source.adapter.date_selector,
                     ),
                     language_hints=(source.language,),
                     base_url=part.final_url,
@@ -982,6 +1147,11 @@ class CrawlPipeline:
             final_action=final_action or ("retry_later" if retryable else "record_only"),
             crawl_id=crawl_id,
             referrer_url=referrer_url,
+            scope_start_date=(
+                self._run_scope.start_date.isoformat()
+                if self._run_scope and self._run_scope.start_date
+                else None
+            ),
         )
         report.failures.append(row)
         report.counters.failures += 1
@@ -1047,6 +1217,7 @@ class CrawlPipeline:
             tasks = tasks[:max_tasks]
         planned = len(tasks)
         processed = 0
+        scopes_used: List[str] = []
         try:
             for task in tasks:
                 if task.action == RETRY_MANUAL:
@@ -1057,11 +1228,23 @@ class CrawlPipeline:
                     report.pending.append(task.as_row())
                     processed += 1
                     continue
+                try:
+                    task_scope = RunScope(start_date=parse_start_date(task.scope_start_date))
+                except ScopeConfigError as exc:
+                    # 原范围无法解析时不猜窗口：转人工，避免把新窗口混入旧任务。
+                    report.manual.append(
+                        {**task.as_row(), "reason": f"原运行范围无法解析：{exc}"}
+                    )
+                    processed += 1
+                    continue
+                if task.scope_start_date:
+                    scopes_used.append(task.scope_start_date)
+                self._run_scope = task_scope
                 failure = self._failure_for(task)
                 if task.action == REFETCH:
-                    recovered = self._recover_refetch(source, task, moment)
+                    recovered = self._recover_refetch(source, task, moment, task_scope)
                 else:
-                    recovered = self._recover_reparse(source, task, moment)
+                    recovered = self._recover_reparse(source, task, moment, task_scope)
                 if recovered:
                     action = recovered.get("action", "recovered")
                     row = self.failures_ledger.record_resolution(
@@ -1071,7 +1254,11 @@ class CrawlPipeline:
                         crawl_id=recovered.get("crawl_id"),
                         action=action,
                     )
-                    entry = {**task.as_row(), "resolution": row["final_action"]}
+                    entry = {
+                        **task.as_row(),
+                        "resolution": row["final_action"],
+                        "note": recovered.get("note", ""),
+                    }
                     if action == "skip":
                         report.skipped.append(entry)
                     else:
@@ -1087,6 +1274,13 @@ class CrawlPipeline:
             report.stop_message = stop.message
             logger.warning("补抓按预算停止 reason=%s message=%s", stop.reason, stop.message)
         report.unprocessed = planned - processed if planned else None
+        distinct_scopes = sorted(set(scopes_used))
+        if len(distinct_scopes) == 1:
+            self._run_scope = RunScope(start_date=parse_start_date(distinct_scopes[0]))
+        elif len(distinct_scopes) > 1:
+            # 多个原范围时不在运行级冒充单一窗口：逐任务记录 scope_start_date。
+            logger.warning("本次补抓涉及多个原运行范围：%s", distinct_scopes)
+            self._run_scope = RunScope()
         if budget is not None:
             report.budget = budget.as_row()
         report.counters.failures = len(report.failures)
@@ -1107,7 +1301,7 @@ class CrawlPipeline:
             + len(report.skipped),
         }
         report.metrics = self._finish_run(
-            _as_run_report(report),
+            _as_run_report(report, scope=self._run_scope),
             kind="recovery",
             started_at=started.isoformat(),
             finished_at=self.now().isoformat(),
@@ -1124,7 +1318,13 @@ class CrawlPipeline:
                 return row
         return {"source_id": task.source_id, "url": task.url, "stage": task.stage}
 
-    def _recover_refetch(self, source, task: RecoveryTask, moment: datetime) -> Optional[dict]:
+    def _recover_refetch(
+        self,
+        source,
+        task: RecoveryTask,
+        moment: datetime,
+        scope: Optional[RunScope] = None,
+    ) -> Optional[dict]:
         report = RunReport(source_id=source.source_id)
         target = DiscoveredTarget(
             url=task.url,
@@ -1133,7 +1333,7 @@ class CrawlPipeline:
         )
         crawl_date = moment.date().isoformat()
         self._collect_target(
-            source, None, target, crawl_date, moment.isoformat(), False, report
+            source, None, target, crawl_date, moment.isoformat(), False, report, scope
         )
         if report.counters.documents or report.counters.resources:
             return {
@@ -1153,7 +1353,13 @@ class CrawlPipeline:
             }
         return None
 
-    def _recover_reparse(self, source, task: RecoveryTask, moment: datetime) -> Optional[dict]:
+    def _recover_reparse(
+        self,
+        source,
+        task: RecoveryTask,
+        moment: datetime,
+        scope: Optional[RunScope] = None,
+    ) -> Optional[dict]:
         raw_path = task.raw_path
         if not raw_path:
             return None
@@ -1176,6 +1382,16 @@ class CrawlPipeline:
                 crawl_id=crawl_id,
                 crawl_time=crawl_time,
             )
+            # 补抓沿用原运行范围：原范围外的原件保留，但不再产出新文档。
+            decision = (scope or RunScope()).decide(document.get("publication_date"))
+            if not decision.retained:
+                return {
+                    "note": (
+                        f"原运行范围外（{decision.kind}:{decision.publication_date}）："
+                        "原件保留，不产出文档"
+                    ),
+                    "action": "skip",
+                }
             document_count, block_count = self.writer.commit([document], blocks)
         except Exception as exc:  # noqa: BLE001 - 重解析失败保留原件与失败记录
             logger.warning("重解析失败 url=%s error=%s", task.url, exc)
@@ -1208,7 +1424,12 @@ class CrawlPipeline:
         filename = url.rsplit("/", 1)[-1] or "index.html"
         if _looks_like_html(content, filename):
             parsed = normalize_page(
-                parse_html(content, url, content_selector=source.adapter.content_selector),
+                parse_html(
+                    content,
+                    url,
+                    content_selector=source.adapter.content_selector,
+                    date_selector=source.adapter.date_selector,
+                ),
                 language_hints=(source.language,),
                 base_url=url,
             )
@@ -1261,12 +1482,13 @@ def _max_crawl_sequence(manifest_path: Path, prefix: str) -> int:
     return maximum
 
 
-def _as_run_report(report: RecoveryReport) -> RunReport:
+def _as_run_report(report: RecoveryReport, scope: Optional[RunScope] = None) -> RunReport:
     """把补抓报告映射为运行报告形态，复用同一套指标与日志写出。"""
     return RunReport(
         source_id=report.source_id,
         counters=report.counters,
         failures=report.failures,
+        scope=scope or RunScope(),
         skipped=[
             SkippedTarget(
                 row.get("url", ""),

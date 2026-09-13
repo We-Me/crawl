@@ -59,3 +59,21 @@ uv run --locked --no-python-downloads pytest -q
 - 逐来源规则值、允许/排除路径、字段定位（标题/日期选择器）、引用定位、失败行为与规则版本核验日期；
 - 至少 10 词与歧义验证；来源启用与否属 Q12/Q13；
 - 通用路径仍保留（未配置 adapter 的来源行为不变），避免在决策前改变任何来源语义。
+
+## 2026-09-13 追加：等价形态改写与日期选择器（IN-02/IN-06 核验驱动）
+
+- `list_link_rewrite`：列表目标 URL 的等价形态改写（[[正则, 替换], ...]，第一条命中）；
+  作用于链接解析后的绝对 URL，替换结果按列表页 URL 归一化后仍过来源边界检查。
+  首个使用来源 IN-06 PIB：详情壳页 `/PressReleaseDetail.aspx?PRID=<id>` 的正文在站点自身
+  reader 页（详情页 iframe src）`PressReleasePage.aspx?PRID=<id>`，登记改写后目标直达正文。
+- `date_selector`：详情页发布日期元素 CSS 选择器；命中且可验证到日精度才写 `publication_date`，
+  未命中/不可验证回落 meta 与正文启发式并保留 `raw_date_text`，不补造日期。
+  首个使用来源 IN-06：`#PrDateTime`（`Posted On: 12 SEP 2026 6:11PM by PIB Delhi`）。
+- 日期规范化补月份缩写（Jan/Feb/…/Sept/Sep/…/Dec），只影响能验证到日的输入。
+- 契约：`source-registry.schema.json` 增补两字段并 `tools/sync_contracts.py` 同步；
+  用例见 `tests/test_discover.py`、`tests/test_html_parser.py`、`tests/test_metadata_normalizer.py`、
+  `tests/test_registry.py`。仍不新增依赖。
+- `attachment_pattern`（第三十八/三十九轮，IN-02 核验）：附件 URL 正则，入边界判定前过滤；
+  缺省沿用页面全部附件链接，登记后只取该来源需要的附件（如 IN-02 条约 PDF `/Portal/LegalTreatiesDoc/`，
+  排除详情页的 4 个站点级 footer PDF；Hindi 目录 PDF 暂不取）。核实：2 个 PDF 的 sha256 与账本一致、
+  `referrer_url` 指向母详情页、documents.attachments 通过 attachment 契约校验。

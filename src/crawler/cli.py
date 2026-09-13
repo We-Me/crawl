@@ -34,6 +34,7 @@ from crawler.fetch.budget import BudgetConfigError, RunBudget
 from crawler.fetch.retry import RetryConfigError, RetryPolicy, summarize_plan
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
+from crawler.schedule.scope import ScopeConfigError, parse_start_date, RunScope
 from crawler.validate.schema import SchemaConfigError, load_contract, validate_delivery, validate_instance
 from crawler.validate.traceability import trace_delivery
 
@@ -112,9 +113,25 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument(
         "--api", action="append", default=[], metavar="URL", help="结构化接口地址，可重复"
     )
+    collect.add_argument(
+        "--url",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="直接采集的页面/附件 URL（discovery_method=manual），可重复；仍受访问边界、robots 与预算约束",
+    )
     collect.add_argument("--max-items", type=int, default=100, help="本次最多采集的目标数")
     collect.add_argument(
         "--no-attachments", action="store_true", help="不下载附件（仅正文页面）"
+    )
+    collect.add_argument(
+        "--start-date",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help=(
+            "按内容发布日期取包含式下界：早于该日期只保留原件与账本、不产出文档；"
+            "发布日期未知保留候选并记录原因；省略则不设日期范围"
+        ),
     )
     _add_budget_arguments(collect)
     collect.add_argument("--json", action="store_true", help="以 JSON 输出结果")
@@ -169,6 +186,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"契约错误：{exc}", file=sys.stderr)
         return EXIT_CONFIG
     except RetryConfigError as exc:
+        print(f"参数错误：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    except ScopeConfigError as exc:
         print(f"参数错误：{exc}", file=sys.stderr)
         return EXIT_CONFIG
 
@@ -244,6 +264,7 @@ def _cmd_collect(args) -> int:
     except BudgetConfigError as exc:
         print(f"参数错误：{exc}", file=sys.stderr)
         return EXIT_CONFIG
+    scope = RunScope(start_date=parse_start_date(args.start_date))
     pipeline = CrawlPipeline(registry, settings.data_dir, settings=settings)
     report = pipeline.collect(
         source.source_id,
@@ -251,15 +272,18 @@ def _cmd_collect(args) -> int:
         search_keywords=list(args.keyword),
         sitemap_urls=list(args.sitemap),
         api_urls=list(args.api),
+        manual_urls=list(args.url),
         include_attachments=not args.no_attachments,
         max_items=args.max_items,
         budget=budget,
+        scope=scope,
     )
     counters = report.counters
     row = {
         "ok": counters.failures == 0 and report.stop_reason is None,
         "source_id": report.source_id,
         "data_dir": str(settings.data_dir),
+        "scope": scope.as_row(),
         "counters": {
             "requests": counters.requests,
             "resources": counters.resources,
@@ -268,7 +292,10 @@ def _cmd_collect(args) -> int:
             "failures": counters.failures,
             "skipped": counters.skipped,
             "not_modified": counters.not_modified,
+            "out_of_window": counters.out_of_window,
         },
+        "discovery": [result.as_row() for result in report.discovery],
+        "date_decisions": report.date_decisions,
         "budget": report.budget,
         "stop": {
             "reason": report.stop_reason,
@@ -286,8 +313,17 @@ def _cmd_collect(args) -> int:
             f"采集完成 source={row['source_id']} run_id={row['run_id']} "
             f"请求={counters.requests} 资源={counters.resources} 文档={counters.documents} "
             f"块={counters.blocks} 失败={counters.failures} 跳过={counters.skipped} "
-            f"未修改={counters.not_modified}"
+            f"未修改={counters.not_modified} 范围外={counters.out_of_window}"
         )
+        if scope.active:
+            print(
+                f"运行范围：起始日 {scope.start_date.isoformat()}（包含式下界，按 publication_date）"
+            )
+        for result in report.discovery:
+            row_detail = f"  发现 {result.stage} 策略={result.strategy} 状态={result.status} 目标={len(result.targets)}"
+            if result.note:
+                row_detail += f" 说明={result.note}"
+            print(row_detail)
         _print_budget_line(report.budget)
         print(f"数据根 {settings.data_dir}")
         for failure in report.failures:
@@ -336,6 +372,7 @@ def _cmd_plan(args) -> int:
             print(
                 f"  {row['action']:<8} {row['url']} stage={row['stage']} "
                 f"attempt={row['attempt']} not_before={row['not_before']}"
+                + (f" 原起始日={row['scope_start_date']}" if row.get("scope_start_date") else "")
                 + (f" 原因={row['reason']}" if row.get("reason") else "")
             )
     return EXIT_OK
@@ -373,6 +410,13 @@ def _cmd_resume(args) -> int:
         "manual": len(report.manual),
         "pending": len(report.pending),
         "failed": len(report.failures),
+        "scope_start_dates": sorted(
+            {
+                item.get("scope_start_date")
+                for item in [*report.recovered, *report.skipped, *report.manual, *report.failures]
+                if item.get("scope_start_date")
+            }
+        ),
         "budget": report.budget,
         "stop": {
             "reason": report.stop_reason,
@@ -391,7 +435,8 @@ def _cmd_resume(args) -> int:
         )
         _print_budget_line(report.budget)
         for task in report.manual:
-            print(f"  待人工 {task['url']} {task.get('reason', '')}")
+            scope_note = f" [原起始日 {task['scope_start_date']}]" if task.get("scope_start_date") else ""
+            print(f"  待人工 {task['url']}{scope_note} {task.get('reason', '')}")
         for task in report.pending:
             print(f"  等待退避 {task['url']} not_before={task['not_before']}")
         if report.stop_reason:

@@ -188,7 +188,7 @@ def test_adapter_content_selector_miss_is_failure_and_recoverable(
     recovered = fixed.resume_failures("TESTSRC")
     assert recovered.counters.documents == 1 and recovered.counters.requests == 0
     documents = read_jsonl(data / "normalized" / "documents.jsonl")
-    assert documents[0]["extraction_method"] == "bs4_lxml_selector"
+    assert documents[0]["extraction_method"].startswith("bs4_lxml_selector+")
     assert "相关阅读" not in documents[0]["full_text"]
     # 失败账与补全后的交付仍满足契约校验
     from crawler.validate.schema import validate_delivery
@@ -234,3 +234,35 @@ def test_crawl_ids_continue_across_runs(
     # 失败记录的 raw_path 必须指向本次运行的原件，而不是同名序号的上一次运行
     assert tasks[0].url == f"{site_server}/detail_adapter.html"
     assert tasks[0].raw_path == "raw/TESTSRC/2026-09-11/html/detail_adapter.html"
+
+
+def test_manual_url_fetches_given_page_without_entry_discovery(
+    site_server, registry_factory, pipeline_factory, tmp_path
+):
+    """显式 --url：只取给定页面（manual），不隐式跑来源入口。"""
+    registry = registry_factory(site_server)
+    pipeline = pipeline_factory(registry)
+    report = pipeline.collect("TESTSRC", manual_urls=[f"{site_server}/detail_2.html"])
+    data = tmp_path / "data"
+
+    assert report.counters.resources == 1
+    assert report.counters.documents == 1
+    assert [row["stage"] for row in (r.as_row() for r in report.discovery)] == ["manual"]
+    rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
+    assert [row["discovery_method"] for row in rows] == ["manual"]
+    assert rows[0]["requested_url"] == f"{site_server}/detail_2.html"
+    documents = read_jsonl(data / "normalized" / "documents.jsonl")
+    assert len(documents) == 1
+    assert (data / rows[0]["raw_path"]).is_file()
+
+
+def test_manual_url_outside_boundary_is_skipped_without_request(
+    site_server, registry_factory, pipeline_factory
+):
+    registry = registry_factory(site_server)
+    pipeline = pipeline_factory(registry)
+    report = pipeline.collect("TESTSRC", manual_urls=["https://outside.example/page.html"])
+
+    assert report.counters.requests == 0
+    assert report.counters.resources == 0
+    assert [item.reason for item in report.skipped] == ["domain_not_allowed:outside.example"]

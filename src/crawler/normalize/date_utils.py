@@ -12,29 +12,29 @@ from typing import Optional, Tuple
 
 from crawler.normalize.text_utils import collapse_whitespace
 
+# 月份名：全名在前、缩写在后（"September|Sept|Sep" 依序匹配），兼容 "12 SEP 2026" 类站点格式。
+MONTH_NAME_PATTERN = (
+    "January|February|March|April|May|June|July|August|September|October|November|December|"
+    "Sept|Sep|Aug|Jul|Jun|Jan|Feb|Mar|Apr|Oct|Nov|Dec"
+)
+
 DATE_PATTERNS: Tuple[Tuple[re.Pattern, str], ...] = (
     (re.compile(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?![\d])"), "ymd"),
     (re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"), "ymd"),
     (
-        re.compile(
-            r"(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|"
-            r"October|November|December)\s+(\d{4})",
-            re.IGNORECASE,
-        ),
+        re.compile(r"(\d{1,2})\s+(" + MONTH_NAME_PATTERN + r")\s+(\d{4})", re.IGNORECASE),
         "dmy_en",
     ),
     (
-        re.compile(
-            r"(January|February|March|April|May|June|July|August|September|October|"
-            r"November|December)\s+(\d{1,2}),?\s+(\d{4})",
-            re.IGNORECASE,
-        ),
+        re.compile(r"(" + MONTH_NAME_PATTERN + r")\s+(\d{1,2}),?\s+(\d{4})", re.IGNORECASE),
         "mdy_en",
     ),
 )
 EN_MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
     "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9,
+    "sept": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
 SUPPORTED_DATE_FORMATS = (

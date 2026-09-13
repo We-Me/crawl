@@ -82,6 +82,9 @@ class RunMetrics:
     expected_deltas: Mapping = field(default_factory=dict)
     reconciliation: Mapping = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
+    scope: Mapping = field(default_factory=dict)
+    discovery: List[dict] = field(default_factory=list)
+    date_decisions: List[dict] = field(default_factory=list)
 
     def as_row(self) -> dict:
         row = {
@@ -109,6 +112,9 @@ class RunMetrics:
             "deltas": dict(self.deltas),
             "expected_deltas": dict(self.expected_deltas),
             "reconciliation": dict(self.reconciliation),
+            "scope": dict(self.scope),
+            "discovery": list(self.discovery),
+            "date_decisions": list(self.date_decisions),
             "notes": list(self.notes),
         }
         return row
@@ -204,10 +210,16 @@ def build_metrics(
     stop_message: str = "",
     unprocessed: Optional[int] = None,
     budget: Optional[Mapping] = None,
+    scope: Optional[Mapping] = None,
+    discovery: Optional[Iterable[Mapping]] = None,
+    date_decisions: Optional[Iterable[Mapping]] = None,
 ) -> RunMetrics:
     """汇总一次运行：计数、状态分布、异常分类、重复候选与对账。"""
     counters = {key: int(value) for key, value in dict(counters).items()}
     failures = [dict(row) for row in failures]
+    # 发现状态与日期判定只遍历一次，避免生成器被重复消费。
+    discovery_rows = [dict(row) for row in (discovery or ())]
+    date_rows = [dict(row) for row in (date_decisions or ())]
     failures_by_stage = _count_by(failures, "stage")
     failures_by_type = _count_by(failures, "error_type")
     skipped_by_reason = _count_skipped(skipped)
@@ -220,6 +232,9 @@ def build_metrics(
         stop_reason=stop_reason,
         stop_message=stop_message,
         unprocessed=unprocessed,
+        scope=scope,
+        discovery=discovery_rows,
+        date_decisions=date_rows,
     )
     metrics = RunMetrics(
         run_id=run_id_for(source_id, finished_at),
@@ -248,6 +263,9 @@ def build_metrics(
         deltas=deltas,
         expected_deltas={key: int(value) for key, value in dict(expected_deltas or {}).items()},
         notes=notes,
+        scope=dict(scope or {}),
+        discovery=discovery_rows,
+        date_decisions=date_rows,
     )
     metrics.reconciliation = reconcile(metrics)
     return metrics
@@ -413,8 +431,34 @@ def _notes_of(
     stop_reason: Optional[str] = None,
     stop_message: str = "",
     unprocessed: Optional[int] = None,
+    scope: Optional[Mapping] = None,
+    discovery: Optional[Iterable[Mapping]] = None,
+    date_decisions: Optional[Iterable[Mapping]] = None,
 ) -> List[str]:
     notes: List[str] = []
+    scope = dict(scope or {})
+    if scope.get("start_date"):
+        decisions = [dict(row) for row in (date_decisions or ())]
+        kinds: dict = {}
+        for row in decisions:
+            kind = str(row.get("decision") or "unknown")
+            kinds[kind] = kinds.get(kind, 0) + 1
+        detail = "、".join(f"{key}={value}" for key, value in sorted(kinds.items())) or "无判定"
+        notes.append(
+            f"运行范围起始日 {scope['start_date']}（包含式下界，按 publication_date）：{detail}"
+        )
+    unimplemented = [
+        dict(row)
+        for row in (discovery or ())
+        if str(row.get("status")) == "not_implemented"
+    ]
+    if unimplemented:
+        notes.append(
+            "发现方式未实现："
+            + "、".join(
+                f"{row.get('stage')}:{row.get('note') or '无说明'}" for row in unimplemented
+            )
+        )
     if stop_reason:
         detail = f"停止原因 {stop_reason}"
         if stop_message:

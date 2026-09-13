@@ -47,13 +47,19 @@ class SourceAdapter:
 
     规则是逐来源显式配置：列表页文档链接、分页控件与正文范围。选择器/正则
     未命中时由发现与采集流程显式记录（跳过或失败账），不静默回退到通用规则。
+    discovery 声明该来源已实现/已核验的发现方式（list/search/sitemap/api）；
+    未声明的发现方式显式记为未实现，不以空结果冒充成功。
     """
 
     list_link_selector: Optional[str] = None
     list_link_pattern: Optional[str] = None
+    list_link_rewrite: Optional[Tuple[Tuple[str, str], ...]] = None
+    attachment_pattern: Optional[str] = None
     pagination_selector: Optional[str] = None
     max_pages: Optional[int] = None
     content_selector: Optional[str] = None
+    date_selector: Optional[str] = None
+    discovery: Optional[Tuple[str, ...]] = None
 
     @property
     def configured(self) -> bool:
@@ -62,9 +68,13 @@ class SourceAdapter:
             for value in (
                 self.list_link_selector,
                 self.list_link_pattern,
+                self.list_link_rewrite,
+                self.attachment_pattern,
                 self.pagination_selector,
                 self.max_pages,
                 self.content_selector,
+                self.date_selector,
+                self.discovery,
             )
         )
 
@@ -72,10 +82,16 @@ class SourceAdapter:
 ADAPTER_FIELDS = (
     "list_link_selector",
     "list_link_pattern",
+    "list_link_rewrite",
+    "attachment_pattern",
     "pagination_selector",
     "max_pages",
     "content_selector",
+    "date_selector",
+    "discovery",
 )
+
+DISCOVERY_STAGE_NAMES = ("list", "search", "sitemap", "api")
 
 
 @dataclass(frozen=True)
@@ -365,18 +381,90 @@ def _parse_adapter(entry: Mapping[str, Any], where: str) -> SourceAdapter:
                 f"{where} adapter.list_link_pattern 不是合法正则：{exc}"
             ) from exc
 
+    attachment_pattern = _optional_str(raw, "attachment_pattern", f"{where} adapter")
+    if attachment_pattern is not None:
+        try:
+            re.compile(attachment_pattern)
+        except re.error as exc:
+            raise ConfigurationError(
+                f"{where} adapter.attachment_pattern 不是合法正则：{exc}"
+            ) from exc
+
+    date_selector = _optional_str(raw, "date_selector", f"{where} adapter")
+    if date_selector is not None:
+        _validate_css_selector(date_selector, f"{where} adapter.date_selector")
+
+    rewrite = _parse_list_link_rewrite(raw, where)
+
     max_pages = raw.get("max_pages")
     if max_pages is not None:
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
             raise ConfigurationError(f"{where} adapter.max_pages 必须是 ≥1 的整数")
 
+    discovery = None
+    raw_discovery = raw.get("discovery")
+    if raw_discovery is not None:
+        if not isinstance(raw_discovery, (list, tuple)):
+            raise ConfigurationError(
+                f"{where} adapter.discovery 必须是数组，元素取自 {list(DISCOVERY_STAGE_NAMES)}"
+            )
+        unknown = [
+            value for value in raw_discovery if value not in DISCOVERY_STAGE_NAMES
+        ]
+        if unknown:
+            raise ConfigurationError(
+                f"{where} adapter.discovery 含未知方式：{unknown}；允许 {list(DISCOVERY_STAGE_NAMES)}"
+            )
+        discovery = tuple(dict.fromkeys(str(value) for value in raw_discovery))
+
     return SourceAdapter(
         list_link_selector=selectors["list_link_selector"],
         list_link_pattern=pattern,
+        list_link_rewrite=rewrite,
+        attachment_pattern=attachment_pattern,
         pagination_selector=selectors["pagination_selector"],
         max_pages=max_pages,
         content_selector=selectors["content_selector"],
+        date_selector=date_selector,
+        discovery=discovery,
     )
+
+
+def _parse_list_link_rewrite(
+    raw: Mapping[str, Any], where: str
+) -> Optional[Tuple[Tuple[str, str], ...]]:
+    """解析列表目标 URL 改写规则（逐来源等价形态改写，如站点 reader 页）。
+
+    每条为 [正则, 替换]；正则作用于链接解析后的绝对 URL，替换沿用 re.sub 语法。
+    加载期即校验正则与替换引用，避免运行期才发现配置错误。
+    """
+    value = raw.get("list_link_rewrite")
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ConfigurationError(
+            f"{where} adapter.list_link_rewrite 必须是非空数组，元素为 [正则, 替换] 两元组"
+        )
+    parsed = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise ConfigurationError(
+                f"{where} adapter.list_link_rewrite 第 {index} 条必须是 [正则, 替换] 两元组"
+            )
+        source, replacement = item
+        if not isinstance(source, str) or not isinstance(replacement, str):
+            raise ConfigurationError(
+                f"{where} adapter.list_link_rewrite 第 {index} 条的正则与替换必须是字符串"
+            )
+        try:
+            compiled = re.compile(source)
+            compiled.sub(replacement, "", count=1)
+        except re.error as exc:
+            raise ConfigurationError(
+                f"{where} adapter.list_link_rewrite 第 {index} 条不是合法正则/替换：{exc}"
+            ) from exc
+        parsed.append((source, replacement))
+    return tuple(parsed)
 
 
 def _validate_css_selector(selector: str, where: str) -> None:

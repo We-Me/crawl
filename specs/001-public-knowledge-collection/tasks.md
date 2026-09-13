@@ -282,3 +282,20 @@ NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回
 ## 2026-09-13 当前范围与续作
 
 以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成；NEXT-04 真实旧格式验证与 T012 勾选已完成（`evidence/next04-legacy-office.md`）；NEXT-10 已给出原始结构块与跨段语篇组合的短示例并请求一次确认，未回答前沿用现有 blocks。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量与来源缺口继续保留，不因范围收敛自动通过。
+
+2026-09-13 本轮进展（按站发现抽象、运行时起始日期、最小结构分块；不改变 27 个 T 编号）：
+
+- T005/T015：新增发现策略抽象与 `--start-date`（`src/crawler/discover/strategies.py`、`src/crawler/schedule/scope.py`），
+  贯通发现、采集记录、失败账与恢复；CN-08/CN-01/CN-04 已有限线上验证，日期边界与恢复原范围有夹具用例。
+- T010/T013：新增分块抽象与最小 dummy（`src/crawler/normalize/segmenter.py`），保留既有 HTML/Office/PDF 处理能力；
+  `extraction_method` 记 `<基础>+structural_blank_line_v1`。正式质量阈值仍 deferred。
+- T026：18 来源逐站状态与线上登记见 [evidence/t026-eighteen-sources.md](evidence/t026-eighteen-sources.md)
+  与 [evidence/logs/t026-round6-limited.txt](evidence/logs/t026-round6-limited.txt)；第 10—41 轮续作补齐逐站适配
+  （站点自身列表端点作入口、`list_link_rewrite` 等价形态改写、`attachment_pattern` 附件限幅、`date_selector`
+  发布日期），当前为已实现并验证 9 个、实现待验证 0 个、访问受限 9 个、未完成 0 个。**任务仍是部分完成**：
+  受限来源的访问方式与域名别名（Q12/Q13）及正式全范围验收未完成，不勾选正式完成；交付基线全量回归
+  406 passed（[evidence/logs/t026-full-pytest.txt](evidence/logs/t026-full-pytest.txt)），开发数据根 `crawl check`
+  为 manifest=63、documents=52、blocks=2452、failures=2、raw_files=59、追溯 100%。
+- T019/T027：raw 留存、失败账与追溯仍是部分完成（夹具与有限样本级），正式全范围验收不因本轮推进自动通过。
+- 阶段五（2026-09-13 追加）：正式验收与交付收口计划见 [stage-five.md](stage-five.md)；工作项 S5-01—S5-07
+  在 Q11/Q12/Q13/Q14 与验收窗口确认后执行，未确认前不启动对应工作项、不另造准备性任务。

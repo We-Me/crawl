@@ -212,7 +212,7 @@
   },
   "adapter": {
    "type": "object",
-   "description": "T026 设计补充（候选，待 T002 冻结）：逐来源适配规则；缺省时使用通用发现/正文规则。规则未命中由流程显式记录（跳过或失败账），不静默回退。",
+   "description": "T026 设计补充（候选，待 T002 冻结）：逐来源适配规则；缺省时使用通用发现/正文规则。规则未命中由流程显式记录（跳过或失败账），不静默回退。discovery 为本轮新增的发现方式声明。",
    "properties": {
     "list_link_selector": {
      "type": "string",
@@ -221,6 +221,19 @@
     "list_link_pattern": {
      "type": "string",
      "description": "文档 URL 正则（在链接入边界判定前过滤）"
+    },
+    "list_link_rewrite": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+       "type": "string"
+      }
+     },
+     "description": "2026-09-13 新增：列表目标 URL 的等价形态改写 [[正则, 替换], ...]，第一条命中生效；作用于链接解析后的绝对 URL，结果按列表页 URL 归一化后再进入边界判定（如 IN-06 详情壳页转站点自身 reader 页）"
     },
     "pagination_selector": {
      "type": "string",
@@ -234,6 +247,26 @@
     "content_selector": {
      "type": "string",
      "description": "详情页正文范围 CSS 选择器；未命中记录 adapter_selector_miss 失败"
+    },
+    "attachment_pattern": {
+     "type": "string",
+     "description": "2026-09-13 新增：附件 URL 正则（在附件入边界判定前过滤）；缺省沿用页面全部附件链接，登记后只取该来源需要的附件（如 IN-02 条约 PDF /Portal/LegalTreatiesDoc）"
+    },
+    "date_selector": {
+     "type": "string",
+     "description": "2026-09-13 新增：详情页发布日期元素 CSS 选择器；命中且文本可验证到日精度时作为 publication_date，未命中/不可验证则回落 meta 与正文启发式并保留 raw_date_text"
+    },
+    "discovery": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "list",
+       "search",
+       "sitemap",
+       "api"
+      ]
+     },
+     "description": "本轮新增（T005/T026 按站发现抽象）：该来源已实现/已核验的发现方式；缺省按配置推断（list + 配置搜索模板时的 search）。未声明的方式显式记为 not_implemented，不用空结果冒充成功。"
     }
    },
    "additionalProperties": false
