@@ -28,6 +28,17 @@
 
 未出现具体问题时，不预先等待这些输入。Q02 领域组织、Q16 内部导入、Q17 检索部署仍未选，不列为当前阻塞。Q12 是规则/别名，Q13 是来源/窗口，不交换编号含义。
 
+### Q12 本轮具体输入（2026-09-13，S5-02 取证后；证据见 [S5-02 分因](evidence/stage-five-s5-02-restricted.md)）
+
+| 对象 | 已完成的核实 | 需要提供/等待 | 复核方式（≤2 请求、只取 robots） |
+| --- | --- | --- | --- |
+| Windows 侧代理分流（影响 IN-04/07/08/09） | 第 50 轮：WSL 无显式代理、CA 244 项与时钟正常；目标域解析到 fake-IP `198.18.0.0/15`，TLS 在 CONNECTED 后被切断（`www.gov.cn` 对照链路完整） | 在代理客户端把 `egazette.gov.in`、`censusindia.gov.in`、`ladakh.gov.in`、`culture.sikkim.gov.in`（含 `www.`）设为直连/豁免，保留证书校验；企业代理则提供组织 CA 说明 | `collect --source <ID> --max-requests 2 --deadline-seconds 30` |
+| IN-03 `indiacode.gov.in` | 第 49/51 轮：旧域是官方迁移公告（`www.indiacode.nic.in` → 新域）；新域 robots.txt 返回 **502**（nginx）、根页为 Angular SPA 壳 | 站点侧 robots.txt 可用，或站点公开接口/许可（用户批准不能替代站点许可） | 单次 `curl https://indiacode.gov.in/robots.txt` 确认状态 |
+| CN-05/06/07 `*.xizang.gov.cn` | 第 37 轮稳定复现 robots **508** | 站点/网络侧说明或允许的访问方式 | 同上（只取 robots） |
+| CN-03 `flk.npc.gov.cn` | robots 命中 `Disallow /`（明确规则拒绝） | 站点许可或公开接口 | 不重复探测 |
+
+以上不阻塞其它来源与当前 raw 开发；没有条件变化时不重复探测。
+
 ## 当前结论
 
-无需再次确认六项决定。优先执行 S5-01/03/04/06；S5-02 分因处理，S5-05/07 暂缓。历史 NEXT-05A 确认材料已交付，不再生成新的确认包。正式 T019/T026/T027 的未完成状态按真实缺口维护，不能以文档更新代替验收。
+无需再次确认六项决定。S5-01/03/04/06 工程实施完成并继续按轮次推进真实来源；S5-02 本轮可核实部分已完成（见上表与 [S5-02 证据](evidence/stage-five-s5-02-restricted.md)），剩余为代理分流与站点侧条件；S5-05/07 暂缓。历史 NEXT-05A 确认材料已交付，不再生成新的确认包。正式 T019/T026/T027 的未完成状态按真实缺口维护，不能以文档更新代替验收。

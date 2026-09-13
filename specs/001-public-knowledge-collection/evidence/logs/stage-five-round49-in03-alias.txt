@@ -1,0 +1,60 @@
+# 第 49 轮：IN-03 域名别名核实（登记与结果，2026-09-13）
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：IN-03 入口页（`https://www.indiacode.nic.in/`）外链指向 `indiacode.gov.in`，此前按域名边界
+  拒绝（“归属待 Q12”）。本轮按 stage-five S5-02“域名别名”条款做有限取证：核实官方链接、重定向、
+  归属与规则；证据充分时按精确域名做工程适配，归属不明则维持暂停。**不请求页面内容以外的资源，不关闭证书校验。**
+- 预算：合计 ≤5 个请求 —— 别名域 robots.txt 1 次；别名域根页 1 次（含重定向每跳）；必要时 `www.` 变体
+  robots/根页各 1 次。无 `--start-date`（域名关系核实，不是窗口采集）。
+- 规则：先取 robots.txt，`Disallow` 则停止；使用 curl 单次请求（不自动重试），`--max-time 20/25`；
+  失败与限制如实记录，不绕过、不构造未公开端点。
+- 取证要点：HTTP 状态与重定向链、robots 规则、页面标题/运营主体/是否含 nic.in ↔ gov.in 互指、
+  DNS 解析是否指向同一主机。
+
+## 结果
+
+### 1) DNS 解析（getent hosts）
+$ getent hosts indiacode.gov.in
+198.18.0.122    indiacode.gov.in
+$ getent hosts www.indiacode.gov.in
+198.18.0.123    www.indiacode.gov.in
+$ getent hosts www.indiacode.nic.in
+198.18.0.124    www.indiacode.nic.in
+
+### 2) 别名域 robots.txt
+$ curl -sS -i --max-time 20 https://indiacode.gov.in/robots.txt
+HTTP/2 502 
+date: Sun, 13 Sep 2026 12:54:35 GMT
+content-type: text/html
+content-length: 150
+cache-control: no-store
+pragma: no-cache
+strict-transport-security: max-age=31536000; includeSubDomains
+x-xss-protection: 1; mode=block
+x-frame-options: SAMEORIGIN
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+
+<html>
+<head><title>502 Bad Gateway</title></head>
+<body>
+<center><h1>502 Bad Gateway</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+### 3) 别名域根页（跟随重定向，记录每跳头）
+$ curl -sS -L -D /tmp/in03_alias_root.headers --max-time 25 https://indiacode.gov.in/ -o /tmp/in03_alias_root.html
+exit=0
+--- 响应头链 ---
+HTTP/2 200 
+content-type: text/html; charset=UTF-8
+--- 页面标题与要点 ---
+bytes: 2338
+title: India Code
+canonical: None
+contains 'India Code': True
+contains 'Ministry of Law': False
+contains 'Legislative Department': False
+链接主机计数(前8): []

@@ -233,6 +233,7 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
             "list_link_selector": "ul.doc-list li a",
             "list_link_pattern": r"/eng/wjbzhd/.*\.shtml$",
             "pagination_selector": "a.next-page",
+            "pagination_merge_entry_params": True,
             "max_pages": 3,
             "content_selector": "div.article-body",
             "date_selector": "#PrDateTime",
@@ -245,6 +246,7 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
     assert adapter.configured is True
     assert adapter.list_link_selector == "ul.doc-list li a"
     assert adapter.pagination_selector == "a.next-page"
+    assert adapter.pagination_merge_entry_params is True
     assert adapter.max_pages == 3
     assert adapter.content_selector == "div.article-body"
     assert adapter.date_selector == "#PrDateTime"
@@ -258,6 +260,8 @@ def test_adapter_rules_are_parsed_and_default_to_generic(tmp_path):
     [
         ({"list_link_selector": "ul li["}, "CSS 选择器"),
         ({"list_link_pattern": "("}, "正则"),
+        ({"pagination_merge_entry_params": "yes"}, "pagination_merge_entry_params"),
+        ({"pagination_merge_entry_params": True}, "pagination_selector"),
         ({"max_pages": 0}, "max_pages"),
         ({"max_pages": True}, "max_pages"),
         ({"content_selector": "div["}, "CSS 选择器"),

@@ -296,6 +296,7 @@ def _cmd_collect(args) -> int:
         },
         "discovery": [result.as_row() for result in report.discovery],
         "date_decisions": report.date_decisions,
+        "coverage": report.coverage,
         "budget": report.budget,
         "stop": {
             "reason": report.stop_reason,
@@ -324,6 +325,7 @@ def _cmd_collect(args) -> int:
             if result.note:
                 row_detail += f" 说明={result.note}"
             print(row_detail)
+        _print_coverage_line(report.coverage)
         _print_budget_line(report.budget)
         print(f"数据根 {settings.data_dir}")
         for failure in report.failures:
@@ -517,6 +519,47 @@ def _build_budget(args):
         max_requests=args.max_requests,
         deadline_seconds=args.deadline_seconds,
     )
+
+
+def _print_coverage_line(coverage) -> None:
+    """来源报告覆盖口径（S5-03/S5-04/S5-06）：发现完整性、目标与附件分开记录。"""
+    coverage = dict(coverage or {})
+    if not coverage:
+        return
+    targets_row = dict(coverage.get("targets") or {})
+    attachments_row = dict(coverage.get("attachments") or {})
+    discovery_row = dict(coverage.get("discovery") or {})
+    target_keys = ("discovered", "attempted", "processed", "failed", "skipped")
+    attachment_keys = (
+        "discovered",
+        "downloaded",
+        "resumed",
+        "failed",
+        "boundary_rejected",
+        "rule_excluded",
+        "duplicates",
+        "pending",
+    )
+    parts = [
+        (
+            "主目标 发现={discovered} 尝试={attempted} 成功={processed} "
+            "失败={failed} 跳过={skipped}"
+        ).format(**{key: targets_row.get(key, 0) for key in target_keys}),
+        (
+            "附件 发现={discovered} 下载={downloaded} 续传={resumed} 失败={failed} "
+            "边界拒绝={boundary_rejected} 规则排除={rule_excluded} 重复={duplicates} 待处理={pending}"
+        ).format(**{key: attachments_row.get(key, 0) for key in attachment_keys}),
+    ]
+    if discovery_row:
+        parts.append(
+            "发现遍历{}：未完成入口 {} 个".format(
+                "完整" if discovery_row.get("complete", True) else "未完整",
+                discovery_row.get("incomplete_runs", 0),
+            )
+        )
+    if "pending_total" in coverage:
+        parts.append(f"待处理合计={coverage.get('pending_total', 0)}")
+    print("覆盖：" + "；".join(parts))
 
 
 def _print_budget_line(budget) -> None:

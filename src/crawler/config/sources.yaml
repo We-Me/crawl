@@ -23,6 +23,7 @@ sources:
     entry_urls:
       - https://www.mfa.gov.cn/eng/
       - https://www.mfa.gov.cn/eng/wjbzhd/
+      - https://www.mfa.gov.cn/eng/xw/zyxw/   # 2026-09-13 第 53 轮核实：Top Stories 栏目，7 条 2026-09 文章链接
     allowed_paths: []
     blocked_paths: [/login, /signin, /register, /user/, /admin]
     crawl_mode: list
@@ -35,14 +36,14 @@ sources:
     parser_type: html
     language: zh
     stance_default: CN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 无规则（groups=0/rules=0）；英文栏目 /eng/wjbzhd/ 可达，栏目导航 67 条指向旧域 fmprc.gov.cn 被边界跳过（域名别名策略待 Q12）。2026-09-13 增加文章链接规则：从已归档英文首页复算，仅保留 /eng/xw/zyxw/<YYYYMM>/t<id>_<id>.html 文章，过滤导航、站内搜索页与 cs.mfa.gov.cn 子域链接（子域仍属边界内）"
-    terms_checked_at: "2026-09-13T16:40:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 无规则（groups=0/rules=0）。2026-09-13 增加文章链接规则：从已归档英文首页复算，仅保留 /eng/xw/zyxw/<YYYYMM>/t<id>_<id>.html 文章，过滤导航、站内搜索页与 cs.mfa.gov.cn 子域链接。2026-09-13 第 52/53 轮别名核实：旧域 www.fmprc.gov.cn 是外交部官方镜像（新域栏目导航 67 条指向它；/eng/wjb/zyzz/ 返回 23 KB 英文正文、SiteDomain=www.fmprc.gov.cn；其 robots.txt 302 到新域“系统维护”页、无 Allow/Disallow 指令），且与新域 /eng/xw/zyxw/ 列表字节一致（同 7 篇文章）→ 不把旧域加入 allowed_domains（避免不必要扩边界），改用新域栏目入口采集同一内容"
+    terms_checked_at: "2026-09-13T21:05:00+08:00"
     seed_terms: [印度, 中印, 边境, 边界, 外交, 会谈, 会晤, 声明, 文件, 和平, 安全, 贸易, 关系, 合作]
     supplement_terms: [中印边境, 实际控制线, 边界与海洋事务司]
     exclude_terms: []
     adapter:
       discovery: [list]
-      list_link_pattern: "mfa\\.gov\\.cn/eng/xw/zyxw/\\d{6}/t\\d+_\\d+\\.html$"   # 英文新闻文章；栏目索引 /eng/xw/zyxw/ 待线上核验
+      list_link_pattern: "mfa\\.gov\\.cn/eng/xw/zyxw/\\d{6}/t\\d+_\\d+\\.html$"   # 英文新闻文章；栏目索引 /eng/xw/zyxw/ 2026-09-13 第 53 轮线上核验（相对链接解析后命中）
       max_pages: 1
     request_rate_per_second: 0.5
     max_concurrency: 1
@@ -80,7 +81,11 @@ sources:
     adapter:
       discovery: [search]   # 2026-09-13：按站内检索（GET list.jsp）实现；列表规则只保留 detail1 详情
       list_link_pattern: "detail1\\.jsp\\?objid=\\d+"
-      max_pages: 1
+      # 2026-09-13 离线核验（本轮）：检索结果页 ?nPageIndex_=N 的“下一页”是 .page 第 3 个 li 的
+      # 链接（首页/上一页/下一页/尾页；本页页 2 的下一页为 nPageIndex_=3）；
+      # 未命中则按适配规则视为终点，不再用通用文本启发式。
+      pagination_selector: ".page li:nth-child(3) a"
+      max_pages: 5
     request_rate_per_second: 0.5
     max_concurrency: 1
     connect_timeout_seconds: 10
@@ -370,7 +375,14 @@ sources:
       discovery: [list]
       list_link_pattern: "mea\\.gov\\.in/(TreatyDetail\\?\\d+|.*dtl/\\d+)"   # 第 28 轮核验：条约详情 URL 形态 /TreatyDetail?<id>；保留 ?dtl/<id> 兼容
       attachment_pattern: "mea\\.gov\\.in/Portal/LegalTreatiesDoc/"   # 第 38 轮核验：条约 PDF；详情页另有 4 个站点级 footer PDF，不属本来源附件
-      max_pages: 1
+      # 2026-09-13 离线核验（本轮）：列表片段 ul.pagination 的“›”是 PagedList-skipToNext 项；
+      # 通用 rel=next/文本启发式会先命中省略号（…→page=5），跳过第 2—4 页；未命中控件即终点。
+      pagination_selector: "ul.pagination li.PagedList-skipToNext.page-item a.page-link"
+      # 2026-09-13 线上核验（第 43/44 轮）：站点控件只带 page=N 且路径小写，直接跟随返回
+      # “No Record Found”空壳；缺 PageSize/sortBy 才是原因（正确大小写、无参数同样为空）。
+      # 按入口 URL 派生下一页（路径与 PageSize/sortBy 沿用入口，只覆盖 page）。
+      pagination_merge_entry_params: true
+      max_pages: 5   # 已知 433 页（Displaying Item 1 To 10 of 4327）；本轮开发窗口每次最多 5 页，游标续接
     request_rate_per_second: 0.5
     max_concurrency: 1
     connect_timeout_seconds: 10
@@ -398,8 +410,8 @@ sources:
     parser_type: html
     language: en
     stance_default: IN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 404（无规则）；入口可达，但页面链接指向别名域 indiacode.gov.in，域名关系待 Q12 决策后配置"
-    terms_checked_at: "2026-09-11T20:00:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 404（无规则）。2026-09-13 第 49/51 轮核实：旧域 www.indiacode.nic.in 根页是官方迁移公告（Site Migration，meta refresh + 脚本跳转 https://indiacode.gov.in，无正文），站点自述内容已迁移；新域根页为 Angular SPA 壳（2338 B，无静态链接），新域 robots.txt 返回 HTTP 502（nginx）→ 按 rules_for_unavailable 的 5xx 保守拒绝，不启用新域。需要站点侧 robots 可用/许可或公开接口后按精确域名配置（Q12，见 evidence/stage-five-s5-02-restricted.md）"
+    terms_checked_at: "2026-09-13T21:00:00+08:00"
     seed_terms: [border, boundary, passport, citizenship, foreigner, national security, tribe, religion, map, survey, Sikkim]
     supplement_terms: [India Code, regulation]
     exclude_terms: []
@@ -432,8 +444,8 @@ sources:
     parser_type: html
     language: en
     stance_default: IN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 获取失败（status=None），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面。接入前需确认可达性与允许方式"
-    terms_checked_at: "2026-09-11T20:00:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 获取失败（status=None），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面。2026-09-13 第 50 轮诊断：WSL 解析为 fake-IP 198.18.0.0/15（Windows 侧代理接管 DNS），TLS 在 CONNECTED 后被切断（对照 www.gov.cn 链路完整、WSL CA 244 项齐备）→ 指向本地代理分流规则，不能作为站点拒绝证据；调整代理后按 ≤2 请求只复核 robots"
+    terms_checked_at: "2026-09-13T21:00:00+08:00"
     seed_terms: [Gazette, notification, border, foreigner, citizenship, security, regulation]
     supplement_terms: [Gazette ID, notification]
     exclude_terms: []
@@ -544,8 +556,8 @@ sources:
     parser_type: html
     language: en
     stance_default: IN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 获取失败（status=None），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面。接入前需确认可达性"
-    terms_checked_at: "2026-09-11T20:12:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 获取失败（CERTIFICATE_VERIFY_FAILED），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面。2026-09-13 第 50 轮诊断：同 IN-04，指向本地代理链路（fake-IP + 握手被切断），非 WSL 信任库缺失；调整代理后按 ≤2 请求只复核 robots"
+    terms_checked_at: "2026-09-13T21:00:00+08:00"
     seed_terms: [language, mother tongue, religion, population, district, state, union territory, Ladakh, Sikkim, Arunachal Pradesh]
     supplement_terms: [data catalog, census]
     exclude_terms: []
@@ -578,8 +590,8 @@ sources:
     parser_type: html
     language: en
     stance_default: IN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 获取失败（status=None），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面"
-    terms_checked_at: "2026-09-11T20:12:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 获取失败（TLS SSLZeroReturnError），按 robots 不可用保守拒绝。2026-09-13 第 50 轮诊断：`openssl s_client` 直接复现 CONNECTED 后 no peer certificate，对照 www.gov.cn 链路完整 → 本地代理链路；调整代理后按 ≤2 请求只复核 robots"
+    terms_checked_at: "2026-09-13T21:00:00+08:00"
     seed_terms: [Ladakh, culture, heritage, festival, monastery, language, tradition, community]
     supplement_terms: [culture department]
     exclude_terms: []
@@ -612,8 +624,8 @@ sources:
     parser_type: html
     language: en
     stance_default: IN_OFFICIAL
-    robots_policy: "2026-09-11 核验：robots.txt 获取失败（status=None），按 robots 不可用保守拒绝；只尝试 robots.txt，未请求页面"
-    terms_checked_at: "2026-09-11T20:12:00+08:00"
+    robots_policy: "2026-09-11 核验：robots.txt 获取失败（TLS SSLZeroReturnError），按 robots 不可用保守拒绝。2026-09-13 第 50 轮诊断：同 IN-08，本地代理链路（fake-IP + 握手被切断），非站点拒绝证据；调整代理后按 ≤2 请求只复核 robots"
+    terms_checked_at: "2026-09-13T21:00:00+08:00"
     seed_terms: [Sikkim, culture, heritage, festival, religion, language, community, tradition]
     supplement_terms: [culture department]
     exclude_terms: []

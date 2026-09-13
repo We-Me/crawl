@@ -81,7 +81,7 @@ document.crawl_ids、document.content_hash 以及附件对象的 doc_id/crawl_id
 
 | 对象 | 原文字段或组织键 | 引用与限制 |
 | --- | --- | --- |
-| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner/adapter | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选。`robots_policy` 记录逐站核验结论（T026）；robots.txt 的获取与执行由客户端按 FR-001 自动完成，不依赖该文本字段。`adapter` 是 T026 机制部分新增的候选块（list_link_selector/list_link_pattern/list_link_rewrite/attachment_pattern/pagination_selector/max_pages/content_selector/date_selector），逐来源取值待 Q12/Q13；未配置时使用通用规则 |
+| 来源注册表 | source_id/source_name/base_domain/country/authority_level/categories/allowed_paths/blocked_paths/crawl_mode/update_interval/parser_type/language/stance_default/robots_policy/terms_checked_at/last_success_at/last_content_hash/error_count/owner/adapter | 均来自 S2 §11 的建议字段；allowed_domains 来自 S1，合并配置是候选。`robots_policy` 记录逐站核验结论（T026）；robots.txt 的获取与执行由客户端按 FR-001 自动完成，不依赖该文本字段。`adapter` 是 T026 机制部分新增的候选块（list_link_selector/list_link_pattern/list_link_rewrite/attachment_pattern/pagination_selector/pagination_merge_entry_params/max_pages/content_selector/date_selector），逐来源取值待 Q12/Q13；未配置时使用通用规则 |
 | 通用文档或片段 | doc_id/chunk_id/title/text/source_name/source_url/source_country/source_authority/document_type/topic/publication_date/event_date/effective_from/effective_to/version/is_current/language/jurisdiction/stance/citation_anchor/content_hash/supersedes/superseded_by/抓取时间 | S2 §3 为建议；不是要求每个 document 必须同时具有 chunk_id |
 | A 协定 | agreement_id，签署/生效、正式语言、条款、双方名称、引用锚点 | 一份协定的语言和版本分别保留；条款切片属领域对象 |
 | B 政策表述 | stance/speaker/organization/event_date/publication_date/issue_tags/related_agreement_ids | 发布机构、时间和立场按 S2 §18 强制保留；联合文件不因站点国别自动标单方 |
@@ -103,3 +103,20 @@ schema 字段新增、改名、必填性提高和哈希语义改变必须记录�
 ## 当前分块边界（2026-09-13）
 
 现有 blocks 契约保持原始结构块含义；跨段语篇组合尚未确认，不据此修改现有字段或 JSON Schema。本轮不包含 RAG，候选派生单元须先明确规则与原块追溯关系，见 [当前范围与分块](scope-and-blocking.md)。
+
+## 阶段五补充：归档、覆盖与续接（2026-09-13）
+
+阶段五（[stage-five.md](stage-five.md)）只扩展运行期字段与运行状态文件，不改变
+`documents.jsonl`/`blocks.jsonl`/`crawl_manifest.jsonl` 的基础字段与必填层级：
+
+| 对象 | 变化 | 说明 |
+| --- | --- | --- |
+| manifest.discovery_method | 无新枚举 | 发现页归档沿用声明的方式（`list`/`search`/`sitemap`/`api`）；`raw_path` 位于 `<kind=discovery>/` 下以区分发现页与正文页，不新增业务文档类型 |
+| document.attachments[].status | 枚举扩展为 `downloaded`/`failed`/`boundary_rejected`/`pending` | `boundary_rejected` = robots 或访问边界拒绝（进 skipped，不写失败账）；`pending` = 预算停止时未尝试、已登记待处理并在下一轮续传。`src/crawler/contracts/attachment.schema.json` 与规格契约同步 |
+| metrics.coverage | 新增运行指标（运行期字段） | 记录主目标（已发现/已尝试/成功/失败/跳过）、附件（已发现/下载/续传/失败/边界拒绝/规则排除/重复/待处理）、发现完整性（终止原因与 `complete`）、队列与 `pending_total`；发现截断或仍有待处理时 `metrics.status` 为 `partial`/`stopped`，不报 `ok`。不进入六项成果文件 |
+| stop.unprocessed | 口径调整 | 改为待处理项合计（主目标 + 附件），不是本轮已选主目标数；发现截断时窗口总量仍是未知 |
+| manifests/pending_items.json | 新增运行状态文件（非交付成果） | 待处理目标/附件的状态、来源、范围、母文档与最近一次原件定位；JSON 原子写入 |
+| manifests/discovery_cursors.json | 新增运行状态文件（非交付成果） | 每个“来源 + 方式 + 入口 + 运行范围”的下一页位置与累计页数/目标数 |
+
+字段与文件的结构差异同时登记在 [结构对照](structure-comparison.md)；运行说明见
+[runbook.md](runbook.md) 第 5、6 节。

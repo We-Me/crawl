@@ -1,0 +1,37 @@
+# 阶段五 第 61 轮（开发推进）：继续消耗游标与队列
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：沿第 60 轮口径继续（单轮 `--max-items 3—6`），推进 IN-02 `page=9`、CN-02 `nPageIndex_=8`、
+  IN-05 附件 38、IN-01/IN-06/IN-10/CN-04/CN-01 小队列；不做能力变更。
+- 窗口：`--start-date 2026-09-06`。
+- 预算（含 robots/重定向/重试/分页/附件）：IN-02 ≤14/420s（外层 480）、CN-02 ≤14/360s（外层 420）、
+  IN-05 ≤10/600s（外层 660）、IN-01 ≤10/300s、IN-06 ≤10/300s、IN-10 ≤10/300s（外层各 360）、
+  CN-04 ≤10/300s（外层 360）、CN-01 ≤8/240s（外层 300）。合计 ≤86。
+- 规则同前：robots、0.5 req/s、并发 1、边界、Retry-After、不绕过、预算停止先保存进度。
+
+复跑命令示例：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 6 --max-requests 14 --deadline-seconds 420 --json
+```
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T215758` | 14 | 从游标 `page=9` 取回第 9 页，处理 6 篇（24 块）+ 6 附件（规则排除 26）→ 游标 `page=10` | `ok`（发现 partial） |
+| CN-02 | `CN-02_20260913T215735` | 14 | 从游标 `nPageIndex_=8` 取回第 8 页，处理 6 篇（36 块）+ 6 附件（1 待处理）→ 游标 `nPageIndex_=9` | `ok` |
+| IN-05 | `IN-05_20260913T215713` | 10 | 附件续传 9 个、0 失败；pending 38→**29** | `request_budget` |
+| IN-01 | `IN-01_20260913T220102` | 10 | 处理 3 项（含续传附件 2）+ 5 个附件下载；pending 2→**1** | `request_budget` |
+| IN-06 | `IN-06_20260913T215836` | 10 | 处理 4 篇（109 块）；pending 8→**4** | `request_budget` |
+| IN-10 | `IN-10_20260913T215852` | 7 | 处理 5 篇（132 块）；6 条站外链接跳过；pending 8→**3** | `ok` |
+| CN-04 | `CN-04_20260913T220140` | 7 | 处理 5 个窗口内目标（90 块）；pending 4→**0（队列清零）** | `ok` |
+| CN-01 | `CN-01_20260913T220142` | 8 | 处理 1 篇（42 块）、2 个窗口外跳过；pending 2→**0（队列清零）** | `ok` |
+
+- 8 个运行合计 80 个请求、0 失败；新增文档 **28** 篇、块 **462**；(`crawl check`) manifest=390、
+  documents=159、blocks=4067、raw_files=335、失败账 3 行、追溯 100%。
+- 队列清零：CN-04（含窗口内 5 篇）、CN-01（窗口外跳过已记原因）；IN-05 附件降到 29。
+- 游标：IN-02 `page=10`；CN-02 `nPageIndex_=9`。

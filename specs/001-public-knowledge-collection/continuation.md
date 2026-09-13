@@ -8,6 +8,18 @@
 
 ## 历史执行记录
 
+### 阶段五 S5-01/S5-03/S5-04/S5-06 工程实施（2026-09-13）
+
+按 [阶段五](stage-five.md) 实施统一归档、分页终止原因与游标、附件闭环与多轮续接：
+发现响应先归档后解析、每个入口记录 `stop`/`complete` 并把未翻到的页存入
+`manifests/discovery_cursors.json`、附件区分成功/失败/边界拒绝/规则排除/重复/待处理、
+`manifests/pending_items.json` 支撑有限预算多轮推进，覆盖口径进入报告与 `logs/metrics.json`。
+新增 13 项离线夹具用例，全量回归 419 passed，契约同步检查通过；证据见
+[阶段五证据](evidence/stage-five-raw-completeness.md) 与
+[完整回归日志](evidence/logs/stage-five-full-pytest.txt)。本轮同时修复预算按次运行生效
+（上一轮已耗尽预算不再约束新一轮）。S5-02 无新线索，复用既有受限来源证据，不重复探测；
+T019/T026/T027 与 18 来源状态不因本轮改变。
+
 ## 当前适用入口
 
 已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和完成标准统一见 [阶段五](stage-five.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
@@ -224,3 +236,58 @@ UV_CACHE_DIR=/tmp/crawl-uv-cache timeout 60 uv run --locked --no-python-download
   --config src/crawler/config/sources.yaml --source CN-05 --start-date 2026-09-06 \
   --max-items 1 --max-requests 3 --deadline-seconds 60
 ```
+
+## 阶段五第二轮（2026-09-13）：按站分页规则、附件失败记账与真实续接
+
+本轮继续 raw 优先开发，交付“发现分页规则落地 + 附件闭环 + 多轮续接”的可验证推进，
+8 次有限线上运行（第 42—48 轮，30 请求、0 绕过、1 次超时异常如实记录并修复），
+登记与结果见 [evidence/logs/stage-five-round42-online.txt](evidence/logs/stage-five-round42-online.txt)。
+
+- 代码：`parse_html` 支持 `adapter.pagination_selector`（正文分页，未配置不变）；新增
+  `adapter.pagination_merge_entry_params`（IN-02：控件缺入口参数的空壳链接按入口 URL 派生下一页）；
+  `StreamHandle.iter_chunks` 把流式读取中断转 `FetchError`；通用列表范围空结果时按整文档兜底并记 note；
+  搜索发现游标按渲染后检索 URL 归属（不同关键词不互相续接）。
+- 线上事实：IN-02 合并规则下连续取回第 1/2/3 页并推进游标到 page=4（每页 10 目标，`max_pages: 5`）；
+  CN-02 检索第 1→2 页、游标→3、附件 5+2 下载；IN-05 AGMUT 97 附件中 13 个下载、84 个待处理续传；
+  CN-04 `/zhengce/index.htm` 兜底后 19 目标、2 份政策文档（2026-09-10/11 in_window）。
+- 验证：新增 12 项用例（含修复前失败的双向验证），全量 **431 passed**，
+  `sync_contracts --check` 与 SDD 文档校验通过；数据根 `crawl check`：manifest=120、documents=68、
+  blocks=2630、raw_files=107、追溯 100%、失败账仍为历史 2 行（无新增）。
+- 未完成：IN-02 433 页只到第 3 页；CN-04 检索库仍受 robots `Disallow /`（Q12）；IN-05 待处理 84 项；
+  受限来源状态未变；T019/T026/T027 不自动勾选，S5-05/S5-07 仍暂缓。
+
+## 阶段五第三轮（2026-09-13）：受限来源分因、别名核实与分页/附件续接
+
+本轮先按 S5-02 做受限来源分因（第 49—53 轮：5 个 HTTP 请求 + 2 次 TLS 握手，0 绕过、0 越界请求），
+再按 S5-03/04/06 做第 54/55 轮有限线上推进（26 + 10 个请求；1 个大 PDF 读取中断如实入账）。
+分因结论见 [S5-02 证据](evidence/stage-five-s5-02-restricted.md)，
+运行登记与结果见 [第 54 轮](evidence/logs/stage-five-round54-online.txt) 与
+[第 55 轮](evidence/logs/stage-five-round55-in05-attachments.txt) 日志、以及第 49/50/51/53 轮取证日志。
+
+- **S5-02**：IN-04/07/08/09 的 TLS 失败定位为本地代理链路（fake-IP `198.18.0.0/15`；`ladakh.gov.in`
+  CONNECTED 后无对端证书，`www.gov.cn` 对照正常；WSL 时钟/CA 已排除）→ 需要 Windows 侧代理分流；
+  IN-03 旧域是官方迁移公告、新域 robots.txt 502 按保守拒绝；CN-01 旧域 `fmprc.gov.cn` 为官方镜像
+  （同栏目列表与新域字节一致）→ 不扩边界，改用新域 `/eng/xw/zyxw/` 入口；CN-03/05/06/07 维持原结论。
+- **S5-03/04/06**：IN-02 取回第 4 页（游标 page=5）、CN-02 取回第 3 页（游标 `nPageIndex_=4`）、
+  CN-04 队列 17→15（2 个窗口外如实记原因）、CN-01 新入口 7 目标/2 篇文档（2026-09-13 in_window）、
+  IN-05 附件 84→83→74（8 成功 + 1 个约 162 MB PDF 读取中断入失败账）。
+- **更正**：第 42—48 轮此前写作“8 次运行、30 请求”，逐轮重算为 **12 次运行、74 个请求**
+  （含第 45 轮崩溃的 4 个请求）；T026、stage-five.md 与本文件同步更正。
+- **第 56/57 轮续作**（各 37 个请求，0 失败，日志见 round56/57）：IN-02 取回第 5、6 页
+  （游标 page=7；`max_pages` 是单次运行上限）、CN-02 取回第 4、5 页（游标 `nPageIndex_=6`）、
+  CN-04 队列 15→11（窗口外逐条记原因）、CN-01 再采 4 篇（2026-09-12）、IN-05 附件 74→56。
+- **第 58 轮**（20 个请求，0 失败）：CN-08/IN-01/IN-06/IN-10 窗口内复采各 1—2 篇
+  （6/29/35/67 块），窗口外与站外链接逐条记原因。
+- **第 59 轮**（9 个运行、58 个请求、0 失败）：IN-02 第 7 页（游标 page=8）、CN-02 第 6 页
+  （游标 nPageIndex_=7）、CN-04 消费 2 个窗口内目标（2026-09-10/09-09）、CN-01/CN-08/IN-06/IN-10/IN-01
+  各采 1—2 篇、IN-05 附件 56→47；新增 13 篇/174 块。
+- **第 60 轮**（8 个运行、74 个请求、0 失败）：IN-02 第 8 页（游标 page=9，单轮 5 篇）、
+  CN-02 第 7 页（游标 nPageIndex_=8）、CN-04 pending 9→4、CN-01 3→2、IN-01 7→2、
+  IN-06 12→8、IN-10 13→8、IN-05 附件 47→38；新增 22 篇/337 块。
+- **第 61 轮**（8 个运行、80 个请求、0 失败）：IN-02 第 9 页（游标 page=10，6 篇/24 块）、
+  CN-02 第 8 页（游标 nPageIndex_=9，6 篇/36 块）、IN-05 附件 38→29、CN-04 队列清零（5 篇/90 块）、
+  CN-01 清零、IN-06 8→4（109 块）、IN-10 8→3（132 块）、IN-01 2→1；新增 28 篇/462 块。
+- **验证**：全量 **433 passed**；`crawl check`（第 61 轮后）：manifest=390、documents=159、
+  blocks=4067、raw_files=335、失败账 3 行、追溯 100%。
+- **未完成**：IN-02 433 页到第 4 页；CN-02 到第 3 页；IN-05 74 项待处理附件；CN-04 15 项、CN-01 5 项
+  队列；受限来源需代理分流或站点条件（Q12 具体输入见 decision-requests.md）；T019/T026/T027 未自动勾选。

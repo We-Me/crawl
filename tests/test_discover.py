@@ -179,3 +179,85 @@ def test_adapter_pagination_selector_stops_when_absent(site_server, registry_fac
         f"{site_server}/detail_1.html",
         f"{site_server}/detail_2.html",
     ]
+
+
+def test_adapter_pagination_selector_avoids_ellipsis_rel_next_trap(site_server, registry_factory):
+    """S5-03：省略号（…）也带 rel=next 时，只跟随适配选择器指定的“›”下一页（IN-02 真实形态）。"""
+    registry = registry_factory(
+        site_server,
+        adapter={
+            "list_link_selector": "ul.doc-list a",
+            "pagination_selector": "ul.pagination li.PagedList-skipToNext.page-item a.page-link",
+        },
+    )
+    discoverer = make_discoverer(registry)
+    targets = discoverer.discover_list([f"{site_server}/adapter_paged_1.html"])
+    assert [target.url for target in targets] == [
+        f"{site_server}/detail_1.html",
+        f"{site_server}/detail_2.html",
+        f"{site_server}/detail_3.html",
+    ]
+    stop = discoverer.stops[-1]
+    assert stop.stop == "pagination_control_missing" and stop.complete is True
+    assert stop.pages == 2
+
+
+def test_adapter_positional_pagination_selector_and_self_pointer_end(site_server, registry_factory):
+    """S5-03：CN-02 形态 `.page` 第 3 项为“下一页”；末页自指链接按终点处理。"""
+    registry = registry_factory(
+        site_server,
+        adapter={
+            "list_link_selector": "ul.doc-list a",
+            "pagination_selector": ".page li:nth-child(3) a",
+        },
+    )
+    discoverer = make_discoverer(registry)
+    targets = discoverer.discover_list([f"{site_server}/paged_positional_1.html"])
+    assert [target.url for target in targets] == [
+        f"{site_server}/detail_1.html",
+        f"{site_server}/detail_2.html",
+    ]
+    stop = discoverer.stops[-1]
+    assert stop.stop == "pagination_control_missing" and stop.complete is True
+    assert stop.pages == 2
+
+
+def test_adapter_pagination_merge_entry_params(site_server, registry_factory):
+    """S5-03：控件省略入口参数（IN-02 形态）时按入口 URL 派生下一页；未开启则跟随空壳链接。"""
+    entry = f"{site_server}/merge_paged?page=1&size=10"
+    adapter = {
+        "list_link_selector": "ul.doc-list a",
+        "pagination_selector": "ul.pagination li.PagedList-skipToNext.page-item a.page-link",
+        "max_pages": 2,
+    }
+    merged_registry = registry_factory(
+        site_server, adapter={**adapter, "pagination_merge_entry_params": True}
+    )
+    discoverer = make_discoverer(merged_registry)
+    targets = discoverer.discover_list([entry])
+    assert [target.url for target in targets] == [
+        f"{site_server}/detail_1.html",
+        f"{site_server}/detail_2.html",
+    ]
+    stop = discoverer.stops[-1]
+    assert stop.stop == "max_pages_reached" and stop.complete is False
+    assert stop.next_url == f"{site_server}/merge_paged?page=3&size=10", "路径与入口参数沿用入口"
+
+    plain_registry = registry_factory(site_server, adapter=dict(adapter))
+    plain_targets = make_discoverer(plain_registry).discover_list([entry])
+    assert [target.url for target in plain_targets] == [f"{site_server}/detail_1.html"]
+
+
+def test_generic_scope_falls_back_to_whole_document(site_server, registry_factory):
+    """S5-03：通用范围取不到目标而文档整体有链接（结构不完整）时按整文档兜底，不冒充零结果。"""
+    registry = registry_factory(site_server, adapter={"discovery": ["list"]})
+    discoverer = make_discoverer(registry)
+    targets = discoverer.discover_list([f"{site_server}/double_html_list.html"])
+    assert [target.url for target in targets] == [f"{site_server}/detail_1.html"]
+    assert discoverer.scope_fallbacks == [
+        {
+            "url": f"{site_server}/double_html_list.html",
+            "method": "list",
+            "scope": "main",
+        }
+    ]

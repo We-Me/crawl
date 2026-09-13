@@ -252,3 +252,77 @@ def test_source_max_retries_limits_attempts(site_server, registry_factory):
     assert excinfo.value.retryable is True
     assert excinfo.value.attempts == 1
     assert client.request_attempts == 1
+
+
+def test_stream_read_failure_is_fetch_error():
+    """S5-04：附件流式读取中断转 FetchError（记失败），不向调用方抛原始库异常。"""
+    from crawler.fetch.http_client import StreamHandle
+
+    class BrokenResponse:
+        status_code = 200
+        headers: dict = {}
+
+        def __init__(self):
+            self.closed = False
+
+        def iter_content(self, chunk_size=65536):
+            yield b"%PDF-1.4 partial"
+            raise requests.exceptions.ConnectionError("Read timed out")
+
+        def close(self):
+            self.closed = True
+
+    response = BrokenResponse()
+    handle = StreamHandle(
+        requested_url="http://example.invalid/a.pdf",
+        final_url="http://example.invalid/a.pdf",
+        response=response,
+        raw=None,
+        attempts=1,
+    )
+    with pytest.raises(FetchError) as excinfo:
+        handle.read()
+    assert "读取响应失败" in str(excinfo.value)
+    assert excinfo.value.retryable is False
+    assert response.closed is True
+
+
+def test_broken_attachment_download_is_recorded_as_failed(
+    site_server, registry_factory, tmp_path
+):
+    """S5-04：真实中断的附件下载记为 failed（含失败账），文档与其余流程不受影响。"""
+    import json
+
+    from crawler.fetch.budget import RunBudget
+    from crawler.fetch.http_client import HttpClient
+    from crawler.pipeline import CrawlPipeline
+
+    registry = registry_factory(site_server)
+    http = HttpClient(registry, limits=fast_limits())
+    pipeline = CrawlPipeline(registry, tmp_path / "data", http=http)
+    report = pipeline.collect(
+        "TESTSRC",
+        entry_urls=[],
+        manual_urls=[f"{site_server}/attachment_broken.html"],
+        include_attachments=True,
+    )
+    assert report.counters.documents == 1, "附件失败不影响正文文档产出"
+    assert report.counters.failures == 1
+    documents = [
+        json.loads(line)
+        for line in (tmp_path / "data" / "normalized" / "documents.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    attachment = documents[0]["attachments"][0]
+    assert attachment["status"] == "failed"
+    assert "读取响应失败" in attachment["note"]
+    failures = [
+        json.loads(line)
+        for line in (tmp_path / "data" / "manifests" / "failed_records.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert any(row["url"].endswith("_broken_attachment.pdf") for row in failures)

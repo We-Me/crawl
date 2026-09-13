@@ -239,6 +239,10 @@
      "type": "string",
      "description": "下一页控件 CSS 选择器；命中即该来源的分页终止条件"
     },
+    "pagination_merge_entry_params": {
+     "type": "boolean",
+     "description": "2026-09-13 新增：站点分页控件省略入口参数时，下一页 URL 由入口 URL 派生（路径与入口参数沿用入口，控件显式参数覆盖）；需同时配置 pagination_selector。用于 IN-02 端点：控件只带 page=N，缺 PageSize/sortBy 时返回空壳"
+    },
     "max_pages": {
      "type": "integer",
      "minimum": 1,

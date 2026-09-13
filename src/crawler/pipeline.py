@@ -21,11 +21,16 @@ from crawler.config.registry import SourceRegistry
 from crawler.config.settings import Settings
 from crawler.discover.discoverer import (
     ATTACHMENT_EXTENSIONS,
+    DiscoveryContentError,
+    DiscoveryStop,
     Discoverer,
     DiscoveredTarget,
     SkippedTarget,
+    STOP_PARSE_ERROR,
+    STOP_REQUEST_FAILED,
 )
 from crawler.discover.strategies import (
+    STATUS_PARSE_ERROR,
     STATUS_NOT_IMPLEMENTED,
     STATUS_OK,
     STATUS_REQUEST_ERROR,
@@ -48,9 +53,8 @@ from crawler.normalize.document_schema import build_document
 from crawler.normalize.metadata_normalizer import normalize_page
 from crawler.output.documents_writer import DocumentsWriter
 from crawler.output.failures_writer import FailureWriter
-from crawler.output.manifest_writer import ManifestWriter
 from crawler.output.layout import DeliveryLayout
-from crawler.output.raw_store import RawStore
+from crawler.output.archive import ResponseArchiver
 from crawler.output.jsonl import read_jsonl
 from crawler.parser.dispatcher import parse_attachment
 from crawler.parser.html_parser import decode_html, parse_html
@@ -76,6 +80,17 @@ from crawler.monitor.metrics import (
     write_metrics,
 )
 from crawler.schedule.incremental import plan_incremental
+from crawler.schedule.cursor import DiscoveryCursorStore
+from crawler.schedule.pending import (
+    KIND_ATTACHMENT,
+    STATE_FAILED,
+    STATE_PENDING,
+    STATE_PROCESSED,
+    STATE_REFRESH,
+    STATE_SKIPPED,
+    PendingItem,
+    PendingStore,
+)
 from crawler.schedule.scope import RunScope, ScopeConfigError, parse_start_date
 from crawler.schedule.state import IncrementalStateStore
 from crawler.util.paths import PathSafetyError, sanitize_filename
@@ -111,6 +126,7 @@ class RunReport:
     skipped: List[SkippedTarget] = field(default_factory=list)
     documents: List[str] = field(default_factory=list)
     discovery: List[DiscoveryResult] = field(default_factory=list)
+    coverage: dict = field(default_factory=dict)
     scope: RunScope = RunScope()
     date_decisions: List[dict] = field(default_factory=list)
     metrics: Optional[dict] = None
@@ -118,6 +134,18 @@ class RunReport:
     stop_message: str = ""
     unprocessed: Optional[int] = None
     budget: Optional[dict] = None
+
+
+@dataclass
+class TargetOutcome:
+    """一个主目标（或待处理附件）的处理结果；state 与待处理项状态同一口径。"""
+
+    state: str
+    note: str = ""
+    stop: Optional[BudgetStop] = None
+    crawl_id: Optional[str] = None
+    raw_path: Optional[str] = None
+    sha256: Optional[str] = None
 
 
 @dataclass
@@ -172,16 +200,29 @@ class CrawlPipeline:
         self.legacy_converter = legacy_converter
         self.http = http or HttpClient(registry)
         self.downloader = Downloader(self.http)
-        self.store = RawStore(self.data_dir)
-        self.manifest = ManifestWriter(self.data_dir)
+        self.now = now or (lambda: datetime.now(timezone.utc).astimezone())
+        # 统一归档：原件 + 账本 + crawl_id 序号（S5-01）。发现响应与正文资源共用同一实例，
+        # 同一运行内序号连续，同一个响应对象不会被写两次账。
+        self.archiver = ResponseArchiver(self.data_dir, now=self.now)
         self.failures = FailureWriter(self.data_dir)
         self.writer = DocumentsWriter(self.data_dir)
         self.state = state_store or IncrementalStateStore(self.data_dir)
         self.failures_ledger = FailureLedger(self.data_dir)
-        self.now = now or (lambda: datetime.now(timezone.utc).astimezone())
-        self._sequences: dict = {}
+        # S5-06：待处理项与发现游标是续接状态，与失败账分开；成功成果不被它们覆盖。
+        self.pending = PendingStore(self.data_dir)
+        self.cursors = DiscoveryCursorStore(self.data_dir)
         # 本次运行范围：失败记录与补抓计划据此保留原窗口（恢复不混入新窗口）。
         self._run_scope: RunScope = RunScope()
+
+    @property
+    def store(self):
+        """原件存储（归档器组件）；正常采集请用 archiver，保持“先原件、后账本”顺序。"""
+        return self.archiver.store
+
+    @property
+    def manifest(self):
+        """账本写出（归档器组件）；供补抓与测试构造/核对既有原件使用。"""
+        return self.archiver.manifest
 
     def collect(
         self,
@@ -212,11 +253,21 @@ class CrawlPipeline:
         requests_before = self.http.request_attempts
         report = RunReport(source_id=source_id)
         report.scope = scope
+        # 预算按次运行生效：未传预算即本次不受限制；上一轮遗留的有限预算
+        # 不得继续约束新一轮（S5-06 有限预算分轮续作的前提）。
+        self.http.attach_budget(budget)
         if budget is not None:
             budget.start()
-            self.http.attach_budget(budget)
             report.budget = budget
-        discoverer = Discoverer(self.http, self.registry, source, max_items=max_items)
+        discoverer = Discoverer(
+            self.http,
+            self.registry,
+            source,
+            max_items=max_items,
+            archiver=self.archiver,
+            cursors=self.cursors,
+            now=self.now,
+        )
         context = DiscoveryContext(
             source=source,
             registry=self.registry,
@@ -228,10 +279,11 @@ class CrawlPipeline:
         moment = self.now()
         crawl_date = moment.date().isoformat()
         crawl_time = moment.isoformat()
+        scope_start = scope.start_date.isoformat() if scope.start_date else None
 
         targets: List[DiscoveredTarget] = []
-        planned = 0
         processed = 0
+        report.coverage = self._empty_coverage()
         try:
             default_list = not (
                 manual_urls
@@ -250,6 +302,9 @@ class CrawlPipeline:
                 result = self._run_discovery(report, request, context)
                 report.discovery.append(result)
                 targets.extend(result.targets)
+                if discoverer.budget_stop is not None:
+                    # 先把已发现目标入队（进度不丢），稍后再停止本次运行。
+                    break
             if any(
                 result.status == STATUS_NOT_IMPLEMENTED for result in report.discovery
             ):
@@ -261,25 +316,84 @@ class CrawlPipeline:
 
             if manual_urls:
                 targets.extend(self._manual_targets(report, source, manual_urls))
-            selected = targets[:max_items]
-            planned = len(selected)
-            for target in selected:
-                self._collect_target(
-                    source,
-                    discoverer,
-                    target,
-                    crawl_date,
-                    crawl_time,
-                    include_attachments,
-                    report,
-                    scope,
+
+            # 发现页（列表/搜索/sitemap/接口）成功响应同样已归档：计入资源数，
+            # 与账本追加行数保持同一口径。
+            report.counters.resources += discoverer.archived_count
+
+            # S5-06：发现到的全部目标（含超出本次上限的部分）先入队，保证下一轮
+            # 有限预算能推进到未处理部分，而不是每次从入口重选前几项。
+            report.coverage["targets"]["discovered"] = len(targets)
+            enqueue = self.pending.enqueue_targets(
+                source_id=source_id,
+                targets=targets,
+                scope_start_date=scope_start,
+                enqueued_at=crawl_time,
+            )
+            report.coverage["queue"] = enqueue
+
+            candidates = self.pending.candidates(source_id, limit=max_items)
+            for item in candidates:
+                try:
+                    if item.kind == KIND_ATTACHMENT:
+                        outcome = self._collect_pending_attachment(
+                            source, item, report, crawl_date, crawl_time
+                        )
+                    else:
+                        outcome = self._collect_target(
+                            source,
+                            discoverer,
+                            self._target_from_item(item),
+                            crawl_date,
+                            crawl_time,
+                            include_attachments,
+                            report,
+                            self._scope_for_item(item),
+                            parent_url=item.url,
+                        )
+                except BudgetStop as stop:
+                    # 该目标的主请求未取得响应：保持待处理（不写成失败），下一轮继续。
+                    self.pending.mark(
+                        item.key,
+                        state=STATE_PENDING,
+                        attempted_at=self.now().isoformat(),
+                        note=f"budget_stop:{stop.reason}",
+                    )
+                    raise
+                except ScopeConfigError as exc:
+                    # 原运行范围无法解析时不猜窗口：转跳过并留下原因，不混入当前窗口。
+                    self.pending.mark(
+                        item.key,
+                        state=STATE_SKIPPED,
+                        attempted_at=self.now().isoformat(),
+                        note=f"scope_unparsable:{exc}",
+                    )
+                    report.skipped.append(
+                        SkippedTarget(item.url, f"scope_unparsable:{exc}", item.referrer_url)
+                    )
+                    continue
+                self.pending.mark(
+                    item.key,
+                    state=outcome.state,
+                    attempted_at=self.now().isoformat(),
+                    note=outcome.note,
+                    crawl_id=outcome.crawl_id,
+                    raw_path=outcome.raw_path,
+                    sha256=outcome.sha256,
                 )
                 processed += 1
+                self._count_outcome(report, item, outcome)
+                if outcome.stop is not None:
+                    raise outcome.stop
+            if discoverer.budget_stop is not None:
+                raise discoverer.budget_stop
         except BudgetStop as stop:
             report.stop_reason = stop.reason
             report.stop_message = stop.message
             logger.warning("采集按预算停止 reason=%s message=%s", stop.reason, stop.message)
-        report.unprocessed = planned - processed if planned else None
+        report.coverage["targets"]["attempted"] = processed
+        self._finish_coverage(report, source_id, discoverer)
+        report.unprocessed = report.coverage["pending_total"]
         # 发现阶段的跳过已随策略结果并入；采集阶段（如附件发现）新写入
         # discoverer.skipped 的条目在此补记，避免重复计数。
         accounted = sum(len(result.skipped) for result in report.discovery)
@@ -296,6 +410,86 @@ class CrawlPipeline:
             request_controls=self._request_controls(source),
         )
         return report
+
+    # ------------------------------------------------------------------ S5-06 续接辅助
+
+    @staticmethod
+    def _empty_coverage() -> dict:
+        """本轮覆盖口径：目标、附件与发现完整性分开记录，未完成不冒充完成。"""
+        return {
+            "targets": {
+                "discovered": 0,
+                "attempted": 0,
+                "processed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "refresh": 0,
+            },
+            "attachments": {
+                "discovered": 0,
+                "downloaded": 0,
+                "failed": 0,
+                "boundary_rejected": 0,
+                "rule_excluded": 0,
+                "duplicates": 0,
+                "pending": 0,
+                "resumed": 0,
+                "exclusions": [],
+            },
+            "discovery": {"complete": True, "incomplete_runs": 0, "stops": []},
+            "queue": {"added": 0, "refreshed": 0, "unchanged": 0},
+            "pending_total": 0,
+        }
+
+    @staticmethod
+    def _target_from_item(item: PendingItem) -> DiscoveredTarget:
+        return DiscoveredTarget(
+            url=item.url,
+            discovery_method=item.discovery_method or "manual",
+            referrer_url=item.referrer_url,
+            keyword=item.keyword,
+            title_hint=item.title_hint,
+        )
+
+    @staticmethod
+    def _scope_for_item(item: PendingItem) -> RunScope:
+        """待处理项沿用入队时的运行范围；解析失败交给调用方按跳过处理。"""
+        return RunScope(start_date=parse_start_date(item.scope_start_date))
+
+    @staticmethod
+    def _count_outcome(report: RunReport, item: PendingItem, outcome: TargetOutcome) -> None:
+        targets = report.coverage["targets"]
+        if outcome.state == STATE_PROCESSED:
+            targets["processed"] += 1
+        elif outcome.state == STATE_FAILED:
+            targets["failed"] += 1
+        elif outcome.state == STATE_SKIPPED:
+            targets["skipped"] += 1
+        if item.state == STATE_REFRESH:
+            targets["refresh"] += 1
+
+    def _finish_coverage(self, report: RunReport, source_id: str, discoverer: Discoverer) -> None:
+        """补齐队列与发现完整性口径；pending_total 是仍未处理的部分（不含失败账）。"""
+        coverage = report.coverage
+        counts = self.pending.counts(source_id)
+        coverage["queue_state"] = counts
+        coverage["pending_total"] = (
+            counts["targets"]["pending"] + counts["attachments"]["pending"]
+        )
+        coverage["attachments"]["pending"] = counts["attachments"]["pending"]
+        coverage["attachments"]["rule_excluded"] = sum(
+            int(row.get("count", 0)) for row in discoverer.attachment_rule_exclusions
+        )
+        coverage["attachments"]["exclusions"] = [
+            dict(row) for row in discoverer.attachment_rule_exclusions
+        ]
+        coverage["attachments"]["duplicates"] = sum(
+            int(row.get("count", 0)) for row in discoverer.attachment_duplicates
+        )
+        coverage["discovery"]["stops"] = [stop.as_row() for stop in discoverer.stops]
+        incomplete = [row for row in coverage["discovery"]["stops"] if not row["complete"]]
+        coverage["discovery"]["complete"] = not incomplete
+        coverage["discovery"]["incomplete_runs"] = len(incomplete)
 
     def _manual_targets(self, report, source, manual_urls: Sequence[str]):
         """把显式 --url 转成发现目标；越界或 robots 规则内的 URL 只记跳过，不请求。"""
@@ -376,6 +570,37 @@ class CrawlPipeline:
         )
         try:
             result = strategy.discover(request, context)
+        except DiscoveryContentError as exc:
+            # 发现响应已归档（原件与账本保留），这里只记录解析失败。
+            self._record_failure(
+                report,
+                source_id=context.source.source_id,
+                url=exc.url,
+                stage="parse",
+                error_type="discovery_parse_error",
+                message=str(exc),
+                attempts=1,
+                retryable=False,
+                crawl_id=exc.crawl_id,
+            )
+            stop = DiscoveryStop(
+                stage=request.stage,
+                entry=exc.url,
+                pages=0,
+                targets=0,
+                stop=STOP_PARSE_ERROR,
+                complete=False,
+                detail=str(exc),
+            )
+            context.discoverer.stops.append(stop)
+            return DiscoveryResult(
+                stage=request.stage,
+                strategy=strategy.name,
+                status=STATUS_PARSE_ERROR,
+                stops=[stop],
+                complete=False,
+                note=f"发现响应解析失败（原件已归档）：{exc}",
+            )
         except RobotsDisallowed as exc:
             reason = f"robots_disallowed: {exc.rule or exc}"
             report.skipped.append(SkippedTarget(exc.url, reason))
@@ -411,6 +636,21 @@ class CrawlPipeline:
             marker = "来源未声明该发现方式，本轮按显式入口运行通用实现（未计入已实现）"
             result.note = f"{result.note}；{marker}" if result.note else marker
         report.skipped.extend(result.skipped)
+        for stop in result.stops:
+            if stop.stop != STOP_REQUEST_FAILED:
+                continue
+            # 后续页请求失败：写失败账（可补抓），同时保留终止原因与游标位置。
+            self._record_failure(
+                report,
+                source_id=context.source.source_id,
+                url=stop.next_url or stop.entry,
+                stage="fetch",
+                error_type=stop.error_type or "request_error",
+                message=stop.detail or "后续页请求失败",
+                attempts=1,
+                retryable=True,
+                referrer_url=stop.entry,
+            )
         return result
 
     @staticmethod
@@ -483,6 +723,7 @@ class CrawlPipeline:
             scope=report.scope.as_row(),
             discovery=[result.as_row() for result in report.discovery],
             date_decisions=report.date_decisions,
+            coverage=report.coverage,
         )
         write_metrics(self.data_dir, metrics)
         logger.info(
@@ -520,7 +761,9 @@ class CrawlPipeline:
         include_attachments: bool,
         report: RunReport,
         scope: Optional[RunScope] = None,
-    ) -> None:
+        *,
+        parent_url: Optional[str] = None,
+    ) -> TargetOutcome:
         scope = scope or RunScope()
         try:
             state = self.state.get(target.url)
@@ -538,7 +781,7 @@ class CrawlPipeline:
                     target.referrer_url,
                 )
             )
-            return
+            return TargetOutcome(STATE_SKIPPED, f"robots_disallowed:{exc.rule or exc}")
         except FetchError as exc:
             self._record_failure(
                 report,
@@ -551,7 +794,8 @@ class CrawlPipeline:
                 retryable=exc.retryable,
                 referrer_url=target.referrer_url,
             )
-            return
+            error_type = "http_error" if exc.status_code else "request_error"
+            return TargetOutcome(STATE_FAILED, f"{error_type}: {exc}")
 
         if response.status_code == 304:
             self.state.record_not_modified(
@@ -563,36 +807,32 @@ class CrawlPipeline:
             report.skipped.append(
                 SkippedTarget(target.url, "304 未变化：复用此前成功原件与账本", target.referrer_url)
             )
-            return
+            return TargetOutcome(
+                STATE_PROCESSED, "not_modified:304 未变化：复用此前成功原件与账本"
+            )
 
         is_html = _is_html(response.headers, response.final_url)
         kind = "html" if is_html else "attachment"
-        raw = self.store.write_bytes(
+        archived = self.archiver.archive(
+            response,
             source_id=source.source_id,
-            crawl_date=crawl_date,
             kind=kind,
-            filename=_filename_for(response.final_url, kind),
-            content=response.content,
-        )
-        report.counters.resources += 1
-        crawl_id = self._next_crawl_id(source.source_id, crawl_date)
-        self.manifest.record(
-            crawl_id=crawl_id,
-            source_id=source.source_id,
-            requested_url=response.requested_url,
-            final_url=response.final_url,
-            crawl_time=crawl_time,
-            http_status=response.status_code,
-            content_type=response.headers.get("Content-Type", ""),
-            raw=raw,
             discovery_method=target.discovery_method,
             keyword=target.keyword,
             referrer_url=target.referrer_url,
-            etag=response.headers.get("ETag"),
-            last_modified=response.headers.get("Last-Modified"),
+            crawl_time=crawl_time,
         )
+        raw = archived.raw
+        crawl_id = archived.crawl_id
+        report.counters.resources += 1
         if not is_html:
-            return
+            return TargetOutcome(
+                STATE_PROCESSED,
+                f"resource:{kind}",
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
 
         try:
             parsed = normalize_page(
@@ -602,6 +842,7 @@ class CrawlPipeline:
                     encoding_hint=_charset(response.headers.get("Content-Type", "")),
                     content_selector=source.adapter.content_selector,
                     date_selector=source.adapter.date_selector,
+                    pagination_selector=source.adapter.pagination_selector,
                 ),
                 language_hints=(source.language,),
                 base_url=response.final_url,
@@ -619,7 +860,7 @@ class CrawlPipeline:
                 referrer_url=target.referrer_url,
                 crawl_id=crawl_id,
             )
-            return
+            return TargetOutcome(STATE_FAILED, f"parse_error: {exc}")
 
         if parsed.content_selector_missed:
             self._record_failure(
@@ -634,7 +875,13 @@ class CrawlPipeline:
                 referrer_url=target.referrer_url,
                 crawl_id=crawl_id,
             )
-            return
+            return TargetOutcome(
+                STATE_FAILED,
+                f"adapter_selector_miss: {source.adapter.content_selector}",
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
 
         # 运行范围（--start-date）：以内容发布日期为包含式下界。原件与账本已经落盘，
         # 范围外目标只跳过文档产出；日期未知保留候选并记录原因，不静默丢弃。
@@ -663,7 +910,13 @@ class CrawlPipeline:
                 decision.publication_date,
                 scope.start_date.isoformat() if scope.start_date else None,
             )
-            return
+            return TargetOutcome(
+                STATE_SKIPPED,
+                f"before_start_date:{decision.publication_date}",
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
 
         expansion = self._expand_body(
             source, parsed, response.final_url, crawl_date, crawl_time, report
@@ -682,6 +935,8 @@ class CrawlPipeline:
                 crawl_date,
                 crawl_time,
                 report,
+                scope,
+                parent_url or response.final_url,
             )
         stop_after_commit = expansion.stop or attachment_stop
         try:
@@ -725,7 +980,13 @@ class CrawlPipeline:
                 referrer_url=target.referrer_url,
                 crawl_id=crawl_id,
             )
-            return
+            return TargetOutcome(
+                STATE_FAILED,
+                f"normalization_error: {exc}",
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
         report.counters.documents += document_count
         report.counters.blocks += block_count
         report.documents.append(doc_id)
@@ -741,8 +1002,23 @@ class CrawlPipeline:
             version=document.get("version"),
         )
         if stop_after_commit is not None:
-            # 已归档页面、附件与文档全部落盘后再停止本次运行。
-            raise stop_after_commit
+            # 已归档页面、附件与文档全部落盘后再停止本次运行（目标本身算已完成）。
+            note = f"partial:{expansion.incomplete or 'attachment_budget_stop'}"
+            return TargetOutcome(
+                STATE_PROCESSED,
+                note,
+                stop=stop_after_commit,
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
+        return TargetOutcome(
+            STATE_PROCESSED,
+            "ok",
+            crawl_id=crawl_id,
+            raw_path=raw.relative_path,
+            sha256=raw.sha256,
+        )
 
     def _expand_body(
         self,
@@ -815,29 +1091,17 @@ class CrawlPipeline:
                 )
                 incomplete = f"pagination_fetch_failed:{next_url}"
                 break
-            raw = self.store.write_bytes(
+            archived = self.archiver.archive(
+                part,
                 source_id=source.source_id,
-                crawl_date=crawl_date,
                 kind="html",
-                filename=_filename_for(part.final_url, "html"),
-                content=part.content,
-            )
-            report.counters.resources += 1
-            part_crawl_id = self._next_crawl_id(source.source_id, crawl_date)
-            self.manifest.record(
-                crawl_id=part_crawl_id,
-                source_id=source.source_id,
-                requested_url=part.requested_url,
-                final_url=part.final_url,
-                crawl_time=crawl_time,
-                http_status=part.status_code,
-                content_type=part.headers.get("Content-Type", ""),
-                raw=raw,
                 discovery_method="pagination",
                 referrer_url=referrer,
-                etag=part.headers.get("ETag"),
-                last_modified=part.headers.get("Last-Modified"),
+                crawl_time=crawl_time,
             )
+            raw = archived.raw
+            part_crawl_id = archived.crawl_id
+            report.counters.resources += 1
             try:
                 part_parsed = normalize_page(
                     parse_html(
@@ -846,6 +1110,7 @@ class CrawlPipeline:
                         encoding_hint=_charset(part.headers.get("Content-Type", "")),
                         content_selector=source.adapter.content_selector,
                         date_selector=source.adapter.date_selector,
+                        pagination_selector=source.adapter.pagination_selector,
                     ),
                     language_hints=(source.language,),
                     base_url=part.final_url,
@@ -962,29 +1227,17 @@ class CrawlPipeline:
                 referrer_url=referrer,
             )
             return None
-        raw = self.store.write_bytes(
+        archived = self.archiver.archive(
+            response,
             source_id=source.source_id,
-            crawl_date=crawl_date,
             kind="api",
-            filename=_filename_for(response.final_url, "api") or "body.json",
-            content=response.content,
-        )
-        report.counters.resources += 1
-        crawl_id = self._next_crawl_id(source.source_id, crawl_date)
-        self.manifest.record(
-            crawl_id=crawl_id,
-            source_id=source.source_id,
-            requested_url=response.requested_url,
-            final_url=response.final_url,
-            crawl_time=crawl_time,
-            http_status=response.status_code,
-            content_type=response.headers.get("Content-Type", ""),
-            raw=raw,
             discovery_method="api",
             referrer_url=referrer,
-            etag=response.headers.get("ETag"),
-            last_modified=response.headers.get("Last-Modified"),
+            crawl_time=crawl_time,
         )
+        raw = archived.raw
+        crawl_id = archived.crawl_id
+        report.counters.resources += 1
         try:
             payload = json.loads(decode_html(response.content))
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -1036,40 +1289,77 @@ class CrawlPipeline:
         crawl_date: str,
         crawl_time: str,
         report: RunReport,
+        scope: RunScope,
+        parent_url: Optional[str],
     ) -> Tuple[List[dict], Optional[BudgetStop]]:
-        """下载附件；预算在附件阶段用尽时返回已完成的附件与停止原因，不丢弃已归档原件。"""
-        attachment_targets = []
+        """下载附件；成功/失败/边界拒绝/待处理分别记账，预算停止不丢已归档原件。
+
+        - 规则排除（扩展名不在声明范围、适配附件规则不匹配）不下载，只按页聚合计数；
+        - robots 或访问边界拒绝记 boundary_rejected 并进 skipped，不写成网站失败；
+        - 网络/HTTP 失败写失败账并记 failed；
+        - 预算停止时尚未尝试的附件记 pending 并写入待处理存储，下一轮继续下载。
+        """
+        attachment_targets: List[DiscoveredTarget] = []
+        seen = set()
+        candidate_count = 0
         for html_bytes, page_url in pages:
-            attachment_targets.extend(discoverer.attachments_from_html(html_bytes, page_url))
-        attachments = []
+            for target in discoverer.attachments_from_html(html_bytes, page_url):
+                candidate_count += 1
+                if target.url in seen:
+                    continue
+                seen.add(target.url)
+                attachment_targets.append(target)
+        duplicates = candidate_count - len(attachment_targets)
+        coverage = report.coverage["attachments"]
+        coverage["discovered"] += len(attachment_targets)
+        if duplicates:
+            coverage["duplicates"] += duplicates
+            discoverer.attachment_duplicates.append(
+                {"page": pages[-1][1] if pages else parent_url or "", "count": duplicates}
+            )
+        attachments: List[dict] = []
         for index, target in enumerate(attachment_targets, 1):
-            record = {
-                "attachment_id": f"{doc_id}_A{index:02d}",
-                "filename": sanitize_filename(_basename(target.url)),
-                "file_type": _file_type(target.url),
-                "url": target.url,
-                "doc_id": doc_id,
-            }
+            record = self._attachment_record(doc_id, index, target)
             try:
                 resource = self.downloader.download(target.url, source_id=source.source_id)
             except BudgetStop as stop:
-                logger.warning("附件下载按预算停止 url=%s reason=%s", target.url, stop.reason)
-                return attachments, stop
-            except RobotsDisallowed as exc:
-                self._record_failure(
-                    report,
-                    source_id=source.source_id,
-                    url=target.url,
-                    stage="fetch",
-                    error_type="robots_disallowed",
-                    message=str(exc),
-                    attempts=exc.attempts,
-                    retryable=False,
-                    referrer_url=target.referrer_url,
-                    final_action="skip",
+                pending_records = [
+                    self._attachment_record(doc_id, index + offset, item)
+                    for offset, item in enumerate(attachment_targets[index - 1:])
+                ]
+                for item in pending_records:
+                    item["status"] = STATE_PENDING
+                added = 0
+                if parent_url:
+                    added = self.pending.enqueue_attachments(
+                        source_id=source.source_id,
+                        scope_start_date=(
+                            scope.start_date.isoformat() if scope.start_date else None
+                        ),
+                        doc_id=doc_id,
+                        parent_url=parent_url,
+                        records=pending_records,
+                        enqueued_at=crawl_time,
+                    )
+                logger.warning(
+                    "附件下载按预算停止 url=%s reason=%s；未尝试附件 %d 项已登记待处理（新增 %d）",
+                    target.url,
+                    stop.reason,
+                    len(pending_records),
+                    added,
                 )
-                record["status"] = "failed"
-                record["filename"] = sanitize_filename(target.url.rsplit("/", 1)[-1]) or record["filename"]
+                return attachments + pending_records, stop
+            except RobotsDisallowed as exc:
+                report.skipped.append(
+                    SkippedTarget(
+                        target.url,
+                        f"robots_disallowed: {exc.rule or exc}",
+                        target.referrer_url,
+                    )
+                )
+                record["status"] = "boundary_rejected"
+                record["note"] = f"robots_disallowed:{exc.rule or exc}"
+                coverage["boundary_rejected"] += 1
                 attachments.append(record)
                 continue
             except FetchError as exc:
@@ -1085,41 +1375,121 @@ class CrawlPipeline:
                     referrer_url=target.referrer_url,
                 )
                 record["status"] = "failed"
-                record["filename"] = sanitize_filename(target.url.rsplit("/", 1)[-1]) or record["filename"]
+                record["note"] = str(exc)
+                coverage["failed"] += 1
                 attachments.append(record)
                 continue
-            raw = self.store.write_bytes(
+            archived = self.archiver.archive_bytes(
+                resource.content,
                 source_id=source.source_id,
-                crawl_date=crawl_date,
                 kind="attachment",
                 filename=resource.filename,
-                content=resource.content,
-            )
-            report.counters.resources += 1
-            attachment_crawl_id = self._next_crawl_id(source.source_id, crawl_date)
-            self.manifest.record(
-                crawl_id=attachment_crawl_id,
-                source_id=source.source_id,
+                discovery_method="attachment",
                 requested_url=resource.requested_url,
                 final_url=resource.final_url,
-                crawl_time=crawl_time,
-                http_status=resource.status_code,
+                status_code=resource.status_code,
                 content_type=resource.content_type,
-                raw=raw,
-                discovery_method="attachment",
                 referrer_url=target.referrer_url,
+                crawl_time=crawl_time,
             )
+            report.counters.resources += 1
             record.update(
                 {
                     "filename": resource.filename,
                     "status": "downloaded",
-                    "raw_path": raw.relative_path,
-                    "sha256": raw.sha256,
-                    "crawl_id": attachment_crawl_id,
+                    "raw_path": archived.raw.relative_path,
+                    "sha256": archived.raw.sha256,
+                    "crawl_id": archived.crawl_id,
                 }
             )
+            coverage["downloaded"] += 1
             attachments.append(record)
         return attachments, None
+
+    @staticmethod
+    def _attachment_record(doc_id: str, index: int, target: DiscoveredTarget) -> dict:
+        """附件记录骨架：母文档、序号、URL 与文件名；状态由下载结果填写。"""
+        name = sanitize_filename(_basename(target.url)) or f"attachment-{index:02d}"
+        return {
+            "attachment_id": f"{doc_id}_A{index:02d}",
+            "filename": name,
+            "file_type": _file_type(target.url),
+            "url": target.url,
+            "doc_id": doc_id,
+            "referrer_url": target.referrer_url,
+        }
+
+    def _collect_pending_attachment(
+        self,
+        source,
+        item: PendingItem,
+        report: RunReport,
+        crawl_date: str,
+        crawl_time: str,
+    ) -> TargetOutcome:
+        """续传上一轮预算停止时留下的附件：重新下载并按原件 + 账本留存。
+
+        附件原件与账本是 raw 优先交付的核对对象；已提交文档不回写（文档追加写入口径
+        不变），母文档关联保存在待处理项（doc_id/parent_url）与账本 referrer_url 中。
+        """
+        target = DiscoveredTarget(
+            url=item.url,
+            discovery_method="attachment",
+            referrer_url=item.referrer_url or item.parent_url,
+        )
+        coverage = report.coverage["attachments"]
+        try:
+            resource = self.downloader.download(item.url, source_id=source.source_id)
+        except BudgetStop:
+            raise
+        except RobotsDisallowed as exc:
+            report.skipped.append(
+                SkippedTarget(
+                    item.url,
+                    f"robots_disallowed: {exc.rule or exc}",
+                    target.referrer_url,
+                )
+            )
+            coverage["boundary_rejected"] += 1
+            return TargetOutcome(STATE_SKIPPED, f"robots_disallowed:{exc.rule or exc}")
+        except FetchError as exc:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=item.url,
+                stage="fetch",
+                error_type="http_error" if exc.status_code else "request_error",
+                message=str(exc),
+                attempts=exc.attempts,
+                retryable=exc.retryable,
+                referrer_url=target.referrer_url,
+            )
+            coverage["failed"] += 1
+            return TargetOutcome(STATE_FAILED, str(exc))
+        archived = self.archiver.archive_bytes(
+            resource.content,
+            source_id=source.source_id,
+            kind="attachment",
+            filename=resource.filename,
+            discovery_method="attachment",
+            requested_url=resource.requested_url,
+            final_url=resource.final_url,
+            status_code=resource.status_code,
+            content_type=resource.content_type,
+            referrer_url=target.referrer_url,
+            crawl_time=crawl_time,
+        )
+        report.counters.resources += 1
+        # downloaded 统计本轮归档成功的附件；resumed 说明其中来自上一轮待处理项。
+        coverage["downloaded"] += 1
+        coverage["resumed"] += 1
+        return TargetOutcome(
+            STATE_PROCESSED,
+            f"attachment_resumed:{item.doc_id or '-'}",
+            crawl_id=archived.crawl_id,
+            raw_path=archived.raw.relative_path,
+            sha256=archived.raw.sha256,
+        )
 
     def _record_failure(
         self,
@@ -1157,16 +1527,12 @@ class CrawlPipeline:
         report.counters.failures += 1
 
     def _next_crawl_id(self, source_id: str, crawl_date: str) -> str:
-        """按账本已落盘序号继续编号：同一来源同一天多次运行不复用 crawl_id。
+        """按账本已落盘序号继续编号；实现见 output.archive.ResponseArchiver。
 
         补抓按 crawl_id 定位原件；若不同运行的编号重复，失败记录会指向错误的
         原始文件。序号取自账本而不是实例内计数，跨进程运行也保持唯一。
         """
-        prefix = f"{source_id}_{crawl_date.replace('-', '')}_"
-        if prefix not in self._sequences:
-            self._sequences[prefix] = _max_crawl_sequence(self.layout.manifest_path, prefix)
-        self._sequences[prefix] += 1
-        return f"{prefix}{self._sequences[prefix]:04d}"
+        return self.archiver.next_crawl_id(source_id, crawl_date)
 
     def recovery_plan(
         self, *, policy: Optional[RetryPolicy] = None, now: Optional[datetime] = None
@@ -1203,9 +1569,10 @@ class CrawlPipeline:
             log_run_context(logger, self.settings)
         before = output_stats(self.data_dir)
         requests_before = self.http.request_attempts
+        # 与 collect 相同：补抓的预算以本次调用传入的为准，遗留预算不跨轮生效。
+        self.http.attach_budget(budget)
         if budget is not None:
             budget.start()
-            self.http.attach_budget(budget)
         policy = policy or RetryPolicy()
         report = RecoveryReport(source_id=source_id)
         tasks = [
@@ -1471,17 +1838,6 @@ class CrawlPipeline:
         return document, blocks
 
 
-def _max_crawl_sequence(manifest_path: Path, prefix: str) -> int:
-    """账本中同前缀 crawl_id 的最大序号；没有记录时从 0 开始。"""
-    maximum = 0
-    for row in read_jsonl(manifest_path):
-        crawl_id = str(row.get("crawl_id") or "")
-        tail = crawl_id[len(prefix):] if crawl_id.startswith(prefix) else ""
-        if tail.isdigit():
-            maximum = max(maximum, int(tail))
-    return maximum
-
-
 def _as_run_report(report: RecoveryReport, scope: Optional[RunScope] = None) -> RunReport:
     """把补抓报告映射为运行报告形态，复用同一套指标与日志写出。"""
     return RunReport(
@@ -1557,10 +1913,3 @@ def _file_type(url: str) -> str:
         if name.endswith(extension):
             return extension.lstrip(".")
     return "unknown"
-
-
-def _filename_for(url: str, kind: str) -> str:
-    name = _basename(url)
-    if kind == "html" and not name.lower().endswith((".html", ".htm")):
-        name = f"{name}.html" if name else "index.html"
-    return name

@@ -1,0 +1,44 @@
+# 第 53 轮：CN-01 旧域文章列表可用性（登记与结果，2026-09-13）
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 第 52 轮证据：`www.fmprc.gov.cn` 是外交部官方旧域（`/eng/wjb/zyzz/` 返回 23 KB 英文正文，
+  `SiteDomain=www.fmprc.gov.cn`）；其 `robots.txt` 302 到 `www.mfa.gov.cn/web/system/index_17321.shtml`
+  （系统维护页，无 Allow/Disallow 指令）。新域栏目导航里 67 条外链指向旧域。
+- 目的：确认旧域英文新闻栏目是否仍提供窗口内文章链接（决定是否需要把旧域纳入 CN-01 边界并扩展
+  文章规则，或仅记录为别名事实）。不请求非列表资源。
+- 预算：≤3 个 HTTP 请求——旧域 `/eng/xw/zyxw/` 1 次；若有文章链接，抽 1 篇验证正文（1 次）；
+  剩余 1 次保留给重定向/失败重试记录。无 `--start-date`。
+- 规则：robots 已按第 52 轮核实（302 → 无指令，视同无规则）；单体 curl 单次请求（不自动重试），
+  `--max-time 25`；失败与限制如实记录，不绕过。
+
+## 结果
+
+### 1) 旧域栏目页（请求 1）
+
+```
+$ curl -L --max-time 30 -A Mozilla/5.0 -sS https://www.fmprc.gov.cn/eng/xw/zyxw/ -o /tmp/fmprc_zyxw.html
+exit=0；HTTP/1.1 200；Content-Type: text/html；19968 字节
+<title>Top Stories_Ministry of Foreign Affairs of the People's Republic of China</title>
+文章链接（相对路径）：./202609/t20260913_12021206.html …（共 7 条，2026-09-13）
+```
+
+### 2) 新域同栏目对照（请求 2）
+
+```
+$ curl -L --max-time 30 -A Mozilla/5.0 -sS https://www.mfa.gov.cn/eng/xw/zyxw/ -o /tmp/mfa_zyxw.html
+exit=0；HTTP/1.1 200；19968 字节
+<title>Top Stories_Ministry of Foreign Affairs of the People's Republic of China</title>
+文章链接：./202609/t20260913_12021206.html、12021229、12021253、12021267、12021277、12021300、12021317（7 条，与旧域完全一致）
+```
+
+### 3) 判定（S5-02 域名别名条款）
+
+- 旧域 `www.fmprc.gov.cn` 是外交部**官方镜像**：`/eng/wjb/zyzz/` 返回 23 KB 英文正文
+  （`SiteDomain=www.fmprc.gov.cn`），`/eng/xw/zyxw/` 与新域同路径**字节数相同、文章 id 相同**；
+  其 `robots.txt` 302 到新域“系统维护”页（无 Allow/Disallow 指令）。
+- **不扩边界**：新域同栏目提供完全相同的列表与文章，把旧域加入 `allowed_domains` 只会扩大
+  采集面而无新增内容 → 维持 CN-01 边界 `mfa.gov.cn`/`www.mfa.gov.cn`，改用新域栏目
+  `https://www.mfa.gov.cn/eng/xw/zyxw/` 作为新入口（已写入 `sources.yaml`，`robots_policy`
+  同步记录核实结论）。
+- 本轮总计 2 个 HTTP 请求（登记 ≤3）。

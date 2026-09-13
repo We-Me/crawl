@@ -302,3 +302,8 @@ NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回
   为 manifest=63、documents=52、blocks=2452、failures=2、raw_files=59、追溯 100%。
 - T019/T027：raw 留存、失败账与追溯仍是部分完成（夹具与有限样本级），正式全范围验收不因本轮推进自动通过。
 - 阶段五（61e34d8 后复核）：当前任务按 [stage-five.md](stage-five.md)。S5-01/03/04/06 可执行，S5-02 分因处理；S5-05/07 暂缓，不作为前置。没有新增第 28 个 T 任务，不重做现有抽象和最小分块。
+- 阶段五实施（2026-09-13）：S5-01/03/04/06 已完成工程实施并通过离线夹具验证（新增 13 项用例，
+  全量回归 419 passed），见 [evidence/stage-five-raw-completeness.md](evidence/stage-five-raw-completeness.md)、
+  [evidence/logs/stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)。对应 T005/T006/T007/T015/T016
+  的能力补齐记录在案；T019/T026/T027 仍为**部分完成**（正式验收与来源决定未完成），不因本轮勾选；
+  T017/T018 的成果格式未变，S5-05（后处理质量）与 S5-07（发布运维）继续暂缓。

@@ -31,7 +31,9 @@ REQUIRED_DOCUMENT_FIELDS = (
 )
 
 PARSE_STATUSES = ("ok", "partial", "failed")
-ATTACHMENT_STATUSES = ("downloaded", "failed")
+# S5-04：附件状态区分成功、失败、边界拒绝（robots/访问边界）与待处理（预算停止，
+# 已入待处理存储）；候选扩展已在结构对照与附件契约中登记，不是原文字段。
+ATTACHMENT_STATUSES = ("downloaded", "failed", "boundary_rejected", "pending")
 
 
 class NormalizationError(ValueError):

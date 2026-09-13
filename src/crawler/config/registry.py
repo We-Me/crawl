@@ -56,6 +56,9 @@ class SourceAdapter:
     list_link_rewrite: Optional[Tuple[Tuple[str, str], ...]] = None
     attachment_pattern: Optional[str] = None
     pagination_selector: Optional[str] = None
+    # 站点分页控件省略入口参数（如只带页码）时，按入口 URL 派生下一页：
+    # 路径与入口参数沿用入口，控件显式给出的参数覆盖。未配置时原样跟随控件链接。
+    pagination_merge_entry_params: Optional[bool] = None
     max_pages: Optional[int] = None
     content_selector: Optional[str] = None
     date_selector: Optional[str] = None
@@ -71,6 +74,7 @@ class SourceAdapter:
                 self.list_link_rewrite,
                 self.attachment_pattern,
                 self.pagination_selector,
+                self.pagination_merge_entry_params,
                 self.max_pages,
                 self.content_selector,
                 self.date_selector,
@@ -85,6 +89,7 @@ ADAPTER_FIELDS = (
     "list_link_rewrite",
     "attachment_pattern",
     "pagination_selector",
+    "pagination_merge_entry_params",
     "max_pages",
     "content_selector",
     "date_selector",
@@ -396,6 +401,16 @@ def _parse_adapter(entry: Mapping[str, Any], where: str) -> SourceAdapter:
 
     rewrite = _parse_list_link_rewrite(raw, where)
 
+    merge_entry_params = raw.get("pagination_merge_entry_params")
+    if merge_entry_params is not None and not isinstance(merge_entry_params, bool):
+        raise ConfigurationError(
+            f"{where} adapter.pagination_merge_entry_params 必须是布尔值"
+        )
+    if merge_entry_params and selectors["pagination_selector"] is None:
+        raise ConfigurationError(
+            f"{where} adapter.pagination_merge_entry_params 需要同时配置 pagination_selector"
+        )
+
     max_pages = raw.get("max_pages")
     if max_pages is not None:
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
@@ -423,6 +438,7 @@ def _parse_adapter(entry: Mapping[str, Any], where: str) -> SourceAdapter:
         list_link_rewrite=rewrite,
         attachment_pattern=attachment_pattern,
         pagination_selector=selectors["pagination_selector"],
+        pagination_merge_entry_params=merge_entry_params,
         max_pages=max_pages,
         content_selector=selectors["content_selector"],
         date_selector=date_selector,

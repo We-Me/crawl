@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "附件对象候选契约",
-  "$comment": "评审草案 0.1.0；未获业务批准。S1 §3.3 未给完整对象 schema；此文件整体是 Q07 候选，尤其是字段名/status/关联。成功附件必须有路径和哈希；失败附件另在失败账记录。",
+  "$comment": "评审草案 0.1.0；未获业务批准。S1 §3.3 未给完整对象 schema；此文件整体是 Q07 候选，尤其是字段名/status/关联。成功附件必须有路径和哈希；失败附件另在失败账记录。2026-09-13 S5-04：status 增加 boundary_rejected（robots/访问边界拒绝，证据在 skipped 与覆盖计数）与 pending（预算停止未尝试，登记待处理存储后可续传），与失败账分开，见结构对照。",
   "type": "object",
   "properties": {
     "attachment_id": {
@@ -44,7 +44,9 @@
     "status": {
       "enum": [
         "downloaded",
-        "failed"
+        "failed",
+        "boundary_rejected",
+        "pending"
       ]
     }
   },

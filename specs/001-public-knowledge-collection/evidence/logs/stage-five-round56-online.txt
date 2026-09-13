@@ -1,0 +1,50 @@
+# 阶段五 第 56 轮（开发推进）：队列与游标继续推进
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的（沿用 S5-03/04/06 能力，不新开实现）：
+  1. IN-02：从游标 `page=5` 取回第 5 页；`max_pages: 5` 预计在该页达页数上限（记录准确停止原因）；
+  2. CN-02：从游标 `nPageIndex_=4` 取回第 4 页并推进；
+  3. CN-04：队列 15 项按窗口继续消费 2 项；
+  4. CN-01：队列 5 项继续消费 2 篇；
+  5. IN-05：AGMUT 附件 pending 74 继续续传（上一轮 8 成功 + 1 个 162 MB PDF 读取中断）。
+- 窗口：`--start-date 2026-09-06`（运行日前 7 天，包含式下界）。
+- 预算（含 robots/重定向/重试/分页/附件）：IN-02 ≤10/300s（外层 360）、CN-02 ≤10/180s（外层 240）、
+  CN-04 ≤8/150s（外层 210）、CN-01 ≤8/150s（外层 210）、IN-05 ≤10/600s（外层 660）。合计 ≤46。
+- 规则：robots、0.5 req/s、并发 1、边界检查、Retry-After；不绕过；不触碰 `sousuo.www.gov.cn`
+  与 CN-01 旧域；预算停止先保存进度。
+
+复跑命令：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 10 --deadline-seconds 300 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-02 --keyword 印度 \
+  --start-date 2026-09-06 --max-items 3 --max-requests 10 --deadline-seconds 180 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-04 \
+  --entry-url https://www.gov.cn/zhengce/index.htm \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 150 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-01 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 150 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-05 \
+  --url https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management \
+  --start-date 2026-09-06 --max-requests 10 --deadline-seconds 600 --json
+```
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T212813` | 6 | 从游标 `page=5` 取回第 5 页（10 目标）→ 游标 `page=6`；文档 2、附件 2（规则排除 8） | `max_items_reached` |
+| CN-02 | `CN-02_20260913T212811` | 10 | 从游标 `nPageIndex_=4` 取回第 4 页 → 游标 `nPageIndex_=5`；文档 3、附件 5 | `max_items_reached` |
+| CN-04 | `CN-04_20260913T212820` | 4 | 队列消费 2 个窗口外目标（2026-08-20、`content_7078477`）并记原因；pending 15→13 | `ok` |
+| CN-01 | `CN-01_20260913T212828` | 7 | 三入口共 11 目标（首页 10 + Top Stories，`end_of_pages` complete）；采 2 篇、pending 5→7 | `ok` |
+| IN-05 | `IN-05_20260913T212924` | 10 | 附件续传 9 个、0 失败；pending 74→**65**；用时 104.8s | `request_budget` |
+
+- 全部 `failures=0`；IN-02 说明：`max_pages: 5` 是**单次运行**的页数上限，游标按页保存，
+  跨轮可继续（第 42—57 轮已连续验证第 1—6 页）。

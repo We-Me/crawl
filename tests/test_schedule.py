@@ -157,31 +157,37 @@ def test_pipeline_304_reuses_previous_without_new_documents(
     )
     url = f"{site_server}/_etag/index.html"
     first = pipeline.collect(
-        "TESTSRC", entry_urls=[url], include_attachments=False, max_items=1
+        "TESTSRC", entry_urls=[url], include_attachments=False, max_items=10
     )
-    assert first.counters.documents == 1 and first.counters.not_modified == 0
+    assert first.counters.documents == 2 and first.counters.not_modified == 0
     data = tmp_path / "data"
     manifest_after_first = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
     documents_after_first = read_jsonl(data / "normalized" / "documents.jsonl")
     raw_after_first = sorted((data / "raw").rglob("*"))
+    documents_by_url = {row["source_url"]: row["doc_id"] for row in documents_after_first}
 
+    # 第二轮：两个目标重新被发现 → 条件请求 → 304，不产生新文档；发现页按 S5-01 另行归档
     second = pipeline.collect(
-        "TESTSRC", entry_urls=[url], include_attachments=False, max_items=1
+        "TESTSRC", entry_urls=[url], include_attachments=False, max_items=10
     )
     assert second.counters.documents == 0
-    assert second.counters.not_modified == 1
-    assert second.counters.resources == 0
+    assert second.counters.not_modified == 2
+    assert second.counters.resources == 2  # 两个发现页的成功响应仍会归档
     assert any("304" in item.reason for item in second.skipped)
-    assert read_jsonl(data / "manifests" / "crawl_manifest.jsonl") == manifest_after_first
+    manifest_after_second = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
+    assert manifest_after_second[: len(manifest_after_first)] == manifest_after_first
+    new_rows = manifest_after_second[len(manifest_after_first):]
+    assert len(new_rows) == 2
+    assert all("/discovery/" in row["raw_path"] for row in new_rows)
     assert read_jsonl(data / "normalized" / "documents.jsonl") == documents_after_first
     assert sorted((data / "raw").rglob("*")) == raw_after_first
 
     states = IncrementalStateStore(data).load()
-    assert len(states) == 1  # 只有详情目标被记录，发现页不产生文档状态
-    state = next(iter(states.values()))
-    assert state.url.endswith("/_etag/detail_1.html")
-    assert state.last_result == "not_modified"
-    assert state.not_modified_crawl_id == first.documents[0]
+    assert len(states) == 2  # 只有详情目标被记录，发现页不产生文档状态
+    assert {state.last_result for state in states.values()} == {"not_modified"}
+    checked = {state.url: state for state in states.values()}
+    for detail in (f"{site_server}/_etag/detail_1.html", f"{site_server}/_etag/detail_2.html"):
+        assert checked[detail].not_modified_crawl_id == documents_by_url[detail]
 
 
 def test_conditional_headers_are_sent(fake_time, site_server, tmp_path):

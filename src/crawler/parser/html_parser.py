@@ -68,6 +68,7 @@ def parse_html(
     content_selector: Optional[str] = None,
     date_selector: Optional[str] = None,
     segmenter: Optional[BlockSegmenter] = None,
+    pagination_selector: Optional[str] = None,
 ) -> ParsedPage:
     """解析 HTML 为顺序块。
 
@@ -78,6 +79,10 @@ def parse_html(
     date_selector 是逐来源适配规则给出的发布日期元素（T026）：命中且文本可验证到日精度时
     作为 publication_date；未命中或无法验证时回落到 meta/正文启发式，并保留 raw_date_text，
     不补造日期。
+
+    pagination_selector 是逐来源适配规则给出的正文分页控件（S5-03）：配置后只跟随该
+    控件指向的下一页，控件不存在即视为该来源的分页终点（与发现阶段同一语义），不再用
+    通用 rel=next/翻页文案启发式；未配置时保持原通用行为。
 
     segmenter 是分块实现（T010/T013 新增的分块抽象）：默认使用
     StructuralBlankLineSegmenter（独立结构块 + div 空行拆块），记录在
@@ -134,7 +139,16 @@ def parse_html(
 
     canonical = soup.find("link", rel=lambda value: value and "canonical" in value)
     canonical_url = canonical.get("href") if isinstance(canonical, Tag) else None
-    next_anchor = _next_page_anchor(scope)
+    if pagination_selector:
+        next_anchor = _adapter_next_page_anchor(soup, pagination_selector)
+        if next_anchor is None:
+            logger.debug(
+                "正文分页适配控件不存在（按适配规则视为终点） url=%s selector=%s",
+                page_url,
+                pagination_selector,
+            )
+    else:
+        next_anchor = _next_page_anchor(scope)
     next_page_url = _next_page_url(page_url, next_anchor)
     body_api_url = _body_api_endpoint(soup, page_url)
 
@@ -179,6 +193,18 @@ def _next_page_url(page_url: str, anchor: Optional[Tag]) -> Optional[str]:
     if candidate.split("#")[0] == str(page_url).split("#")[0]:
         return None
     return candidate
+
+
+def _adapter_next_page_anchor(soup: BeautifulSoup, selector: str) -> Optional[Tag]:
+    """适配规则指定的下一页控件：选择器可直接命中链接或包含链接的容器。
+
+    与发现阶段（Discoverer._next_page_url）同一语义：控件不存在即分页终点，
+    不退化为通用启发式，避免跟随与本站分页无关的 rel=next 或“下一页”文本。
+    """
+    element = soup.select_one(selector)
+    if element is not None and not element.get("href"):
+        element = element.find(["a", "link"], href=True)
+    return element if isinstance(element, Tag) else None
 
 
 def _next_page_anchor(scope: Tag) -> Optional[Tag]:

@@ -1,0 +1,6 @@
+{
+  "items": [
+    {"url": "http://127.0.0.1:__PORT__/detail_1.html", "title": "虚构公告：试验合作安排"}
+  ],
+  "next": "http://127.0.0.1:__PORT__/api_paged_2.json"
+}

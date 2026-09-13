@@ -30,7 +30,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote_plus
 
 from crawler.config.registry import SourceConfig, SourceRegistry
-from crawler.discover.discoverer import DiscoveredTarget, Discoverer, SkippedTarget
+from crawler.discover.discoverer import (
+    DATE_PLACEHOLDERS,
+    DiscoveryStop,
+    DiscoveredTarget,
+    Discoverer,
+    SkippedTarget,
+)
 from crawler.fetch.http_client import HttpClient
 from crawler.schedule.scope import RunScope
 
@@ -49,11 +55,12 @@ STAGE_MANUAL = "manual"
 STATUS_OK = "ok"
 STATUS_ZERO_RESULTS = "zero_results"
 STATUS_SELECTOR_MISS = "selector_miss"
+STATUS_PARTIAL = "partial"
 STATUS_NOT_IMPLEMENTED = "not_implemented"
 STATUS_REQUEST_ERROR = "request_error"
+STATUS_PARSE_ERROR = "parse_error"
 
-# 模板占位符：{query} 关键词；{start_date}/{end_date} 与 {year}/{month} 日期查询。
-DATE_PLACEHOLDERS = ("{start_date}", "{end_date}", "{year}", "{month}", "{end_year}", "{end_month}")
+# 模板占位符：{query} 关键词；日期占位符与发现层共用同一集合（见 discoverer.DATE_PLACEHOLDERS）。
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,8 @@ class DiscoveryResult:
     status: str
     targets: List[DiscoveredTarget] = field(default_factory=list)
     skipped: List[SkippedTarget] = field(default_factory=list)
+    stops: List[DiscoveryStop] = field(default_factory=list)
+    complete: bool = True
     note: str = ""
 
     @property
@@ -95,7 +104,10 @@ class DiscoveryResult:
             "status": self.status,
             "targets": len(self.targets),
             "skipped": len(self.skipped),
+            "complete": bool(self.complete),
         }
+        if self.stops:
+            row["stops"] = [stop.as_row() for stop in self.stops]
         if self.note:
             row["note"] = self.note
         return row
@@ -134,30 +146,65 @@ class DiscoveryStrategy(ABC):
     ) -> DiscoveryResult:
         skipped_before = len(context.discoverer.skipped)
         misses_before = len(context.discoverer.selector_misses)
+        stops_before = len(context.discoverer.stops)
+        fallbacks_before = len(context.discoverer.scope_fallbacks)
         targets = list(action())
         skipped = list(context.discoverer.skipped[skipped_before:])
         misses = list(context.discoverer.selector_misses[misses_before:])
+        stops = list(context.discoverer.stops[stops_before:])
+        fallbacks = list(context.discoverer.scope_fallbacks[fallbacks_before:])
+        complete = all(stop.complete for stop in stops) if stops else True
+
+        def finish(result: DiscoveryResult) -> DiscoveryResult:
+            if not fallbacks:
+                return result
+            pages = "、".join(item["url"] for item in fallbacks)
+            note = (result.note + "；" if result.note else "") + (
+                f"通用列表范围未取到目标，已按整文档兜底（结构不完整）：{pages}"
+            )
+            return replace(result, note=note)
+
         if misses:
             detail = "; ".join(
                 f"{item['selector']}@{item['url']}" for item in misses if item.get("selector")
             )
-            return DiscoveryResult(
+            return finish(DiscoveryResult(
                 stage=self.stage,
                 strategy=self.name,
                 status=STATUS_SELECTOR_MISS,
                 targets=targets,
                 skipped=skipped,
+                stops=stops,
+                complete=False,
                 note=f"适配选择器未命中：{detail}" if detail else "适配选择器未命中",
+            ))
+        if not complete:
+            detail = "；".join(
+                f"{stop.stop}@{stop.entry}（{stop.detail or ''}）".replace("（）", "")
+                for stop in stops
+                if not stop.complete
             )
+            return finish(DiscoveryResult(
+                stage=self.stage,
+                strategy=self.name,
+                status=STATUS_PARTIAL,
+                targets=targets,
+                skipped=skipped,
+                stops=stops,
+                complete=False,
+                note=f"发现未完整：{detail}",
+            ))
         status = STATUS_OK if targets else STATUS_ZERO_RESULTS
-        return DiscoveryResult(
+        return finish(DiscoveryResult(
             stage=self.stage,
             strategy=self.name,
             status=status,
             targets=targets,
             skipped=skipped,
+            stops=stops,
+            complete=True,
             note=note_if_empty if not targets else "",
-        )
+        ))
 
 
 class ListDiscovery(DiscoveryStrategy):
@@ -177,7 +224,7 @@ class ListDiscovery(DiscoveryStrategy):
             )
         return self._run(
             context,
-            lambda: context.discoverer.discover_list(entries),
+            lambda: context.discoverer.discover_list(entries, scope=context.scope),
             note_if_empty="列表页规则命中但未发现文档链接（真实零结果）",
         )
 
@@ -217,7 +264,9 @@ class SearchDiscovery(DiscoveryStrategy):
             context,
             lambda: [
                 replace_keyword(target, keyword)
-                for target in context.discoverer.discover_search(keyword, url=url)
+                for target in context.discoverer.discover_search(
+                    keyword, url=url, scope=context.scope
+                )
             ],
             note_if_empty="搜索结果规则命中但未发现文档链接（真实零结果）",
         )
@@ -239,7 +288,9 @@ class SitemapDiscovery(DiscoveryStrategy):
             )
         return self._run(
             context,
-            lambda: context.discoverer.discover_sitemap(request.sitemap_url),
+            lambda: context.discoverer.discover_sitemap(
+                request.sitemap_url, scope=context.scope
+            ),
             note_if_empty="sitemap 解析成功但没有可用条目（真实零结果）",
         )
 
@@ -260,7 +311,7 @@ class ApiDiscovery(DiscoveryStrategy):
             )
         return self._run(
             context,
-            lambda: context.discoverer.discover_api(request.api_url),
+            lambda: context.discoverer.discover_api(request.api_url, scope=context.scope),
             note_if_empty="接口返回成功但没有可用条目（真实零结果）",
         )
 
@@ -369,4 +420,5 @@ def summarize_discovery(results: Sequence[DiscoveryResult]) -> dict:
         "runs": len(results),
         "targets": sum(len(result.targets) for result in results),
         "by_status": dict(sorted(counts.items())),
+        "complete": all(result.complete for result in results),
     }

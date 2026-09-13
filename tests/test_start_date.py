@@ -104,10 +104,13 @@ def test_collect_keeps_raw_for_out_of_window_without_producing_document(
     assert report.counters.documents == 1
     assert any(item.reason == "before_start_date:2026-09-10" for item in report.skipped)
     manifest = read_jsonl(tmp_path / "data" / "manifests" / "crawl_manifest.jsonl")
-    assert {row["final_url"] for row in manifest} == {
+    urls = {row["final_url"] for row in manifest}
+    assert {
         f"{site_server}/detail_1.html",
         f"{site_server}/detail_2.html",
-    }
+    } <= urls
+    # 发现页也按 S5-01 归档，但不是文档目标
+    assert any("/discovery/" in row["raw_path"] for row in manifest)
     documents = read_jsonl(tmp_path / "data" / "normalized" / "documents.jsonl")
     assert [row["source_url"] for row in documents] == [f"{site_server}/detail_2.html"]
     decisions = {row["decision"] for row in report.date_decisions}

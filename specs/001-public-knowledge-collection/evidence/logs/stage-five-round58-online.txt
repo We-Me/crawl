@@ -1,0 +1,30 @@
+# 阶段五 第 58 轮（开发推进）：既有已验证来源的窗口内复采
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：在第 49—57 轮集中于 IN-02/CN-02/CN-04/CN-01/IN-05 之后，对本轮窗口内的既有已验证来源
+  CN-08、IN-01、IN-06、IN-10 各做一次低预算复采，确认按站规则在真实站点继续产出（S5-03 终止原因
+  与 S5-06 队列在更多来源上的一致性），不新增能力、不改规则。
+- 窗口：`--start-date 2026-09-06`。
+- 预算（含 robots/重定向/重试/分页/附件）：每来源 ≤6 请求、内部 120s、外层 180s；合计 ≤24。
+- 规则：robots、0.5 req/s、并发 1、边界检查、Retry-After；遇限制立即停止，不绕过。
+
+复跑命令（逐来源替换 `--source`）：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-08 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 6 --deadline-seconds 120 --json
+```
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| CN-08 | `CN-08_20260913T214014` | 4 | 栏目 3 目标（`end_of_pages` complete）；采 1 篇、6 块；1 个窗口外跳过（2026-09-05） | `ok` |
+| IN-06 | `IN-06_20260913T214027` | 6 | 列表 15 目标（`end_of_pages` complete）；采 1 篇、35 块；队列余 14 | `request_budget` |
+| IN-10 | `IN-10_20260913T214024` | 4 | 首页 17 目标；采 2 篇、67 块；6 条站外链接按边界跳过并记原因 | `ok` |
+| IN-01 | `IN-01_20260913T214104` | 6 | 两入口 2 目标；采 1 篇、29 块；队列余 5 | `request_budget` |
+
+- 4 个运行合计 20 个请求、0 失败；边界/窗口跳过逐条记原因（`before_start_date`、`domain_not_allowed`），
+  未当失败、未静默丢弃。

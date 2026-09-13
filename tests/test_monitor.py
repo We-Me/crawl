@@ -189,6 +189,67 @@ def test_reconcile_detects_injected_discrepancy(tmp_path):
     assert metrics.status == "ok"  # 状态与对账结论分开：有成果但有计数差异
 
 
+def test_metrics_status_and_notes_follow_coverage(tmp_path):
+    """S5-03/S5-06：发现截断或仍有待处理时不报 ok，覆盖口径进入说明。"""
+    counts = {
+        "requests": 2,
+        "resources": 1,
+        "documents": 1,
+        "blocks": 3,
+        "failures": 0,
+        "skipped": 0,
+        "not_modified": 0,
+    }
+
+    def build(coverage):
+        return build_metrics(
+            source_id="TESTSRC",
+            kind="collect",
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            counters=counts,
+            before=output_stats(tmp_path),
+            after=output_stats(tmp_path),
+            duplicates=duplicate_stats([]),
+            coverage=coverage,
+        )
+
+    truncated = build(
+        {
+            "targets": {"discovered": 3, "attempted": 1, "processed": 1},
+            "attachments": {"discovered": 0, "downloaded": 0, "pending": 2},
+            "discovery": {
+                "complete": False,
+                "incomplete_runs": 1,
+                "stops": [
+                    {
+                        "stage": "list",
+                        "entry": "http://example.invalid/list",
+                        "stop": "max_items_reached",
+                        "complete": False,
+                    }
+                ],
+            },
+            "pending_total": 2,
+        }
+    )
+    assert truncated.status == "partial"
+    assert any("发现遍历未完成" in note for note in truncated.notes)
+    assert any("待处理项未清空" in note for note in truncated.notes)
+    assert any("覆盖口径" in note for note in truncated.notes)
+
+    complete = build(
+        {
+            "targets": {"discovered": 1, "attempted": 1, "processed": 1},
+            "attachments": {"discovered": 1, "downloaded": 1, "pending": 0},
+            "discovery": {"complete": True, "incomplete_runs": 0, "stops": []},
+            "pending_total": 0,
+        }
+    )
+    assert complete.status == "ok"
+    assert not any("发现遍历未完成" in note for note in complete.notes)
+
+
 def test_metrics_written_atomically_and_history_appended(tmp_path):
     before = output_stats(tmp_path)
     write_jsonl(tmp_path / "normalized" / "documents.jsonl", [{"doc_id": "d1"}])
@@ -248,7 +309,8 @@ def test_pipeline_writes_logs_and_metrics_after_mixed_run(
     assert stored is not None
     assert stored["run_id"] == report.metrics["run_id"]
     assert stored["counters"]["requests"] != stored["counters"]["documents"]
-    assert stored["counters"]["resources"] == stored["counters"]["documents"] + 1
+    # 资源 = 两个发现页（S5-01 也归档）+ 两份文档 + 一个成功附件
+    assert stored["counters"]["resources"] == stored["counters"]["documents"] + 3
     assert stored["failures_by_stage"] == {"fetch": 1}
     assert stored["reconciliation"]["ok"] is True, stored["reconciliation"]["discrepancies"]
     assert stored["skipped_by_reason"] == {"domain_not_allowed:outside.invalid": 1}

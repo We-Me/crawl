@@ -6,6 +6,7 @@
 """
 
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 import requests
@@ -253,11 +254,21 @@ def test_collect_budget_stop_keeps_archived_data(
     assert read_jsonl(data / "manifests" / "failed_records.jsonl") == []
 
     rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
-    assert len(rows) == 1, "停止前成功归档的原件保留，停止后不再下载"
-    assert (data / rows[0]["raw_path"]).is_file()
+    # S5-01：两个发现页 + detail_1 已归档；detail_2 未取得响应，不写账本
+    assert len(rows) == 3, "停止前成功归档的原件保留，停止后不再下载"
+    assert sum(1 for row in rows if "/discovery/" in row["raw_path"]) == 2
+    target_rows = [row for row in rows if "/discovery/" not in row["raw_path"]]
+    for row in rows:
+        assert (data / row["raw_path"]).is_file()
     documents = read_jsonl(data / "normalized" / "documents.jsonl")
-    assert [doc["doc_id"] for doc in documents] == [rows[0]["crawl_id"]]
+    assert [doc["doc_id"] for doc in documents] == [target_rows[0]["crawl_id"]]
     assert read_jsonl(data / "normalized" / "blocks.jsonl"), "已提交文档的块保留"
+
+    # S5-06：未取得响应的 detail_2 留在待处理存储（不是失败账），下一轮继续
+    pending = json.loads((data / "manifests" / "pending_items.json").read_text(encoding="utf-8"))
+    pending_targets = [row for row in pending["items"].values() if row["state"] == "pending"]
+    assert [row["url"] for row in pending_targets] == [f"{site_server}/detail_2.html"]
+    assert pending_targets[0]["attempts"] == 1
 
     metrics = report.metrics
     assert metrics["status"] == "partial"
@@ -286,13 +297,27 @@ def test_collect_budget_stop_during_attachments_keeps_parent_document(
     assert read_jsonl(data / "manifests" / "failed_records.jsonl") == []
 
     rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
-    assert len(rows) == 1
-    assert rows[0]["discovery_method"] == "list"
+    assert len(rows) == 3  # 两个发现页 + detail_1
+    target_row = [row for row in rows if "/discovery/" not in row["raw_path"]][0]
+    assert target_row["discovery_method"] == "list"
     documents = read_jsonl(data / "normalized" / "documents.jsonl")
     assert len(documents) == 1
     assert documents[0]["parse_status"] == "partial"
     assert (data / documents[0]["raw_path"]).is_file()
-    assert documents[0].get("attachments") is None
+    # S5-04：预算停止时尚未尝试的附件记 pending，并登记待处理存储（下一轮续传）
+    attachment_records = documents[0]["attachments"]
+    assert {item["status"] for item in attachment_records} == {"pending"}
+    assert len(attachment_records) == 2
+    pending = json.loads((data / "manifests" / "pending_items.json").read_text(encoding="utf-8"))
+    pending_attachments = [
+        row for row in pending["items"].values() if row["kind"] == "attachment"
+    ]
+    assert {row["url"] for row in pending_attachments} == {
+        f"{site_server}/attachments/notice.csv",
+        f"{site_server}/attachments/unavailable.pdf",
+    }
+    assert all(row["state"] == "pending" for row in pending_attachments)
+    assert report.coverage["attachments"]["pending"] == 2
 
 
 def test_resume_budget_stop_reports_unprocessed_tasks(

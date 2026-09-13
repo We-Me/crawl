@@ -137,10 +137,13 @@ def test_pipeline_records_robots_skip_not_failure(site_server, registry_factory,
 
     failures = read_jsonl(layout.failures_path)
     robots_failures = [row for row in failures if row["error_type"] == "robots_disallowed"]
-    assert len(robots_failures) == 1
-    assert robots_failures[0]["url"].endswith("/private/secret.csv")
-    assert robots_failures[0]["final_action"] == "skip"
-    assert robots_failures[0]["retry_count"] == 0
+    # S5-04：附件被 robots 拒绝属边界拒绝（skipped + 覆盖计数），不写失败账
+    assert robots_failures == []
+    assert any(
+        item.url.endswith("/private/secret.csv") and "robots_disallowed" in item.reason
+        for item in report.skipped
+    )
+    assert report.coverage["attachments"]["boundary_rejected"] >= 1
 
     assert any(
         "robots_disallowed" in reason for reason in report.metrics["skipped_by_reason"]

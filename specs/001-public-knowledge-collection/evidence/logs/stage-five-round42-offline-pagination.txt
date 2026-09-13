@@ -1,0 +1,21 @@
+IN-02 FetchTreatyListGenericLatest.html
+  url            = https://www.mea.gov.in/FrontEnd/FetchTreatyListGenericLatest?page=1&PageSize=10&sortBy=sortby
+  selector       = ul.pagination li.PagedList-skipToNext.page-item a.page-link
+  discoverer下一页(适配) = https://www.mea.gov.in/Frontend/FetchTreatyListGenericLatest?page=2 (blocked=False)
+  parse_html 通用下一页  = https://www.mea.gov.in/Frontend/FetchTreatyListGenericLatest?page=5
+  parse_html 适配下一页  = https://www.mea.gov.in/Frontend/FetchTreatyListGenericLatest?page=2
+CN-02 list.jsp-ee2b6650.html
+  url            = https://treaty.mfa.gov.cn/web/list.jsp?chnltype_c=all&keywords=%E5%8D%B0%E5%BA%A6&nPageIndex_=2
+  selector       = .page li:nth-child(3) a
+  discoverer下一页(适配) = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=3&keywords=印度&chnltype_c=all (blocked=False)
+  parse_html 通用下一页  = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=3&keywords=印度&chnltype_c=all
+  parse_html 适配下一页  = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=3&keywords=印度&chnltype_c=all
+CN-02 list.jsp.html
+  url            = https://treaty.mfa.gov.cn/web/list.jsp?chnltype_c=all&keywords=%E5%8D%B0%E5%BA%A6&nPageIndex_=1
+  selector       = .page li:nth-child(3) a
+  discoverer下一页(适配) = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=2&keywords=印度&chnltype_c=all (blocked=False)
+  parse_html 通用下一页  = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=2&keywords=印度&chnltype_c=all
+  parse_html 适配下一页  = https://treaty.mfa.gov.cn/web/list.jsp?nPageIndex_=2&keywords=印度&chnltype_c=all
+IN-02 合并入口参数后的下一页（离线复算，2026-09-13 第 45 轮前核验）:
+  merge flag = True
+  next = https://www.mea.gov.in/FrontEnd/FetchTreatyListGenericLatest?page=2&PageSize=10&sortBy=sortby

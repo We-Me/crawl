@@ -7,7 +7,7 @@ import shutil
 import threading
 from functools import partial
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote_plus, urlsplit
 
 import pytest
 import yaml
@@ -53,6 +53,64 @@ class FixtureSiteHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if path == "/search_paged":
+            keyword = query.get("q", [""])[0]
+            page_no = int(query.get("page", ["1"])[0])
+            next_link = (
+                f'<p class="pager"><a rel="next" '
+                f'href="?q={quote_plus(keyword)}&page={page_no + 1}">下一页</a></p>'
+                if page_no < 2
+                else ""
+            )
+            body = (
+                "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+                f"<title>虚构分页搜索 {keyword} 第 {page_no} 页</title></head><body><main>"
+                f"<h1>搜索结果（第 {page_no} 页）</h1><ul>"
+                f'<li><a href="detail_{page_no}.html">{keyword} 的虚构结果</a></li>'
+                f"</ul>{next_link}</main></body></html>"
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/merge_paged":
+            page_no = int(query.get("page", ["1"])[0])
+            size = query.get("size", [""])[0]
+            if not size:
+                # 入口参数缺失时的站点空壳（IN-02 端点实测形态）
+                body = (
+                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>无结果</title></head>"
+                    '<body><main><div style="color:red">No Record Found</div>'
+                    '<div class="paginationBox"><div id="pager"></div></div></main></body></html>'
+                ).encode("utf-8")
+            else:
+                body = (
+                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+                    f"<title>虚构分页列表 第 {page_no} 页</title></head><body><main>"
+                    '<ul class="doc-list">'
+                    f'<li><a href="detail_{page_no}.html">第 {page_no} 页样本</a></li></ul>'
+                    '<ul class="pagination"><li class="PagedList-skipToNext page-item">'
+                    f'<a class="page-link" href="MERGE_PAGED?page={page_no + 1}">›</a>'
+                    "</li></ul></main></body></html>"
+                ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/_broken_attachment.pdf":
+            # 模拟下载中连接中断：声明 Content-Length 但只写一部分后关闭
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(b"%PDF-1.4 partial")
+            self.wfile.flush()
+            self.close_connection = True
             return
         if path == "/_attachment-cd":
             body = (SITE_DIR / "attachments" / "notice.csv").read_bytes()

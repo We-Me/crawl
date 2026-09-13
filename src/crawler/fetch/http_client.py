@@ -133,6 +133,15 @@ class StreamHandle:
                     self._budget.enforce_deadline()
                 if chunk:
                     yield chunk
+        except requests.RequestException as exc:
+            # 流式读取中断（读取超时、连接重置、长度不足）是获取失败的一种：
+            # 转成 FetchError 交给调用方按附件/分页失败记账，不让原始库异常终止整次运行。
+            raise FetchError(
+                f"读取响应失败：{exc}",
+                url=self.final_url or self.requested_url,
+                retryable=False,
+                attempts=self.attempts,
+            ) from exc
         finally:
             self.close()
 

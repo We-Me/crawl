@@ -1,0 +1,62 @@
+# 阶段五 第 54 轮（开发推进）：多来源分页/附件/新入口有限线上推进
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的（继续 S5-03/S5-04/S5-06 的真实来源推进，不新开能力）：
+  1. IN-02：发现游标在合并形态 `page=4`，`max_pages: 5` → 本轮应真实取回第 4 页并推进到第 5 页
+     （或按页数上限停止并保存下一页），附件按规则分别记账；
+  2. CN-02：检索游标 `nPageIndex_=3`（关键词“印度”）→ 真实取回第 3 页并推进游标；
+  3. IN-05：AGMUT 待处理附件 84 项按母文档关联续传，pending 递减、失败如实入账（S5-04）；
+  4. CN-04：`/zhengce/index.htm` 队列中 17 个待处理目标按窗口取舍（S5-06）；
+  5. CN-01：第 53 轮新增入口 `https://www.mfa.gov.cn/eng/xw/zyxw/`（Top Stories，7 条 2026-09 文章），
+     验证新入口按文章规则产出窗口内文档；旧域别名不扩边界（见第 52/53 轮证据）。
+- 近期窗口：`--start-date 2026-09-06`（运行日前 7 天，包含式下界；仅开发验证，不写死为业务默认）。
+- 请求预算与时限（含 robots/重定向每跳/重试/分页/附件，超预算即停；外层 timeout 晚于内部截止）：
+  IN-02 ≤10/300s（外层 360s，`--max-items 2`）；CN-02 ≤10/180s（外层 240s，`--max-items 3`）；
+  IN-05 ≤10/240s（外层 300s）；CN-04 ≤8/150s（外层 210s，`--max-items 2`）；
+  CN-01 ≤8/150s（外层 210s，`--max-items 2`）。合计预算 ≤46 个请求。
+- 规则：HttpClient 默认 robots、限速 0.5 req/s、并发 1、重定向边界检查、重试上限 2；遇登录、
+  验证码、明确拒绝或访问限制立即停止，不绕过；不连续重开相同配置消耗预算；不触碰
+  `sousuo.www.gov.cn`（robots `Disallow /`）与 CN-01 旧域页面（不扩边界）。
+- 数据：原件、账本、文档、游标与待处理队列按 DEV-008 写入开发数据根 `data/`（gitignore）。
+
+复跑命令（需网络；先按本登记确认窗口与预算）：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 10 --deadline-seconds 300 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-02 --keyword 印度 \
+  --start-date 2026-09-06 --max-items 3 --max-requests 10 --deadline-seconds 180 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-05 \
+  --url https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management \
+  --start-date 2026-09-06 --max-requests 10 --deadline-seconds 240 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-04 \
+  --entry-url https://www.gov.cn/zhengce/index.htm \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 150 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-01 \
+  --entry-url https://www.mfa.gov.cn/eng/xw/zyxw/ \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 150 --json
+```
+
+## 结果
+
+### 逐运行结果（2026-09-13 21:08—21:14，全部按登记预算执行，0 次登录/验证码/拒绝绕过）
+
+| 运行 | run_id | 请求 | 资源/文档/块 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T210815` | 6 | 5 / 2 / 8 | 从游标合并形态 `page=4` **真实取回第 4 页**（10 目标）→ 游标保存 `page=5`；附件下载 2、规则排除 10（页脚 PDF） | `max_items_reached`（发现 partial，游标续接） |
+| CN-02 | `CN-02_20260913T210817` | 8 | 7 / 3 / 18 | 检索从 `nPageIndex_=3` **真实取回第 3 页**（10 目标）→ 游标 `nPageIndex_=4`；3 个详情、3 个 PDF | `max_items_reached`（发现 partial，游标续接） |
+| IN-05 | `IN-05_20260913T211326` | 3 | 1 / 0 / 0 | 续传附件 1 个（`AGMU-23042018_1_.pdf`），pending 84→**83**；随后下载超内部截止 | `deadline`（240s，如实停止，非失败） |
+| CN-04 | `CN-04_20260913T211333` | 4 | 3 / 0 / 0 | 入口重发现 19 目标（`end_of_pages` complete）；消费 2 个队列目标：`content_7080188`（2026-09-04）、`content_7079098`（2026-08-25）均 **窗口外跳过并记原因**；pending 17→15 | `ok`（无失败、无静默丢弃） |
+| CN-01 | `CN-01_20260913T211335` | 5 | 3 / 2 / 78 | 新入口 `Top Stories` 产出 7 个文章目标（`end_of_pages` complete），采集 2 篇，`publication_date=2026-09-13`（窗口内） | `ok`（未触碰旧域，未扩边界） |
+
+- 队列/游标（运行后）：IN-02 游标 `page=5`、pending 28（30→40 目标）；CN-02 游标 `nPageIndex_=4`、
+  pending 22；CN-04 pending 15；CN-01 pending 5（新队列）；IN-05 附件 pending 83。
+- 全部运行 `failures=0`、无新增失败账；`raw` 原件与账本逐次留存（各 run_id 下的 `discovery`/`html`/`attachment` 路径）。
+- IN-05 的慢速属站点链路（240s 只完成 1 个附件），已在第 55 轮登记更长单轮窗口继续，
+  不以重开相同配置消耗预算。

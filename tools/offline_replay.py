@@ -114,7 +114,12 @@ def replay_source(
     pages_out: List[dict] = []
     discovered_urls: set = set()
     for url, path in pages.items():
-        page = parse_html(path.read_bytes(), url, content_selector=source.adapter.content_selector)
+        page = parse_html(
+            path.read_bytes(),
+            url,
+            content_selector=source.adapter.content_selector,
+            pagination_selector=source.adapter.pagination_selector,
+        )
         page = normalize_page(page, language_hints=(source.language,), base_url=url)
         # 列表规则复算：只对本来源入口（含已归档栏目页）应用配置的发现规则。
         discovery_note = None

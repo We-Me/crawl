@@ -141,10 +141,15 @@ def test_cli_collect_fixture_closure_then_check(site_server, tmp_path, cli_env, 
     assert code == 0
     out = capsys.readouterr().out
     assert "采集完成" in out and "文档=1" in out
+    # S5-06：覆盖口径随报告输出，未完整/待处理不冒充完成
+    assert "覆盖：" in out and "主目标 发现=" in out
 
     manifest = read_jsonl(cli_env / "manifests" / "crawl_manifest.jsonl")
-    assert len(manifest) == 1
-    assert (cli_env / manifest[0]["raw_path"]).is_file()
+    # --max-items 1：发现页（S5-01 归档）+ 一个目标页
+    assert len(manifest) == 2
+    assert sum(1 for row in manifest if "/discovery/" in row["raw_path"]) == 1
+    for row in manifest:
+        assert (cli_env / row["raw_path"]).is_file()
     documents = read_jsonl(cli_env / "normalized" / "documents.jsonl")
     assert len(documents) == 1 and documents[0]["source_id"] == "TESTSRC"
 
@@ -177,6 +182,11 @@ def test_cli_collect_json_reports_counters(site_server, tmp_path, cli_env, capsy
     assert payload["ok"] is True
     assert payload["counters"]["documents"] == 1
     assert payload["run_id"]
+    coverage = payload["coverage"]
+    assert coverage["targets"]["discovered"] == 1
+    assert coverage["targets"]["processed"] == 1
+    assert coverage["discovery"]["complete"] is False, "--max-items 1 属显式截断"
+    assert coverage["pending_total"] == 0
 
 
 def test_cli_collect_unknown_source_exits_2(site_server, tmp_path, cli_env, capsys):

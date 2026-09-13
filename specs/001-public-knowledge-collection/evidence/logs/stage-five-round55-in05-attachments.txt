@@ -1,0 +1,38 @@
+# 阶段五 第 55 轮：IN-05 AGMUT 附件续传（登记与结果，2026-09-13）
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 新线索（第 54 轮）：MHA 附件下载在本轮明显变慢——240s 内只完成 1 个附件
+  （`AGMU-23042018_1_.pdf`，pending 84→83），随后在下一个附件下载中触发内部截止。
+  属站点/链路速度，不是失败；需要更长单轮窗口而不是缩小预算。
+- 目的（S5-04）：继续按母文档 `IN-05_20260913_0007` 续传 AGMUT 待处理附件，
+  验证 pending 单调递减、失败如实入账、截止停止不冒充成功。
+- 窗口与预算：`--start-date 2026-09-06`；1 次运行，`--url` 指向 AGMUT 司局页，
+  ≤10 个请求、内部 600s、外层 660s（晚于内部截止并留清理时间）。0.5 req/s、并发 1、robots 同前。
+- 规则：不绕过访问限制；不触碰 robots 禁止路径；预算耗尽后先保存进度再登记下一轮。
+
+复跑命令：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-05 \
+  --url https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management \
+  --start-date 2026-09-06 --max-requests 10 --deadline-seconds 600 --json
+```
+
+## 结果
+
+### 结果（2026-09-13 21:24—21:33）
+
+| 项 | 值 |
+| --- | --- |
+| run_id | `IN-05_20260913T212419` |
+| 请求 / 用时 | 10（达到登记上限）/ 526.9s |
+| 结束方式 | `request_budget`（运行已发出 10 个请求，达到上限 10；如实停止，非失败冒充） |
+| 附件 | 续传下载 **8**（`resumed=8`）；失败 **1** 如实入失败账；待处理 83→**74** |
+
+- 失败附件：`ReportOutput_Current_Year_PDF_2026_16022026.pdf` —— 流式读取中断
+  （`IncompleteRead(28583205 bytes read, 134200808 more expected)` → 约 162 MB 的站点年报 PDF），
+  按 `request_error` 记入失败账（`crawler.output.failures_writer`），未以部分字节冒充成功、未重试耗尽预算。
+- 待处理计数从 83 单调递减到 74；母文档关联保持 `IN-05_20260913_0007`。
+- 站点链路仍慢（10 个请求 527s，其中 1 个大 PDF 读取中断），下一轮继续按轮次预算续传剩余 74 项。

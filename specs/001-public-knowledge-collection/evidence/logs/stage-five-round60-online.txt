@@ -1,0 +1,40 @@
+# 阶段五 第 60 轮（开发推进）：提高单轮目标数，清理小队列
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 动机：前几轮 `--max-items 2` 使 IN-02/CN-02 的待处理队列增长（50/44 项）而消耗偏慢。
+  本轮在不改变总量的前提下提高单轮目标数，优先清理小队列（CN-01/CN-04/IN-01/IN-06/IN-10），
+  同时推进大队列与附件（IN-02/CN-02/IN-05）。
+- 窗口：`--start-date 2026-09-06`。
+- 预算（含 robots/重定向/重试/分页/附件）：IN-02 ≤12/360s（外层 420）、CN-02 ≤12/300s（外层 360）、
+  IN-05 ≤10/600s（外层 660）、CN-04 ≤12/300s（外层 360）、CN-01 ≤6/200s（外层 260）、
+  IN-01 ≤10/300s（外层 360）、IN-06 ≤10/300s（外层 360）、IN-10 ≤10/300s（外层 360）。
+  合计 ≤82 个请求。
+- 规则同前（robots、0.5 req/s、并发 1、边界、Retry-After、不绕过、预算停止先保存进度）。
+
+复跑命令示例（其余来源替换 `--source` 与预算）：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 6 --max-requests 12 --deadline-seconds 360 --json
+```
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T215159` | 12 | 从游标 `page=8` 取回第 8 页（10 目标），处理 5 篇（20 块）+ 5 附件（规则排除 22）→ 游标 `page=9` | `request_budget` |
+| CN-02 | `CN-02_20260913T215154` | 12 | 从游标 `nPageIndex_=7` 取回第 7 页，处理 5 篇（30 块）+ 5 附件（1 待处理）→ 游标 `nPageIndex_=8` | `request_budget` |
+| IN-05 | `IN-05_20260913T215144` | 10 | 附件续传 9 个、0 失败；pending 47→**38** | `request_budget` |
+| CN-01 | `CN-01_20260913T215233` | 6 | 队列推进：1 个 2026-07-29 目标窗口外跳过并记原因；pending 3→2 | `request_budget` |
+| CN-04 | `CN-04_20260913T215235` | 7 | 处理 3 个窗口内目标（54 块）+ 2 个窗口外跳过（2026-09-05 等）；pending 9→4 | `ok` |
+| IN-01 | `IN-01_20260913T215301` | 9 | 处理 5 个文稿（PDF，5 个附件下载）；pending 7→2 | `ok` |
+| IN-06 | `IN-06_20260913T215414` | 10 | 处理 4 篇（66 块）；pending 12→8 | `request_budget` |
+| IN-10 | `IN-10_20260913T215438` | 8 | 处理 5 篇（167 块）；6 条站外链接跳过；pending 13→8 | `ok` |
+
+- 8 个运行合计 74 个请求、0 失败；新增文档 **22** 篇、块 **337**；全部跳过逐条记原因。
+- 队列/游标（运行后）：IN-02 pending 53、游标 `page=9`；CN-02 pending 49、游标 `nPageIndex_=8`；
+  IN-05 附件 38；CN-04 4；CN-01 2；IN-01 2；IN-06 8；IN-10 8；CN-08 0。
+- `crawl check`（第 59/60 轮后）：manifest=324、documents=131、blocks=3605、raw_files=281、
+  失败账 3 行、追溯 100%。

@@ -85,6 +85,7 @@ class RunMetrics:
     scope: Mapping = field(default_factory=dict)
     discovery: List[dict] = field(default_factory=list)
     date_decisions: List[dict] = field(default_factory=list)
+    coverage: Mapping = field(default_factory=dict)
 
     def as_row(self) -> dict:
         row = {
@@ -115,6 +116,7 @@ class RunMetrics:
             "scope": dict(self.scope),
             "discovery": list(self.discovery),
             "date_decisions": list(self.date_decisions),
+            "coverage": dict(self.coverage),
             "notes": list(self.notes),
         }
         return row
@@ -213,6 +215,7 @@ def build_metrics(
     scope: Optional[Mapping] = None,
     discovery: Optional[Iterable[Mapping]] = None,
     date_decisions: Optional[Iterable[Mapping]] = None,
+    coverage: Optional[Mapping] = None,
 ) -> RunMetrics:
     """汇总一次运行：计数、状态分布、异常分类、重复候选与对账。"""
     counters = {key: int(value) for key, value in dict(counters).items()}
@@ -220,11 +223,12 @@ def build_metrics(
     # 发现状态与日期判定只遍历一次，避免生成器被重复消费。
     discovery_rows = [dict(row) for row in (discovery or ())]
     date_rows = [dict(row) for row in (date_decisions or ())]
+    coverage_row = dict(coverage or {})
     failures_by_stage = _count_by(failures, "stage")
     failures_by_type = _count_by(failures, "error_type")
     skipped_by_reason = _count_skipped(skipped)
     deltas = deltas_between(before, after)
-    status = _status_of(counters, stop_reason=stop_reason)
+    status = _status_of(counters, stop_reason=stop_reason, coverage=coverage_row)
     notes = _notes_of(
         counters,
         failures_by_stage,
@@ -235,6 +239,7 @@ def build_metrics(
         scope=scope,
         discovery=discovery_rows,
         date_decisions=date_rows,
+        coverage=coverage_row,
     )
     metrics = RunMetrics(
         run_id=run_id_for(source_id, finished_at),
@@ -266,6 +271,7 @@ def build_metrics(
         scope=dict(scope or {}),
         discovery=discovery_rows,
         date_decisions=date_rows,
+        coverage=coverage_row,
     )
     metrics.reconciliation = reconcile(metrics)
     return metrics
@@ -408,7 +414,23 @@ def _count_skipped(skipped: Iterable) -> dict:
     return dict(sorted(counts.items()))
 
 
-def _status_of(counters: Mapping, *, stop_reason: Optional[str] = None) -> str:
+def _coverage_incomplete(coverage: Optional[Mapping]) -> bool:
+    """覆盖口径显示本轮未完成：发现被截断/失败或仍有待处理项。"""
+    row = dict(coverage or {})
+    if not row:
+        return False
+    discovery = dict(row.get("discovery") or {})
+    if discovery and not discovery.get("complete", True):
+        return True
+    return int(row.get("pending_total") or 0) > 0
+
+
+def _status_of(
+    counters: Mapping,
+    *,
+    stop_reason: Optional[str] = None,
+    coverage: Optional[Mapping] = None,
+) -> str:
     if stop_reason:
         obtained = int(counters.get("resources", 0)) + int(counters.get("documents", 0))
         return "partial" if obtained else "stopped"
@@ -418,6 +440,9 @@ def _status_of(counters: Mapping, *, stop_reason: Optional[str] = None) -> str:
         return "partial"
     if failures:
         return "failed"
+    if _coverage_incomplete(coverage):
+        # 有成果但遍历未完整或仍有待处理：不能报 ok（未完成不冒充完成）。
+        return "partial" if obtained else "stopped"
     if not any(int(counters.get(key, 0)) for key in counters):
         return "empty"
     return "ok"
@@ -434,6 +459,7 @@ def _notes_of(
     scope: Optional[Mapping] = None,
     discovery: Optional[Iterable[Mapping]] = None,
     date_decisions: Optional[Iterable[Mapping]] = None,
+    coverage: Optional[Mapping] = None,
 ) -> List[str]:
     notes: List[str] = []
     scope = dict(scope or {})
@@ -466,7 +492,53 @@ def _notes_of(
         if unprocessed is not None:
             detail += f"；未处理 {unprocessed} 项，已完成成果保留"
         notes.append(detail)
-    if int(counters.get("not_modified", 0)) and not int(counters.get("resources", 0)):
+    coverage_row = dict(coverage or {})
+    discovery_row = dict(coverage_row.get("discovery") or {})
+    if discovery_row and not discovery_row.get("complete", True):
+        stops = [
+            row
+            for row in (discovery_row.get("stops") or [])
+            if not row.get("complete", True)
+        ]
+        detail = "、".join(
+            f"{row.get('stage')}@{row.get('entry')}:{row.get('stop')}" for row in stops
+        )
+        notes.append(f"发现遍历未完成（{len(stops)} 个入口）：{detail or '见 discovery 明细'}")
+    targets_row = dict(coverage_row.get("targets") or {})
+    attachments_row = dict(coverage_row.get("attachments") or {})
+    pending_total = int(coverage_row.get("pending_total") or 0)
+    if pending_total:
+        notes.append(
+            "待处理项未清空：主目标 %d、附件 %d（已登记待处理存储，下一轮继续）"
+            % (
+                int(dict(coverage_row.get("queue_state") or {}).get("targets", {}).get("pending", 0)),
+                int(attachments_row.get("pending", 0)),
+            )
+        )
+    if targets_row or attachments_row:
+        notes.append(
+            "覆盖口径：主目标 发现 %s/尝试 %s/成功 %s/失败 %s/跳过 %s；"
+            "附件 发现 %s/下载 %s/失败 %s/边界拒绝 %s/规则排除 %s/重复 %s/待处理 %s"
+            % (
+                targets_row.get("discovered", 0),
+                targets_row.get("attempted", 0),
+                targets_row.get("processed", 0),
+                targets_row.get("failed", 0),
+                targets_row.get("skipped", 0),
+                attachments_row.get("discovered", 0),
+                attachments_row.get("downloaded", 0),
+                attachments_row.get("failed", 0),
+                attachments_row.get("boundary_rejected", 0),
+                attachments_row.get("rule_excluded", 0),
+                attachments_row.get("duplicates", 0),
+                attachments_row.get("pending", 0),
+            )
+        )
+    if (
+        int(counters.get("not_modified", 0))
+        and not int(counters.get("documents", 0))
+        and not int(attachments_row.get("downloaded", 0))
+    ):
         notes.append("本次无新增成果：目标未变化（304），复用此前原件与账本")
     if int(counters.get("skipped", 0)):
         notes.append(

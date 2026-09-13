@@ -26,6 +26,10 @@ CRAWLER_LOG_FILENAME = "crawler.log"
 METRICS_FILENAME = "metrics.json"
 METRICS_HISTORY_FILENAME = "metrics_history.jsonl"
 INCREMENTAL_STATE_FILENAME = "incremental_state.json"
+# S5-06 续接状态：待处理项与发现游标，与 incremental_state.json 同属抓取行为索引，
+# 不是六项交付成果；格式变化在 structure-comparison.md / data-model.md 登记。
+PENDING_ITEMS_FILENAME = "pending_items.json"
+DISCOVERY_CURSOR_FILENAME = "discovery_cursors.json"
 
 REQUIRED_DIRNAMES = (RAW_DIRNAME, MANIFESTS_DIRNAME, NORMALIZED_DIRNAME, LOGS_DIRNAME)
 
@@ -102,6 +106,14 @@ class DeliveryLayout:
     @property
     def incremental_state_path(self) -> Path:
         return self.manifests_dir / INCREMENTAL_STATE_FILENAME
+
+    @property
+    def pending_path(self) -> Path:
+        return self.manifests_dir / PENDING_ITEMS_FILENAME
+
+    @property
+    def cursor_path(self) -> Path:
+        return self.manifests_dir / DISCOVERY_CURSOR_FILENAME
 
     # ---- 路径规则 ----
     def raw_dir_for(self, source_id: str, date_str: str, kind: str) -> Path:

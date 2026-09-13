@@ -1,0 +1,59 @@
+# 第 51 轮：IN-03 主体域入口形态核实（登记与结果，2026-09-13）
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 新线索：第 49 轮确认别名域 `indiacode.gov.in` 根页为 Angular SPA 壳（`<ds-app>` +
+  构建脚本，2338 字节，无静态链接），其 robots.txt 返回 502（nginx）。按 `fetch/robots.py`
+  的 `rules_for_unavailable`，5xx → 保守拒绝，因此别名域不启用。主体域 `www.indiacode.nic.in`
+  robots.txt 为 404（视为无规则，允许），但尚无该域根页的归档原件，无法判断其是否可作为发现入口。
+- 目的（S5-02“域名别名”条款）：核实主体域根页形态——是否静态可解析、是否含站内目标链接、
+  是否引用同域公开接口。**不请求别名域**（其 robots 502 已按保守拒绝），不关闭证书校验，
+  不构造未公开端点。
+- 预算：≤3 个 HTTP 请求——主体域根页 1 次；若为 SPA 壳且脚本为同域相对路径，取主包 1 次并只
+  在其中查找同域接口路径；若发现明确公开的同域接口，验证 1 次（最多 1 个）。无 `--start-date`
+  （入口形态核实，不是窗口采集）。
+- 规则：单体 curl 单次请求（不自动重试），`--max-time 25`；主体域 robots 沿用 2026-09-11 的
+  404（无规则）结论；失败与限制如实记录，不绕过。
+
+## 结果
+
+### 1) 主体域根页（1 个请求）
+
+```
+$ curl -L --max-time 30 -A Mozilla/5.0 -sS -D /tmp/in03_primary_root.headers \
+    https://www.indiacode.nic.in/ -o /tmp/in03_primary_root.html
+exit=0
+HTTP/1.1 200 OK
+Content-Type: text/html;charset=ISO-8859-1
+Content-Length: 2009
+```
+
+页面要点（全文见 `data/` 之外的临时文件；关键行如下）：
+
+```
+<title>India Code - Site Migration</title>
+<meta http-equiv="refresh" content="3;url=https://indiacode.gov.in">
+window.location.href = "https://indiacode.gov.in";   （setTimeout 3000ms 跳转）
+“The India Code website has been migrated from
+ https://www.indiacode.nic.in to https://indiacode.gov.in.”
+```
+
+- 主体域根页是**官方迁移公告页**：无正文、无栏目链接（唯一外链是迁移目标
+  `https://indiacode.gov.in`），2009 字节，`meta refresh` + 脚本 3 秒跳转。
+- 因此主体域 `www.indiacode.nic.in` 不再是内容入口；IN-03 的内容只能位于别名域
+  `indiacode.gov.in`（其归属由站点自身公告确认，不再是“归属待定”）。
+
+### 2) 结论（第 49/51 轮合并）
+
+| 事实 | 证据 | 对 IN-03 的影响 |
+| --- | --- | --- |
+| 新旧域归属由站点自身公告 | 第 51 轮主体域根页迁移公告 + 跳转 | 别名关系已核实，非第三方或主体变化 |
+| 新域 robots.txt 返回 HTTP 502（nginx 150 字节） | 第 49 轮 | 按 `src/crawler/fetch/robots.py::rules_for_unavailable`，5xx → 保守拒绝；**别名域不启用** |
+| 新域根页为 Angular SPA 壳（`<ds-app>`，2338 字节，无静态链接） | 第 49 轮 | 即便 robots 可用，也需要接口/渲染路径，静态列表发现不可行 |
+| 旧域 robots.txt 404（无规则） | 2026-09-11 记录 | 旧域本身允许，但已无内容（迁移公告页 only） |
+
+- 本轮未请求别名域（除第 49 轮那 1 次定性取证）、未关闭证书校验、未构造未公开端点。
+- 需要的输入：站点侧 `https://indiacode.gov.in/robots.txt` 可用（非 5xx）并允许采集，或站点
+  提供可用的公开列表接口/许可；若 502 由第 50 轮所述的本地代理链路引入，则需先按第 50 轮
+  步骤调整 Windows 侧代理转发。在此之前 IN-03 维持受限。
+- 本轮总计 1 个 HTTP 请求（登记 ≤3）。

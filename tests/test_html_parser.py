@@ -270,3 +270,72 @@ def test_fragment_only_next_link_is_not_body_pagination():
     ).encode("utf-8")
     page2 = parse_html(html2, "https://example.invalid/a/part1.html")
     assert page2.next_page_url == "https://example.invalid/a/part2.html"
+
+
+def test_adapter_pagination_selector_wins_over_rel_next_trap():
+    """S5-03：配置分页选择器后只跟随适配控件，不跟随省略号 rel=next 误报（IN-02 真实形态：… → page=5）。"""
+    html = (
+        '<html><body><main><p>正文一段</p>'
+        '<ul class="pagination">'
+        '<li class="page-item"><a class="page-link" href="?page=2">2</a></li>'
+        '<li class="PagedList-ellipses page-item">'
+        '<a class="page-link" rel="next" href="?page=5">…</a></li>'
+        '<li class="PagedList-skipToNext page-item">'
+        '<a class="page-link" rel="next" href="?page=2">›</a></li>'
+        '<li class="PagedList-skipToLast page-item">'
+        '<a class="page-link" href="?page=433">»</a></li>'
+        "</ul></main></body></html>"
+    ).encode("utf-8")
+    url = "https://example.invalid/list?page=1"
+    selector = "ul.pagination li.PagedList-skipToNext.page-item a.page-link"
+
+    assert parse_html(html, url).next_page_url == "https://example.invalid/list?page=5"
+    assert (
+        parse_html(html, url, pagination_selector=selector).next_page_url
+        == "https://example.invalid/list?page=2"
+    )
+
+
+def test_adapter_pagination_selector_absent_is_rule_end():
+    """S5-03：适配分页控件不存在即终点；即使存在通用“下一页”文本也不再跟随。"""
+    html = (
+        '<html><body><main><p>正文一段</p>'
+        '<a href="part2.html">下一页</a>'
+        "</main></body></html>"
+    ).encode("utf-8")
+    url = "https://example.invalid/a/part1.html"
+    selector = "ul.pagination li.PagedList-skipToNext.page-item a.page-link"
+
+    assert parse_html(html, url).next_page_url == "https://example.invalid/a/part2.html"
+    assert parse_html(html, url, pagination_selector=selector).next_page_url is None
+
+
+def test_adapter_pagination_selector_container_and_self_pointer():
+    """S5-03：选择器命中容器时向内找链接；控件自指当前页按终点处理（CN-02 末页形态）。"""
+    html = (
+        '<html><body><main><p>正文一段</p>'
+        '<ul class="page"><li><a href="part1.html?n=1">首页</a></li>'
+        '<li><a href="part1.html?n=1">上一页</a></li>'
+        '<li><a href="part2.html?n=2">下一页</a></li></ul>'
+        "</main></body></html>"
+    ).encode("utf-8")
+    page = parse_html(
+        html, "https://example.invalid/a/part1.html?n=1", pagination_selector=".page li:nth-child(3)"
+    )
+    assert page.next_page_url == "https://example.invalid/a/part2.html?n=2"
+
+    last = (
+        '<html><body><main><p>正文一段</p>'
+        '<ul class="page"><li><a href="part1.html?n=2">首页</a></li>'
+        '<li><a href="part1.html?n=1">上一页</a></li>'
+        '<li><a href="part1.html?n=2">下一页</a></li></ul>'
+        "</main></body></html>"
+    ).encode("utf-8")
+    assert (
+        parse_html(
+            last,
+            "https://example.invalid/a/part1.html?n=2",
+            pagination_selector=".page li:nth-child(3)",
+        ).next_page_url
+        is None
+    )

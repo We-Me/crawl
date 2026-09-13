@@ -1,0 +1,57 @@
+# S5-02 环境诊断原始输出（2026-09-13，WSL target）
+
+## 主机与内核
+$ uname -srmo
+Linux 6.6.114.1-microsoft-standard-WSL2 x86_64 GNU/Linux
+$ cat /proc/version
+Linux version 6.6.114.1-microsoft-standard-WSL2 (root@507f3e43091d) (gcc (GCC) 13.2.0, GNU ld (GNU Binutils) 2.41) #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025
+
+## 时钟（本地/UTC）
+$ date
+Sun Sep 13 20:53:37 CST 2026
+$ date -u
+Sun Sep 13 12:53:37 UTC 2026
+$ ls -l /etc/localtime
+lrwxrwxrwx 1 nobody nogroup 33 Sep 13 13:57 /etc/localtime -> /usr/share/zoneinfo/Asia/Shanghai
+$ cat /etc/timezone
+Asia/Shanghai
+$ timedatectl
+Failed to connect to bus: Operation not permitted
+
+## 代理相关环境变量
+$ env | grep -i proxy
+(无 proxy 环境变量)
+$ git config --global --get http.proxy
+$ cat /etc/apt/apt.conf.d/*proxy* 2>/dev/null
+(无 apt 代理配置)
+
+## CA 信任库
+$ ls /etc/ssl/certs | wc -l
+244
+$ ls -l /etc/ssl/certs/ca-certificates.crt
+-rw-r--r-- 1 nobody nogroup 182140 Jul  1 10:11 /etc/ssl/certs/ca-certificates.crt
+$ update-ca-certificates --version
+/usr/sbin/update-ca-certificates: [--verbose] [--fresh]
+
+## 工具链版本
+$ curl --version
+curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3 brotli/1.1.0 zstd/1.5.5 libidn2/2.3.7 libpsl/0.21.2 (+libidn2/2.3.7) libssh/0.10.6/openssl/zlib nghttp2/1.59.0 librtmp/2.3 OpenLDAP/2.6.10
+Release-Date: 2023-12-06, security patched: 8.5.0-2ubuntu10.13
+Protocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtmp rtsp scp sftp smb smbs smtp smtps telnet tftp
+$ openssl version -a | head -3
+OpenSSL 3.5.7 9 Jun 2026 (Library: OpenSSL 3.5.7 9 Jun 2026)
+built on: Tue Jun  9 19:50:13 2026 UTC
+platform: linux-x86_64
+$ python -c ssl
+3.9.25
+OpenSSL 3.5.4 30 Sep 2025
+DefaultVerifyPaths(cafile=None, capath='/etc/ssl/certs', openssl_cafile_env='SSL_CERT_FILE', openssl_cafile='/etc/ssl/cert.pem', openssl_capath_env='SSL_CERT_DIR', openssl_capath='/etc/ssl/certs')
+
+## LibreOffice（历史转换能力复核）
+$ soffice --version
+
+(process:42): dconf-CRITICAL **: 20:53:37.225: unable to create file '/run/user/1000/dconf/user': Read-only file system.  dconf will not work properly.
+$ soffice --version -env:UserInstallation=file:///tmp/lo-profile-42
+(process:20): dconf-CRITICAL **: 20:54:02.951: unable to create file '/run/user/1000/dconf/user': Read-only file system.  dconf will not work properly.
+LibreOffice 24.2.7.2 420(Build:2)
+

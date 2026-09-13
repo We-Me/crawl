@@ -1,0 +1,211 @@
+# 阶段五 第 42 轮（开发推进）：分页规则、附件闭环与列表入口有限线上验证
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：
+  1. IN-02：验证本轮“适配分页控件优先”的列表遍历（已知 433 页；通用 rel=next 会命中省略号跳页），
+     并核对发现游标在页数上限处保存下一页、下一轮可续接（S5-03/S5-06）；
+  2. CN-02：验证检索结果页 `.page` 分页规则与“搜索游标按关键词归属”（一个关键词截断不串到另一关键词）（S5-03/S5-06）；
+  3. IN-05：验证窗口内附件闭环——AGMUT 页 97 个 PDF 在有限预算下按“已下载/待处理”分别记账，
+     未完成附件带母文档关联入队（S5-04/S5-06）；
+  4. CN-04：低预算探测 `/zhengce/index.htm` 是否可作为列表入口（是否有目标链接与分页控件），
+     不触碰 robots 禁止的 `sousuo.www.gov.cn`。
+- 近期窗口：`--start-date 2026-09-06`（运行日前 7 天，包含式下界；仅本次工程验证，不写死为业务默认）。
+- 请求预算与时限（显式 CLI 预算，含 robots/重定向每跳/重试/分页/接口/附件；超预算即停；
+  外层 `timeout` 晚于内部截止并留清理时间）：
+  - IN-02：≤12 请求、内部 300s、外层 360s；`--max-items 3`。
+  - CN-02：≤10 请求、内部 180s、外层 240s；`--max-items 3`；关键词仅 `印度`（第 14—18 轮同一检索通道）。
+  - IN-05：≤8 请求、内部 240s、外层 300s；`--url` 指向已归档的 AGMUT 司局页。
+  - CN-04：≤5 请求、内部 90s、外层 150s；`--entry-url https://www.gov.cn/zhengce/index.htm`，`--max-items 2`。
+- 规则：HttpClient 默认 robots、限速 0.5 req/s、并发 1、重定向边界检查、重试上限 2；
+  遇登录、验证码、明确拒绝或访问限制立即停止，不绕过；不连续重开相同配置消耗预算。
+- 数据：原件、账本、文档、游标与待处理队列按 DEV-008 写入开发数据根 `data/`（gitignore，不进交付目录）。
+
+复跑命令（需网络；先按本登记确认窗口与预算）：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 3 --max-requests 12 --deadline-seconds 300 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-02 --keyword 印度 \
+  --start-date 2026-09-06 --max-items 3 --max-requests 10 --deadline-seconds 180 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-05 \
+  --url https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management \
+  --start-date 2026-09-06 --max-requests 8 --deadline-seconds 240 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-04 \
+  --entry-url https://www.gov.cn/zhengce/index.htm \
+  --start-date 2026-09-06 --max-items 2 --max-requests 5 --deadline-seconds 90 --json
+```
+
+## 结果
+
+
+（以下为第 43 轮登记；第 42 轮结果见本文件后面的“结果”段。）
+
+## 追加登记（第 43 轮，运行前写入，2026-09-13）
+
+- 目的：验证多轮有限预算续接（S5-06）——第 42 轮留下的发现游标与待处理队列是否让下一轮
+  推进到未完成部分，而不是从入口重来或空转：
+  1. IN-02：发现从 page=2 开始（游标），游标推进到 page=3；待处理目标队列先于新发现消耗；
+  2. CN-02：检索从 `nPageIndex_=2` 开始（关键词“印度”自己的游标），游标推进到 3；
+  3. IN-05：AGMUT 待处理附件（第 42 轮 91 个）按母文档关联继续取件，pending 递减。
+- 窗口与预算：仍为 `--start-date 2026-09-06`；IN-02 ≤10 请求/240s（外层 300s，`--max-items 2`）、
+  CN-02 ≤8 请求/150s（外层 210s，`--max-items 2`）、IN-05 ≤8 请求/240s（外层 300s）。
+- 规则同上（robots、0.5 req/s、并发 1、Retry-After、不绕过访问限制）。
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 10 --deadline-seconds 240 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-02 --keyword 印度 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 8 --deadline-seconds 150 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-05 \
+  --url https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management \
+  --start-date 2026-09-06 --max-requests 8 --deadline-seconds 240 --json
+```
+
+## 追加登记（第 44 轮，运行前写入，2026-09-13）
+
+- 新线索（第 43 轮证据）：IN-02 站点自带“下一页”链接为小写路径
+  `/Frontend/FetchTreatyListGenericLatest?page=2`（无 PageSize/sortBy），按适配规则续接后
+  返回 200 但正文仅 199 字节 `No Record Found` + 空分页容器（`raw/IN-02/2026-09-13/discovery/
+  FetchTreatyListGenericLatest-5b7998a6`，与第 28 轮同 URL 归档字节一致）→ 未发现目标、无分页控件。
+  为区分“路径大小写”与“缺少入口参数”两个原因，做一次两条入口的有限探测（各取第 1 页目标即停）。
+- 来源与预算：IN-02 ≤6 请求、内部 180s、外层 240s；`--max-items 1`；无条件请求其他页面、不重试相同配置。
+- 目的：确定可用的第 N 页 URL 形态，供 IN-02 多页遍历（S5-03）与游标续接（S5-06）使用；
+  结果只登记，不据此放宽边界或构造未公开接口。
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --entry-url "https://www.mea.gov.in/FrontEnd/FetchTreatyListGenericLatest?page=2&PageSize=10&sortBy=sortby" \
+  --entry-url "https://www.mea.gov.in/FrontEnd/FetchTreatyListGenericLatest?page=2" \
+  --start-date 2026-09-06 --max-items 1 --max-requests 6 --deadline-seconds 180 --json
+```
+
+## 追加登记（第 45/46 轮，运行前写入，2026-09-13）
+
+- 新线索（第 44 轮证据）：`/FrontEnd/FetchTreatyListGenericLatest?page=2&PageSize=10&sortBy=sortby`
+  返回 10 个目标（可用）；同路径不带 PageSize/sortBy（无论大小写）返回 “No Record Found” 空壳。
+  据此新增按来源适配规则 `pagination_merge_entry_params`（下一页由入口 URL 派生：路径与入口参数沿用入口，
+  控件参数覆盖），离线复算得 `page=2&PageSize=10&sortBy=sortby`。
+- 目的：验证 IN-02 多页遍历与游标续接在该规则下真实推进：
+  - 第 45 轮：入口第 1 页 → 发现上限停止，游标应保存合并后的 page=2 URL；采集 3 篇条约（含附件）；
+  - 第 46 轮：从游标 page=2 续接（真实取回第 2 页）→ 游标推进到 page=3；再采集 2 篇条约。
+- 预算：第 45 轮 ≤12 请求/内部 300s/外层 360s（`--max-items 3`）；第 46 轮 ≤10 请求/内部 240s/外层 300s
+  （`--max-items 2`）。窗口仍为 `--start-date 2026-09-06`；规则同上。
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 3 --max-requests 12 --deadline-seconds 300 --json
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 10 --deadline-seconds 240 --json
+```
+
+
+## 追加登记（第 47 轮，运行前写入，2026-09-13）
+
+- 第 45 轮实际结果：分页合并生效——发现按入口参数合并形态取回第 1、2 页（各 10 个目标），
+  游标推进到合并后的 page=3 URL；随后在**附件流式读取超时**（MEA 慢响应，连接中途断开）时
+  以 `requests.ConnectionError` 终止了整个进程（stdout 无汇总）。第 46 轮为同一修复前的游标续接运行，
+  已成功从 page=2 续接并在 page=3 位置停止（见结果段），无异常。
+- 已修复缺陷（本地夹具回归，双向验证）：`StreamHandle.iter_chunks` 把流式读取中断
+  （读超时/连接重置/长度不足）转成 `FetchError`（retryable=False），由附件/分页路径按失败记账，
+  不再以原始库异常终止整次运行；新增用例 `tests/test_fetch.py::test_stream_read_failure_is_fetch_error`、
+  `::test_broken_attachment_download_is_recorded_as_failed`。
+- 目的（第 47 轮）：修复后继续 IN-02 多轮推进——从游标 page=3（合并形态）续接取回真实第 3 页，
+  游标推进到 page=4；继续消耗待处理目标队列并验证附件失败不再中断运行。
+- 预算：≤10 请求、内部 240s、外层 300s；`--max-items 2`；窗口与规则同上。
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 2 --max-requests 10 --deadline-seconds 240 --json
+```
+
+## 追加登记（第 48 轮，运行前写入，2026-09-13）
+
+- 新线索（第 42 轮 CN-04 证据 + 离线复核）：`/zhengce/index.htm` 实际含 19 个政策正文链接
+  （含“市场监督管理所条例”等），但该页为双 `<html>` 结构、正文在 `<body>` 之外，
+  通用列表范围取不到任何目标 → 第 42 轮被记为 `zero_results`（“真实零结果”），属范围漏采。
+- 已修复缺陷（离线夹具双向验证）：通用列表范围取不到目标而文档整体有链接时，按整文档兜底并在
+  发现结果 note 中显式记录；新增用例
+  `tests/test_discover.py::test_generic_scope_falls_back_to_whole_document`、
+  `tests/test_pagination_coverage.py::test_scope_fallback_is_reported_in_discovery_note`。
+- 目的（第 48 轮）：在真实站点确认兜底后 CN-04 该入口按规则产出目标并采集少量政策文档；
+  不触碰 robots 禁止的 `sousuo.www.gov.cn`，不构造未公开接口。
+- 预算：≤6 请求、内部 90s、外层 150s；`--max-items 2`；窗口与规则同上。
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source CN-04 \
+  --entry-url https://www.gov.cn/zhengce/index.htm \
+  --start-date 2026-09-06 --max-items 2 --max-requests 6 --deadline-seconds 90 --json
+```
+### 第 42 轮结果（2026-09-13，全部按登记预算执行，未发生登录/验证码/访问限制）
+
+| 运行 | run_id | 请求 | 资源 | 文档 | 附件 | 结束状态 | 覆盖（发现：页/目标/停止/下一轮） |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T202350` | 8 | 7 | 3 | 下载 3、规则排除 14 | ok（发现 partial） | 1 页/10 目标/`max_items_reached`/游标→page=2 |
+| CN-02 | `CN-02_20260913T202411` | 10 | 9 | 3 | 下载 5 | ok（发现 partial） | 1 页/10 目标/`max_items_reached`/游标→`nPageIndex_=2` |
+| IN-05 | `IN-05_20260913T202426` | 8 | 7 | 1（108 块） | 下载 6、**待处理 91** | stopped（`request_budget`） | 手动目标 1 个；附件分母 97 |
+| CN-04 | `CN-04_20260913T202429` | 2 | 1 | 0 | 0 | ok | `zero_results`（**后被第 48 轮推翻，见下**） |
+
+- IN-02 附件规则排除 14 项（`adapter_pattern:.pdf`，详情页站点级 footer PDF）与 3 个条约 PDF 分开记账；
+  CN-02 检索页 10 个目标、5 个 PDF 与母页关联；IN-05 的 91 个未取附件带母文档 `IN-05_20260913_0007` 入队。
+- 三个运行都留下 `manifests/discovery_cursors.json` / `manifests/pending_items.json`，第 43 轮据此续接。
+
+### 第 43 轮结果（多轮续接验证）
+
+| 运行 | 请求/文档 | 续接行为 | 结论 |
+| --- | --- | --- | --- |
+| IN-02 | 6 / 2 | 从游标 page=2 取回站点自带链接（小写 `/Frontend/`、无 PageSize/sortBy）→ 200 但 199 字节 `No Record Found`；记为 `pagination_control_missing`（complete=true） | 发现站点链接形态问题（假“完成”）；引出第 44 轮探测与 `pagination_merge_entry_params` |
+| CN-02 | 6 / 2 | 检索从 `nPageIndex_=2`（关键词“印度”游标）开始，10 目标，游标→3；附件下载 2 | 搜索游标按关键词归属，多轮真实推进 |
+| IN-05 | 8 / 0 | `resumed=7`：7 个待处理附件下载成功；pending 91→84 | 附件待处理队列按母文档续传 |
+
+### 第 44 轮结果（IN-02 第 N 页 URL 形态探测，2 条入口 1 轮）
+
+- `?page=2&PageSize=10&sortBy=sortby`（正确大小写+入口参数）→ **10 个目标**（可用）；
+- `?page=2`（正确大小写、无参数）→ 0 目标（空壳）。
+- 结论：空壳原因是**缺少 PageSize/sortBy**（不是大小写）；站点自带链接不带参数且路径小写，直接跟随必然失败。
+
+### 第 45/46/47 轮结果（入口参数合并后的 IN-02 多页推进）
+
+- 第 45 轮：第 1 页 → 合并后 page=2（真实取回，10 目标）→ 游标→page=3；随后**附件流式读取超时**
+  使进程以 `requests.ConnectionError` 退出（stdout 无汇总）——见下面缺陷修复。
+- 第 46 轮：从游标 page=2（合并形态）取回真实第 2 页（10 目标）→ 游标→page=3；文档 2、附件 2、无失败。
+- 第 47 轮：从游标 page=3（合并形态）取回真实第 3 页（10 目标）→ 游标→page=4；文档 2、附件 2、无失败。
+- 由此验证：IN-02 在合并规则下连续推进第 1→2→3 页，游标保存在合并后的下一 URL，跨轮不重来。
+
+### 第 48 轮结果（CN-04 整文档兜底）
+
+- 4 请求、2 文档（36 块）、0 失败；发现 19 个政策正文目标，note 显式记录
+  “通用列表范围未取到目标，已按整文档兜底（结构不完整）”；停止原因 `end_of_pages`（该页无分页控件）；
+  两份文档 `publication_date` 2026-09-11/2026-09-10，均 `in_window`；剩余 17 个目标入队待后续轮次。
+
+### 本轮发现并修复的缺陷（双向夹具验证）
+
+1. **附件/流式读取中断中断整次运行**：`StreamHandle.iter_chunks` 现在把 `requests.RequestException`
+   转成 `FetchError`（retryable=False），由附件/分页路径记失败；用例
+   `tests/test_fetch.py::test_stream_read_failure_is_fetch_error`、
+   `::test_broken_attachment_download_is_recorded_as_failed`（修复前均失败）。
+2. **通用列表范围漏采冒充零结果**（CN-04 双 `<html>`）：范围空且文档整体有链接时按整文档兜底并记录
+   note；用例 `tests/test_discover.py::test_generic_scope_falls_back_to_whole_document`、
+   `tests/test_pagination_coverage.py::test_scope_fallback_is_reported_in_discovery_note`。
+3. **搜索游标按模板共享**（不同关键词互相续接）：`discover_search` 的游标身份改为渲染后的检索 URL；
+   用例 `tests/test_pagination_coverage.py::test_search_cursor_is_per_keyword`（修复前失败）。
+
+### 仍未完成（不因本轮通过）
+
+- IN-02 站点自带分页链接仍是坏链，多页推进依赖 `pagination_merge_entry_params`；433 页只验证到第 3 页，
+  后续按轮次预算继续（游标已在 page=4）。
+- CN-04 检索通道（`sousuo.www.gov.cn` robots `Disallow /`）仍未获得允许方式（Q12）；本轮只验证
+  `/zhengce/index.htm` 列表入口，其自身无分页控件。
+- IN-05 AGMUT 仍有 84 个待处理附件；其余受限来源（CN-03/05/06/07、IN-04/07/08/09 等）状态未变。

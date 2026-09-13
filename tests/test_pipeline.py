@@ -32,22 +32,32 @@ def test_minimal_html_attachment_closure(site_server, registry_factory, pipeline
     data = tmp_path / "data"
 
     assert report.counters.documents == 2
-    assert report.counters.resources == 3  # 两个 HTML 页 + 一个成功附件
+    # S5-01：两个发现页（列表第 1/2 页）也先归档；两个 HTML 页 + 一个成功附件
+    assert report.counters.resources == 5
     assert report.counters.failures == 1
     assert report.counters.blocks > 0
-    assert report.documents == ["TESTSRC_20260911_0001", "TESTSRC_20260911_0003"]
+    assert report.documents == ["TESTSRC_20260911_0003", "TESTSRC_20260911_0005"]
 
     # 账本：原件存在、字节哈希一致
     manifest_rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
-    assert len(manifest_rows) == 3
+    assert len(manifest_rows) == 5
     for row in manifest_rows:
         raw_path = data / row["raw_path"]
         assert raw_path.is_file(), row["raw_path"]
         assert hashlib.sha256(raw_path.read_bytes()).hexdigest() == row["sha256"]
         assert row["http_status"] == 200
+    discovery_rows = [row for row in manifest_rows if "/discovery/" in row["raw_path"]]
+    assert len(discovery_rows) == 2, "发现页也应先归档原件与账本（S5-01）"
+    assert {row["discovery_method"] for row in discovery_rows} == {"list"}
+    assert all(
+        row["crawl_id"] not in report.documents for row in discovery_rows
+    ), "发现页不生成 normalized 文档"
     attachment_row = next(row for row in manifest_rows if row["raw_path"].endswith(".csv"))
     assert attachment_row["discovery_method"] == "attachment"
     assert attachment_row["referrer_url"] == f"{site_server}/detail_1.html"
+    assert report.coverage["attachments"]["downloaded"] == 1
+    assert report.coverage["attachments"]["failed"] == 1
+    assert report.coverage["attachments"]["pending"] == 0
 
     # 文档：必填字段、元数据与附件关系
     documents = read_jsonl(data / "normalized" / "documents.jsonl")
@@ -98,10 +108,15 @@ def test_search_keyword_only_affects_discovery_and_ledger(
     report = pipeline.collect("TESTSRC", entry_urls=[], search_keywords=["边界"])
     data = tmp_path / "data"
     assert report.counters.documents == 1
+    assert report.counters.resources == 2  # 搜索页发现归档 + 目标页
     rows = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
-    assert len(rows) == 1
-    assert rows[0]["discovery_method"] == "search"
-    assert rows[0]["keyword"] == "边界"
+    assert len(rows) == 2
+    discovery_row = next(row for row in rows if "/discovery/" in row["raw_path"])
+    target_row = next(row for row in rows if "/discovery/" not in row["raw_path"])
+    assert discovery_row["discovery_method"] == "search"
+    assert discovery_row["keyword"] == "边界"
+    assert target_row["discovery_method"] == "search"
+    assert target_row["keyword"] == "边界"
     document = read_jsonl(data / "normalized" / "documents.jsonl")[0]
     assert "category_hint" not in document
     assert document["title"] == "虚构统计表"
@@ -171,11 +186,12 @@ def test_adapter_content_selector_miss_is_failure_and_recoverable(
     assert report.counters.documents == 0 and report.counters.failures == 1
     data = tmp_path / "data"
     manifest = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
-    assert len(manifest) == 1  # 原件与账本已落盘
-    raw = data / manifest[0]["raw_path"]
-    assert hashlib.sha256(raw.read_bytes()).hexdigest() == manifest[0]["sha256"]
+    assert len(manifest) == 2  # 发现页与目标原件均先归档（S5-01）
     failure = read_jsonl(data / "manifests" / "failed_records.jsonl")[0]
     assert failure["stage"] == "parse" and failure["error_type"] == "adapter_selector_miss"
+    failed_row = next(row for row in manifest if row["crawl_id"] == failure["crawl_id"])
+    raw = data / failed_row["raw_path"]
+    assert hashlib.sha256(raw.read_bytes()).hexdigest() == failed_row["sha256"]
 
     fixed_registry = registry_factory(
         site_server,
@@ -227,7 +243,9 @@ def test_crawl_ids_continue_across_runs(
     crawl_ids = [row["crawl_id"] for row in rows]
     assert len(crawl_ids) == len(set(crawl_ids))
     assert crawl_ids[0] == "TESTSRC_20260911_0001"
-    assert crawl_ids[-1] == "TESTSRC_20260911_0002"
+    # 每次运行的发现页同样占用序号：0001 发现页、0002 目标页、0003 发现页、0004 目标页
+    assert crawl_ids[-1] == "TESTSRC_20260911_0004"
+    assert len(crawl_ids) == 4
 
     tasks = second.recovery_plan()
     assert [task.action for task in tasks] == ["reparse"]

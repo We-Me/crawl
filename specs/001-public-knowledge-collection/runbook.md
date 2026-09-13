@@ -132,11 +132,42 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 - 停止时输出 `stop.reason`、实际请求数、用时与未处理完的目标数（`stop.unprocessed`），
   `logs/metrics.json` 记 `status=partial`/`stopped` 与 `budget` 明细，退出码为 `3`。
 - 预算停止不是网站失败：失败账不追加记录，已归档原件/账本/文档/块保留，`logs/metrics.json` 记
-  `status=partial|stopped` 与 `stop.unprocessed`。继续该来源可重跑 `crawl collect`（重新发现目标；站点返回
-  可用校验信息时按条件请求复用未变化原件）；`crawl plan` / `crawl resume` 处理失败账中**未解决**的失败任务
-  （每个任务保留其 `scope_start_date` 原运行范围），预算停止本身不入队。
+  `status=partial|stopped` 与 `stop.unprocessed`（待处理项合计，含附件）。预算停止的进度不会丢：
+  未尝试的目标与附件进入 `manifests/pending_items.json`，未翻到的发现页位置进入
+  `manifests/discovery_cursors.json`，下一轮同命令推进到未完成部分；`crawl plan` / `crawl resume`
+  仍只处理失败账中**未解决**的失败任务（每个任务保留其 `scope_start_date` 原运行范围）。
+- 预算按一次运行生效：每次 collect/resume 以本次传入的预算为准；未传预算的运行不受上一轮
+  已耗尽/遗留预算约束。
 - 守规线上试点按 DEV-012 取最严格预算：一个来源、`--max-requests 10`（robots、重定向、重试均计入）、
   `--deadline-seconds 300`，并发 1 与来源限速照旧生效。
+
+### raw 完整性覆盖与多轮续接（阶段五 S5-01—S5-06）
+
+- **发现响应也归档**：列表/搜索页、sitemap、发现接口的成功响应先落原件、写账本，再解析，
+  保存在 `raw/<source_id>/<YYYY-MM-DD>/discovery/`；解析失败保留原件并写失败账。
+  发现页不产出 normalized 文档，但计入 `counters.resources` 与账本行数。
+- **遍历终止原因**：每个入口记录 `stop`（`end_of_pages`/`pagination_control_missing`/`max_pages_reached`/
+  `max_items_reached`/`request_failed`/`budget_stop`/`loop_detected`/`access_denied`/`selector_miss`/
+  `sitemap_index_not_expanded`/`date_scoped_query`/`parse_error`）与是否 `complete`；
+  截断或失败时发现状态为 `partial`/`parse_error`，不冒充 `ok`/`zero_results`。
+- **附件闭环**：文档 `attachments[].status` 为 `downloaded`/`failed`/`boundary_rejected`（robots 或
+  访问边界拒绝，进 skipped、不写失败账）/`pending`（预算停止，登记待处理，下一轮续传）。
+  规则排除（扩展名不在正文附件声明、适配附件规则不匹配）只计数不下载，见 `coverage.attachments.exclusions`。
+- **覆盖报告**：collect 输出新增 `覆盖：主目标 …；附件 …` 一行，`--json` 与 `logs/metrics.json`
+  含同口径 `coverage`（targets/attachments/discovery/queue/pending_total）。`unprocessed=0`
+  只说明待处理队列已清空；发现被截断时窗口总量是未知，不能读成全站完成。
+- **多轮推进**：同一数据根、同一来源重复 collect，先补从未尝试的 pending 项，再复查 refresh 项
+  （已成功目标重新发现后按条件请求核对，可得 304），`--max-items` 限制每轮处理数量。
+- **按站分页规则**：`adapter.pagination_selector` 现在同时作用于发现遍历与正文分页——配置后只跟随该
+  控件，控件不存在即视为该来源终点（不再用 rel=next/“下一页”文本启发式）。若站点控件省略入口参数
+  （如 IN-02 只带 `page=N`，缺 `PageSize/sortBy` 返回空壳），配置
+  `adapter.pagination_merge_entry_params: true`（须与 `pagination_selector` 同时出现）：下一页 URL 由
+  入口派生，路径与入口参数沿用入口、控件显式参数覆盖；离线核对见
+  `evidence/logs/stage-five-round42-offline-pagination.txt`。
+- **结构不完整的列表页**：通用范围（main/article/body）取不到目标而文档整体有链接时，发现按整文档兜底
+  并在发现结果 `note` 显式记录（如 CN-04 `/zhengce/index.htm` 双 `<html>`）；这不是静默回退。
+- **附件读取中断**：流式读取超时/连接重置按 `FetchError` 记为附件 `failed` 并写失败账，不再中断整次运行；
+  未尝试的附件仍记 `pending` 续传。
 
 ### 运行时起始日期（`--start-date`）
 
@@ -173,6 +204,8 @@ uv run --locked --no-python-downloads python tools/offline_replay.py \
 ├── raw/<source_id>/<YYYY-MM-DD>/<kind>/   原件（HTML、附件等）
 ├── manifests/crawl_manifest.jsonl          抓取账本
 ├── manifests/failed_records.jsonl          失败账（只追加，含处置行）
+├── manifests/pending_items.json            待处理目标/附件（S5-06 续接状态，非交付成果）
+├── manifests/discovery_cursors.json        发现分页游标（S5-06 续接状态，非交付成果）
 ├── normalized/documents.jsonl              完整文档
 ├── normalized/blocks.jsonl                 原始结构块
 └── logs/crawler.log, metrics.json, metrics_history.jsonl   运行日志与计数
@@ -223,6 +256,8 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | 镜像连接失败 | 排查网络/DNS 或有记录地更换登记镜像；不退回官方 PyPI，不据此升级 Python |
 | `check` 报缺失或契约错误 | 按提示定位：缺文件、越界 `raw_path`、字段不符或追溯悬挂引用 |
 | 同日重复运行 | 账本按来源与日期续号，`crawl_id` 不复用；失败补抓按 `crawl_id` 定位原件 |
+| 发现状态 `partial`/`parse_error` | 该入口未完整遍历（请求失败/截断/解析失败）：失败与原件保留，游标指向未取得页；下一轮同命令从该页继续 |
+| `coverage.pending_total>0` | 待处理队列未清空（目标或附件）：同命令下一轮继续；不是失败，也不表示来源已完成 |
 | 退出码 3，`stop.reason=request_budget` | 请求预算用尽：已归档成果保留，未处理完的目标见 `stop.unprocessed`；需要更多成果时调大预算或下次继续 |
 | 退出码 3，`stop.reason=deadline` | 到达截止时间：不再发新请求；调大 `--deadline-seconds` 后重跑 |
 | 退出码 3，`stop.reason=rate_limit_wait/retry_after_wait` | 网站要求的等待超过剩余时间：按时段/预算重排，不缩短等待 |
@@ -244,6 +279,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 命令面与本机闭环（帮助、配置校验、采集、计划、补抓、交付检查、退出码）：[t027-cli.txt](evidence/logs/t027-cli.txt)
 - 交付校验读取开发数据根（已保存原件，离线）：同上日志末节，manifest=10、documents=10、blocks=489、schema 通过、追溯 100%
 - 运行预算与停止报告：[NEXT-06 证据](evidence/next06-budget.md)、阶段三完整回归 [stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)（345 passed）
+- raw 完整性（发现响应归档、分页终止原因与游标、附件闭环、多轮续接）：[阶段五证据](evidence/stage-five-raw-completeness.md)、完整回归 [stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)（419 passed）
 - CN-08 正文边界修复（离线差异与重解析）：[NEXT-07 证据](evidence/next07-cn08-body.md)
 - 随包契约与源码外安装：[NEXT-08 证据](evidence/next08-packaged-contracts.md)、[next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)
 - 旧式 DOC/XLS 真实转换、结构保留与原件追溯：[NEXT-04 证据](evidence/next04-legacy-office.md)；夹具重建 `uv run --locked --no-python-downloads python tools/make_legacy_fixtures.py`（需系统组件）

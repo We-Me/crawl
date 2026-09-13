@@ -27,6 +27,7 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [NEXT-08 随包契约与源码外安装](next08-packaged-contracts.md) | T003/T019/T027：契约随 wheel 交付、一致性校验、源码外 sources/check | 已完成工程交付；安装与负向检查见 [logs/next08-installed-wheel.txt](logs/next08-installed-wheel.txt) |
 | [十八来源状态记录](t026-eighteen-sources.md) | T026/T005/T010/T013：按站发现抽象、`--start-date`、最小结构分块在 18 个来源上的实现/验证状态 | 已实现并验证 3 个、实现待验证 4 个、访问受限 9 个、未完成 2 个；T026/T019 仍为部分完成 |
 | [第六至九轮有限线上记录](logs/t026-round6-limited.txt) | T026/T005/T015：文章级发现、起始日包含式下界、政策文件与日期 meta 的真实站点验证（登记+结果） | 40 个请求、0 失败；CN-08 边界收录/排除、CN-01 3 篇 in_window、CN-04 政策文件与 `firstpublishedtime` |
+| [阶段五 raw 完整性](stage-five-raw-completeness.md) | S5-01/S5-03/S5-04/S5-06：发现响应统一归档、分页终止原因与游标、附件闭环、多轮续接与覆盖报告（关联 T005/T006/T007/T015/T016/T026/T027 的工程部分） | 已完成工程实施并通过离线夹具验证（新增 13 项用例，全量 419 passed，见 [logs/stage-five-full-pytest.txt](logs/stage-five-full-pytest.txt)）；S5-02 复用受限来源证据不新增探测，正式验收与逐站取值仍待 Q12/Q13 |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -79,3 +80,13 @@ shell 复跑通过（13 passed），用例级证据闭合。
 2026-09-13 追加：按站发现抽象（`discover/strategies.py`）、运行时起始日（`schedule/scope.py` + `collect --start-date`）、
 最小结构分块（`normalize/segmenter.py`）与本轮 18 来源状态记录已交付；全量测试 384 passed，
 契约同步检查通过，第六至九轮真实站点有限运行见 [logs/t026-round6-limited.txt](logs/t026-round6-limited.txt)。
+
+## 阶段五记录（2026-09-13）
+
+按 [阶段五](../stage-five.md) 完成 S5-01/S5-03/S5-04/S5-06 工程实施：发现响应先归档后解析、
+每个入口记录终止原因与未翻到页的发现游标、附件闭环（成功/失败/边界拒绝/规则排除/重复/待处理）、
+待处理项存储支撑多轮有限预算推进、覆盖口径进入报告与 `logs/metrics.json`；同时把预算改为按次运行生效。
+证据见 [阶段五 raw 完整性](stage-five-raw-completeness.md) 与
+[完整回归](logs/stage-five-full-pytest.txt)（419 passed）；契约同步检查通过，
+`attachment.schema.json` 状态枚举扩展已同步规格与随包副本。S5-02 无新线索，只复用既有受限来源记录；
+T019/T026/T027 与 18 来源状态不因本记录改变。

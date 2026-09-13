@@ -47,6 +47,10 @@ data/                              # 开发默认；CRAWL_DATA_DIR 可更换数�
 | failure.scope_start_date | 原文失败账未规定起始日字段 | 恢复任务/失败行保留原运行起始日（可空）；属于运行范围追溯，不改变失败核心字段 |
 | metrics.scope / discovery / date_decisions | 原文日志/质量统计未规定起始日与逐目标日期判定 | `logs/metrics.json` 记录起始日语义、各发现策略状态与逐目标日期判定；运行状态统计，不是新的交付成果 |
 | counters.out_of_window | 原文未规定日期下界计数 | 运行计数单列“早于起始日、只留原件不产文档”的目标数；与 skipped/failures 分开 |
+| 发现页归档位置 | 原文要求可核对原件与账本，未规定发现页目录 | 发现响应存 `raw/<source_id>/<YYYY-MM-DD>/discovery/`，账本沿用声明的 discovery_method；发现页不生成 normalized 文档 |
+| attachment.status | 原文列出附件信息项，未给状态枚举 | 契约扩展为 `downloaded`/`failed`/`boundary_rejected`/`pending`；边界拒绝与预算停止分别记录，不写成网站失败，也不借限幅宣称完整 |
+| metrics.coverage | 原文未规定覆盖口径 | 运行指标分开记录主目标、附件与发现完整性；发现截断时窗口总量是未知，不把当前成功数当全站分母 |
+| 待处理项与发现游标文件 | 原文数据布局未规定续接状态文件 | `manifests/pending_items.json`、`manifests/discovery_cursors.json` 属抓取行为索引，不是六项交付成果；有限预算多轮运行据此推进到未完成部分 |
 
 此表描述关键兼容差异，完整字段表见 [data-model.md](data-model.md)，机器契约见 [contracts/README.md](contracts/README.md)。本轮“按文档冻结”确认原文的基础字段、必填层级与含义；不直接提升可选字段为必填，不把全部候选扩展自动认定为原文要求。现有扩展先保留并登记，不能未经迁移方案删除；新增 dummy 与日期参数不应随意改变 JSONL 格式。
 
@@ -65,3 +69,33 @@ src/crawler/contracts/ 是规格中六份 Schema 的随包副本，用于安装�
 ## 61e34d8 契约差异补充
 
 manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与随包副本均有；它们分别用于正文分页与补抓，是实现扩展，不是 S1 原枚举。因此不能笼统表述该提交“未改动数据契约”。原文基础字段含义继续保留，新增归档/进度字段如有必要须另记版本与兼容性；本轮未更改 Schema。
+
+## 阶段五差异补充（2026-09-13）
+
+本轮唯一改动的机器契约是 `attachment.schema.json`：`status` 枚举由 `downloaded`/`failed` 扩展为
+`downloaded`/`failed`/`boundary_rejected`/`pending`，规格契约与随包副本同步（`tools/sync_contracts.py --check` 通过）。
+其余变化都不改 Schema：
+
+- `crawl_manifest.jsonl` 新增的是**行**（发现页成功响应也归档一行，`discovery_method` 沿用 list/search/sitemap/api），
+  不是新字段；`counters.resources` 与账本追加行同口径，`reconciliation` 按原规则核对。
+- 运行期新增 `metrics.coverage`（主目标/附件/发现完整性/待处理合计）与 `stop.unprocessed` 口径调整；
+  只出现在 `logs/metrics.json` 与命令报告，不进入 `documents.jsonl`/`blocks.jsonl`。
+- 新增运行状态文件 `manifests/pending_items.json`（待处理目标/附件）与 `manifests/discovery_cursors.json`
+  （发现分页游标）；它们是抓取行为索引，不属于六项交付成果，`crawl check` 不要求也不把它们当成果。
+- 删除与覆盖规则不变：已归档原件不被后续成功运行覆盖（同路径不同字节时另存 `-<sha8>` 后缀）；
+  失败历史只追加，成功恢复保留前后关联。
+
+## 阶段五第二轮差异补充（2026-09-13，发现分页与附件失败）
+
+本轮改动的机器契约仍是 `source-registry.schema.json`：`adapter` 新增
+`pagination_merge_entry_params`（布尔；需与 `pagination_selector` 同时配置），规格契约与随包副本同步
+（`tools/sync_contracts.py --check` 通过）。它的含义是“站点分页控件省略入口参数时，下一页 URL 由入口 URL
+派生（路径与入口参数沿用入口，控件显式给出的参数覆盖）”，用于 IN-02 端点（控件只带 `page=N`，缺
+`PageSize/sortBy` 返回空壳）。其余变化不改 Schema：
+
+- `adapter.pagination_selector` 的取值从“仅发现阶段”扩展到“发现阶段 + 正文分页”：`parse_html` 现在接受
+  该规则并据此跟随正文下一页；未配置的来源保持原通用行为。
+- 发现结果的 `note` 可能包含“通用列表范围未取到目标，已按整文档兜底（结构不完整）：<url>”：
+  这是既有 text 字段的内容，不是新字段；记录 CN-04 双 `<html>` 页被范围漏采后按整文档兜底的事实。
+- 流式读取中断（附件下载读取超时/连接重置）由 `FetchError` 表达，走既有失败账与附件 `failed` 状态，
+  不新增字段；`documents.jsonl`/`blocks.jsonl` 基础格式未变。
