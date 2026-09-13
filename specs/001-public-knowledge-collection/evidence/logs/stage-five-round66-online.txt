@@ -1,0 +1,49 @@
+# 阶段五 第 66 轮（开发推进）：IN-02 列表分页遍历覆盖（discover-only）
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：S5-03 分页覆盖——IN-02 已知列表端点共 433 页（第 28 轮归档原件记录），此前只按游标
+  逐页取回（当前 `page=15`），未做完整遍历。本轮用本轮新实现的 `--discover-only` +
+  `--max-pages` 覆盖一次性沿游标遍历到站点末页：每页归档发现原件并入队目标，不处理正文
+  （正文处理留给后续队列轮次），使“已遍历范围/终止原因”有完整证据。
+- 窗口：`--start-date 2026-09-06`（包含式下界；该端点按发布时间排序）。
+- 预算：IN-02 单轮 ≤470 请求、≤1500s（内部截止，外层另留 120s）；预计 420 页左右
+  （page 15→433），按来源 0.5 req/s 限速约 14 分钟。仅 1 个运行，无并发。
+- 规则同前（robots、0.5 req/s、并发 1、边界、Retry-After、不绕过）；预算/截止停止时先保存
+  游标与已入队目标，再登记下一轮继续，不在同一轮内重启规避上限。
+- 本轮代码：`collect --discover-only`（只发现不处理，发现阶段不受 --max-items 限制）与
+  `--max-pages`（本次运行页数上限覆盖适配配置），用例见 `tests/test_pagination_coverage.py`、
+  `tests/test_cli.py`。
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02（discover-only） | `IN-02_20260913T230048` | 420 | 从游标 `page=15` 连续遍历到第 433 页：归档 419 个发现页原件、入队 **4071** 个新目标；未处理正文 | `ok`（站点末页） |
+
+- 用时 894s（内部截止 1500s 未触发）；0 失败、0 跳过；`reconciliation_ok=True`（按来源归属）。
+- 队列：`added=4071`、`pending_total=4143`（IN-02 目标 4142 待处理 + 56 已处理 + 6 refresh，
+  另 1 个待处理附件）；目标总数 4204。
+- 账本 645→1064 行、raw 559→978 个（新增 419 = 本次页面数）。
+
+### 遍历完整性核对（离线，对齐 S5-03）
+
+- 页数连续性：账本中 `page=1..433` 全部存在、无缺页（1/2 页为早期轮次所取，本轮取 15—433）。
+- 站点自述：第 433 页原件含 `Displaying Item 4321 To 4327 of 4327`，且无下一页控件
+  → 站点声明列表共 **4327** 条；游标以 `pagination_control_missing` 在 419 页（累计 433 页）结束一致。
+- 逐页原件复算：433 页共 4327 个详情链接槽位（432 页×10 + 末页 7），**唯一详情 URL 4204 个**，
+  与队列中 IN-02 目标总数 4204 完全一致；重复槽位 123 个（涉及 110 个详情 URL，最多出现 4 次）
+  解释了 4327 与 4204 的差额，不是漏采。
+- 说明：游标累计字段 `targets_found=4220` 计入早期轮次重复抓取的少量页面（每次发现按当次去重），
+  队列按 URL 去重是权威口径（4204）。
+
+### 本轮能力改动（分页遍历覆盖）
+
+- `collect --discover-only`：只遍历发现入口、把全部目标入队，不处理目标；发现阶段不受
+  `--max-items` 限制，仍受页数上限、`--max-requests`、`--deadline-seconds` 与 robots/限速约束
+  （`coverage.processing.mode=discovery_only` 显式记录，避免把“未处理”误读成“零结果”）。
+- `collect --max-pages N`：本次运行的每入口页数上限，覆盖来源适配配置（仅本次生效）。
+- 用例：`tests/test_pagination_coverage.py::test_discover_only_traverses_pages_and_enqueues_without_processing`
+  （翻页覆盖 + 目标入队 + 不请求正文 + 下一轮续接处理）、
+  `tests/test_cli.py::test_cli_discover_only_traverses_without_documents`（CLI、0 文档、仅发现页原件、
+  `--discover-only` 与 `--url` 互斥返回退出码 2）；全量回归 **439 passed**。

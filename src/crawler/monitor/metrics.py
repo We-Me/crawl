@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Mapping, Optional, Sequence
 
 from crawler.dedup.duplicates import EXACT_BYTES, EXACT_TEXT, NEAR_TEXT, group_row_counts
 from crawler.dedup.duplicates import find_exact_duplicates, find_near_duplicates
+from crawler.output.atomic import atomic_write_json
 from crawler.output.jsonl import append_jsonl, read_jsonl
 from crawler.output.layout import (
     CRAWLER_LOG_FILENAME,
@@ -128,20 +128,63 @@ def run_id_for(source_id: str, finished_at: str) -> str:
     return f"{source_id}_{stamp}"
 
 
-def count_rows(path: Path) -> int:
-    """统计 JSONL 非空行数；文件不存在按 0 计（零失败可为空文件或不存在）。"""
+def _row_belongs_to(row: Mapping, source_id: str) -> bool:
+    """交付行按来源归属：优先 source_id 字段，块行按 doc_id/crawl_id 前缀判定。"""
+    if row.get("source_id"):
+        return str(row["source_id"]) == source_id
+    for key in ("doc_id", "crawl_id"):
+        value = row.get(key)
+        if value:
+            return str(value).startswith(f"{source_id}_")
+    return False
+
+
+def count_rows(path: Path, *, source_id: Optional[str] = None) -> int:
+    """统计 JSONL 非空行数；文件不存在按 0 计（零失败可为空文件或不存在）。
+
+    给出 ``source_id`` 时只数该来源的行：多个运行并行共用数据根时，账本/文档/块文件
+    会同时被其他运行追加，按来源归属才能得到“本次运行”的追加量。
+    """
     path = Path(path)
     if not path.is_file():
         return 0
+    if source_id is None:
+        with path.open("r", encoding="utf-8") as handle:
+            return sum(1 for line in handle if line.strip())
+    total = 0
     with path.open("r", encoding="utf-8") as handle:
-        return sum(1 for line in handle if line.strip())
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and _row_belongs_to(row, source_id):
+                total += 1
+    return total
 
 
-def output_stats(data_dir: Path) -> dict:
-    """交付文件当前行数与原件文件数快照，用于计算本次运行增量。"""
+def output_stats(data_dir: Path, *, source_id: Optional[str] = None) -> dict:
+    """交付文件行数与原件文件数快照，用于计算本次运行增量。
+
+    ``source_id`` 给定时按来源归属计数（并发运行各自只对账自己的行）；
+    未给定时保持全量计数。
+    """
     layout = DeliveryLayout(data_dir)
-    stats = {name: count_rows(getattr(layout, attribute)) for name, attribute in OUTPUT_FILES}
+    stats = {
+        name: count_rows(getattr(layout, attribute), source_id=source_id)
+        for name, attribute in OUTPUT_FILES
+    }
     raw_root = layout.raw_dir
+    if source_id is not None:
+        source_root = raw_root / source_id
+        stats["raw_files"] = (
+            sum(1 for item in source_root.rglob("*") if item.is_file())
+            if source_root.is_dir()
+            else 0
+        )
+        return stats
     stats["raw_files"] = (
         sum(1 for item in raw_root.rglob("*") if item.is_file()) if raw_root.is_dir() else 0
     )
@@ -369,13 +412,8 @@ def write_metrics(data_dir: Path, metrics: RunMetrics) -> Path:
     logs.mkdir(parents=True, exist_ok=True)
     path = layout.metrics_path
     row = metrics.as_row()
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(row, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)
+    # 并发运行时唯一临时名：最近一次运行仍是后写者，但不会互相覆盖临时文件。
+    atomic_write_json(path, row, indent=2)
     append_jsonl(layout.metrics_history_path, [row])
     logger.info(
         "运行指标 run_id=%s status=%s metrics=%s reconciliation_ok=%s",

@@ -1,0 +1,55 @@
+# 阶段五 第 62 轮（开发推进）：继续游标与余额队列，CN-01/CN-08 做增量重发现
+
+## 登记（运行前写入，2026-09-13，Asia/Shanghai）
+
+- 目的：推进 IN-02 `page=10`、CN-02 `nPageIndex_=9`、IN-05 附件 29、IN-06/IN-10/IN-01 余额队列；
+  CN-01 与 CN-08 队列已清零，本轮验证“新发布增量”按入口重发现（列表入口再取一次，比较是否出现
+  新的窗口内文章）。
+- 窗口：`--start-date 2026-09-06`（包含式下界）。
+- 预算：IN-02 ≤16/450s、CN-02 ≤16/400s、IN-05 ≤10/600s、IN-06 ≤8/240s、IN-10 ≤8/240s、
+  IN-01 ≤6/200s、CN-01 ≤8/240s、CN-08 ≤6/180s（外层各 +60s）。合计 ≤78。
+- 规则同前（robots、0.5 req/s、并发 1、边界、Retry-After、不绕过、预算停止先保存进度）。
+
+复跑命令示例：
+
+```
+UV_CACHE_DIR=/tmp/uv-cache uv run --locked --no-python-downloads python -m crawler.cli collect \
+  --config src/crawler/config/sources.yaml --source IN-02 \
+  --start-date 2026-09-06 --max-items 7 --max-requests 16 --deadline-seconds 450 --json
+```
+
+## 结果
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260913T220546` | 16 | 从游标 `page=10` 取回第 10—11 页，处理 7 篇（28 块）+ 7 附件（规则排除 28）→ 游标 `page=11` | `ok`（发现 partial） |
+| CN-02 | `CN-02_20260913T220505` | 16 | 从游标 `nPageIndex_=9` 取回第 9 页，处理 7 篇（42 块）+ 新增 2 个待处理附件 → 游标 `nPageIndex_=10`；pending 57 | `request_budget` |
+| IN-05 | `IN-05_20260913T220434` | 10 | 附件续传 9 个、0 失败；pending 29→**20** | `request_budget` |
+| IN-06 | `IN-06_20260913T220625` | 8 | 处理 3 篇（69 块）；pending 4→**1** | `ok` |
+| IN-10 | `IN-10_20260913T220655` | 8 | 处理 1 篇（23 块）；7 条站外链接记录跳过；pending 3→**1** | `request_budget` |
+| IN-01 | `IN-01_20260913T220845` | 8 | 处理 1 项 + 附件续传 2 个；pending 1→**2**（新发现 1 项+附件） | `request_budget` |
+| CN-01 | `CN-01_20260913T220624` | 8 | 三个列表入口各重取一次：处理 3 篇（105 块）；队列保持 0 | `ok` |
+| CN-08 | `CN-08_20260913T220612`（推断，无报告） | 4 | 列表入口重取发现 3 个新目标：1 篇窗口内成文（6 块）、2 篇窗口外保留原件；**进程在最后一项 `mark` 写入时崩溃（退出码 1）** | `crash`（见缺陷记录） |
+
+- 8 个运行合计约 78 个请求、0 个来源失败；新增文档 **23** 篇、块 **302**；(`crawl check`)
+  manifest=451、documents=182、blocks=4369、raw_files=383、失败账 3 行、追溯 100%。
+- 游标：IN-02 `page=11`；CN-02 `nPageIndex_=10`；CN-01 三个入口 `completed`（重取后仍无新窗口内文章）。
+- 增量重发现：CN-08 新增 1 篇窗口内文档（`CN-08_20260913_0013`，raw/文档/块齐全），CN-01 无新增。
+- 并发写入缺陷：8 个运行并行共用数据根时，`pending_items.json` 的固定临时名
+  `pending_items.json.tmp` 被互相覆盖，CN-08 的 `os.replace` 拿到
+  `FileNotFoundError` 而崩溃；同类固定临时名还在 `discovery_cursors.json`、
+  `incremental_state.json`、`logs/metrics.json`、整文件 JSONL 写入中使用，“读-改-写”也无锁。
+  修复见下节；修复后同一崩溃路径的并发回归用例通过。
+
+### 并发缺陷复核（离线核对，2026-09-13）
+
+- 结果状态核对：7 个有报告运行的 `coverage.queue_state` 与当前 `pending_items.json`
+  逐来源一致（IN-02 58/6/30、CN-02 targets 55 pending + 2 附件待处理、CN-01 0/5/4/2、
+  IN-06 1/11/3、IN-10 1/14/1/1、IN-01 2/1/9、IN-05 20/1/70/1 失败），未发现整行丢失；
+  CN-08 的 3 行（2 跳过 + 1 处理，`crawl_id=CN-08_20260913_0013`）也已落盘，
+  即其内容被竞争进程的 `os.replace` 带入目标文件，而自身替换失败崩溃。
+- 崩溃影响：CN-08 该轮未写出运行指标行与报告（`logs/metrics_history.jsonl` 缺该 run）；
+  原件、账本、文档、块与待处理状态均已提交，不需重建。
+- 修复提交包含：唯一临时名 + `os.replace`（`crawler/output/atomic.py`）、
+  五个写入点的临界区加锁（`pending.py`/`cursor.py`/`state.py`/`metrics.py`/`jsonl.py`）、
+  并发回归用例（`tests/test_concurrent_state.py`，3 项）。

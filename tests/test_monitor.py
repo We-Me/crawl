@@ -143,6 +143,40 @@ def test_output_stats_and_deltas(tmp_path):
     assert count_rows(tmp_path / "manifests" / "crawl_manifest.jsonl") == 2
 
 
+def test_output_stats_attributes_rows_per_source_for_parallel_runs(tmp_path):
+    # 两个来源并行共用数据根：未给 source_id 时数全量，给出时只数本来源的行。
+    write_jsonl(
+        tmp_path / "manifests" / "crawl_manifest.jsonl",
+        [
+            {"crawl_id": "SRCA_20260913_0001", "source_id": "SRCA"},
+            {"crawl_id": "SRCB_20260913_0001", "source_id": "SRCB"},
+        ],
+    )
+    write_jsonl(
+        tmp_path / "normalized" / "documents.jsonl",
+        [{"doc_id": "SRCB_20260913_0001", "source_id": "SRCB"}],
+    )
+    write_jsonl(
+        tmp_path / "normalized" / "blocks.jsonl",
+        [{"doc_id": "SRCA_20260913_0001"}, {"doc_id": "SRCB_20260913_0001"}],
+    )
+    write_jsonl(tmp_path / "manifests" / "failed_records.jsonl", [{"source_id": "SRCB"}])
+    for source in ("SRCA", "SRCB"):
+        (tmp_path / "raw" / source).mkdir(parents=True)
+        (tmp_path / "raw" / source / "page.html").write_text("<html></html>", encoding="utf-8")
+
+    everything = output_stats(tmp_path)
+    assert everything["crawl_manifest_rows"] == 2 and everything["raw_files"] == 2
+    assert output_stats(tmp_path, source_id="SRCA") == {
+        "crawl_manifest_rows": 1,
+        "documents_rows": 0,
+        "blocks_rows": 1,
+        "failed_rows": 0,
+        "raw_files": 1,
+    }
+    assert count_rows(tmp_path / "manifests" / "crawl_manifest.jsonl", source_id="SRCB") == 1
+
+
 def test_duplicate_stats_require_explicit_near_threshold():
     documents = [
         _document("d1", "a" * 64, "同一段虚构正文。", source_id="src_a"),

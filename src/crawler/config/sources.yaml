@@ -382,7 +382,8 @@ sources:
       # “No Record Found”空壳；缺 PageSize/sortBy 才是原因（正确大小写、无参数同样为空）。
       # 按入口 URL 派生下一页（路径与 PageSize/sortBy 沿用入口，只覆盖 page）。
       pagination_merge_entry_params: true
-      max_pages: 5   # 已知 433 页（Displaying Item 1 To 10 of 4327）；本轮开发窗口每次最多 5 页，游标续接
+      max_pages: 5   # 已知 433 页（Displaying Item 1 To 10 of 4327）；开发窗口每次最多 5 页，游标续接；
+                     # 遍历完成后（445 页 > 5 页上限）按增量核对：入口页无新增即停，不重取历史覆盖页
     request_rate_per_second: 0.5
     max_concurrency: 1
     connect_timeout_seconds: 10

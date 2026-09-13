@@ -99,3 +99,16 @@ manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与�
   这是既有 text 字段的内容，不是新字段；记录 CN-04 双 `<html>` 页被范围漏采后按整文档兜底的事实。
 - 流式读取中断（附件下载读取超时/连接重置）由 `FetchError` 表达，走既有失败账与附件 `failed` 状态，
   不新增字段；`documents.jsonl`/`blocks.jsonl` 基础格式未变。
+
+## 阶段五差异补充（2026-09-13，已完成入口的增量核对）
+
+不改 Schema：新增的发现终止原因与游标 note 变化都在既有 `text`/`note` 字段内表达。
+
+- 新的发现终止原因 `incremental_head_checked`（`complete=true`）：入口此前已遍历完成、且历史遍历页数超过
+  单轮页数上限时，本轮只从入口向后核对到首个全为已登记目标的页为止，不重取历史覆盖页；目的入口是
+  IN-02（433 页 / 单轮 5 页）与 CN-02 关键词检索（13 页 / 单轮 5 页）。页数上限内可整入口复核的入口行为不变。
+- `manifests/discovery_cursors.json` 的 note 在该情形下写为
+  `incremental_head_checked: …；上次终点 <原终止原因>`：原遍历的页数/目标计数与终点原因保留（不累计、
+  不改写成截断），`next_url=null`、`state=completed`。
+- `manifests/pending_items.json` 与 `crawl_manifest.jsonl` 基础格式未变；增量核对不产出 documents/blocks，
+  也不把已登记目标再标 refresh（仅当入口页出现新目标时，该页目标照常入队/复查）。

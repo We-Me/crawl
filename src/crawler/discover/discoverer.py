@@ -70,6 +70,7 @@ STOP_SELECTOR_MISS = "selector_miss"
 STOP_SITEMAP_INDEX = "sitemap_index_not_expanded"
 STOP_DATE_SCOPED_QUERY = "date_scoped_query"
 STOP_PARSE_ERROR = "parse_error"
+STOP_INCREMENTAL_HEAD = "incremental_head_checked"
 
 STOP_REASON_TEXT = {
     STOP_END_OF_PAGES: "没有下一页链接（站点/规则终点）",
@@ -84,6 +85,7 @@ STOP_REASON_TEXT = {
     STOP_SITEMAP_INDEX: "sitemap index 的子 sitemap 未展开",
     STOP_DATE_SCOPED_QUERY: "查询本身按日期限定（覆盖以查询范围为准）",
     STOP_PARSE_ERROR: "发现响应无法解析（原件与账本保留）",
+    STOP_INCREMENTAL_HEAD: "已完成遍历的增量核对（向首个全为已知目标的页为止）",
 }
 
 COMPLETE_STOPS = frozenset(
@@ -178,11 +180,16 @@ class Discoverer:
         archiver: Optional[ResponseArchiver] = None,
         cursors: Optional[DiscoveryCursorStore] = None,
         now: Optional[Callable[[], datetime]] = None,
+        max_pages_override: Optional[int] = None,
+        known_target: Optional[Callable[[str], bool]] = None,
     ) -> None:
         self.http = http
         self.registry = registry
         self.source = source
         self.max_pages = max_pages
+        self.max_pages_override = max_pages_override
+        # 已完成入口的增量核对：判定目标是否已登记（见 _paginate 的 head 检查）。
+        self.known_target = known_target
         self.max_items = max_items
         self.archiver = archiver
         self.cursors = cursors
@@ -208,7 +215,9 @@ class Discoverer:
 
     @property
     def effective_max_pages(self) -> int:
-        """本来源的页数上限：适配配置优先，其次本轮参数。"""
+        """本来源的页数上限：本轮显式覆盖优先，其次适配配置，最后实例默认。"""
+        if self.max_pages_override is not None:
+            return int(self.max_pages_override)
         return int(self.source.adapter.max_pages or self.max_pages)
 
     # ------------------------------------------------------------------ 列表/搜索
@@ -476,6 +485,16 @@ class Discoverer:
         """列表/搜索分页遍历；每个出口都记录终止原因并更新发现游标。"""
         cursor = self._load_cursor(stage, entry, scope)
         resumed = cursor is not None and cursor.state == CURSOR_ACTIVE and bool(cursor.next_url)
+        # 已完成入口的增量核对（S5-06）：历史遍历页数超过本轮页数上限时，无法在一轮内
+        # 复核整个入口；若仍从入口整入口重取，已看过的页会反复消耗预算（IN-02：433 页）。
+        # 此时只从入口向后核对到“首个全为已知目标的页”为止，不再重取历史覆盖页。
+        head_check = (
+            cursor is not None
+            and not resumed
+            and cursor.state == CURSOR_COMPLETED
+            and self.known_target is not None
+            and (cursor.pages_fetched or 0) > self.effective_max_pages
+        )
         page_url: Optional[str] = start_url or entry
         if resumed:
             page_url = cursor.next_url
@@ -547,6 +566,19 @@ class Discoverer:
                     cursor=key,
                 )
                 break
+            if head_check and page_targets:
+                fresh = [target for target in page_targets if not self.known_target(target.url)]
+                if not fresh:
+                    stop = DiscoveryStop(
+                        stage=stage, entry=entry, pages=pages, targets=len(targets),
+                        stop=STOP_INCREMENTAL_HEAD, complete=True,
+                        detail=(
+                            f"已完成遍历的增量核对：第 {pages} 页均为已登记目标"
+                            f"（历史覆盖 {cursor.pages_fetched} 页，本轮不再重取）"
+                        ),
+                        cursor=key,
+                    )
+                    break
             targets.extend(page_targets)
             next_page, blocked = self._next_page_url(
                 response.content, response.final_url, entry=entry
@@ -646,6 +678,24 @@ class Discoverer:
         if key is None:
             return
         previous = self.cursors.get(key)
+        if stop.stop == STOP_INCREMENTAL_HEAD and previous is not None:
+            # 增量核对没有扩展覆盖范围：保留上次遍历的计数与终点原因，只更新核对时间，
+            # 避免把“列表已遍历完”的记录改写成一次截断。
+            cursor = DiscoveryCursor(
+                key=key,
+                source_id=self.source.source_id,
+                stage=stop.stage,
+                entry=stop.entry,
+                scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
+                next_url=None,
+                state=CURSOR_COMPLETED,
+                pages_fetched=previous.pages_fetched,
+                targets_found=previous.targets_found,
+                updated_at=self._now().isoformat(),
+                note=f"{stop.stop}: {stop.detail}；上次终点 {previous.note}",
+            )
+            self.cursors.save(cursor)
+            return
         cumulative_pages = (previous.pages_fetched if previous else 0) + stop.pages
         cumulative_targets = (previous.targets_found if previous else 0) + stop.targets
         if stop.complete or stop.stop in TERMINAL_STOPS:

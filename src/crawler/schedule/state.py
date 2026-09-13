@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
+from crawler.output.atomic import atomic_write_json, file_lock
 from crawler.output.layout import DeliveryLayout
 
 logger = logging.getLogger(__name__)
@@ -84,33 +84,29 @@ class IncrementalStateStore:
             last_version=version,
             last_result=UPDATED,
         )
-        self._write(url, state)
-        return state
+        return self._update(url, lambda existing: state)
 
     def record_not_modified(
         self, url: str, *, now: datetime, previous_crawl_id: Optional[str]
     ) -> ResourceState:
-        existing = self.get(url) or ResourceState(url=url)
-        state = replace(
-            existing,
-            last_checked_at=now.isoformat(),
-            last_result=NOT_MODIFIED,
-            not_modified_crawl_id=previous_crawl_id,
+        return self._update(
+            url,
+            lambda existing: replace(
+                existing,
+                last_checked_at=now.isoformat(),
+                last_result=NOT_MODIFIED,
+                not_modified_crawl_id=previous_crawl_id,
+            ),
         )
-        self._write(url, state)
-        return state
 
-    def _write(self, url: str, state: ResourceState) -> None:
-        states = self.load()
-        states[url] = state
-        rows = {key: asdict(value) for key, value in sorted(states.items())}
-        payload = {"version": "0.1.0", "resources": rows}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=1, sort_keys=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, self.path)
+    def _update(self, url: str, make_state) -> ResourceState:
+        """读-改-写在 file_lock 内完成：并发运行时其他进程的记录不丢失。"""
+        with file_lock(self.path):
+            states = self.load()
+            state = make_state(states.get(url) or ResourceState(url=url))
+            states[url] = state
+            rows = {key: asdict(value) for key, value in sorted(states.items())}
+            payload = {"version": "0.1.0", "resources": rows}
+            atomic_write_json(self.path, payload, indent=1)
         logger.debug("增量状态更新 url=%s result=%s", url, state.last_result)
+        return state

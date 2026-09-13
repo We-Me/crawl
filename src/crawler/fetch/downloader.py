@@ -18,6 +18,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_ATTACHMENT_BYTES = 64 * 1024 * 1024
 
 
+class AttachmentBoundaryRejected(Exception):
+    """附件按已声明边界规则拒绝（当前为大小上限）。
+
+    与传输失败区分：确定性拒绝不写失败账、不进重试，按边界拒绝计入覆盖口径
+    （S5-04：成功/失败/边界拒绝/规则排除/待处理分别记录）。
+    """
+
+    def __init__(self, url: str, reason: str, detail: str = "") -> None:
+        super().__init__(detail or f"{reason}: {url}")
+        self.url = url
+        self.reason = reason
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class DownloadedResource:
     requested_url: str
@@ -53,10 +67,13 @@ class Downloader:
             for chunk in handle.iter_chunks():
                 size += len(chunk)
                 if size > self.max_bytes:
-                    raise FetchError(
-                        f"附件超过 {self.max_bytes} 字节上限",
+                    raise AttachmentBoundaryRejected(
                         url=url,
-                        retryable=False,
+                        reason=f"size_limit_exceeded:{self.max_bytes}",
+                        detail=(
+                            f"附件超过 {self.max_bytes} 字节上限（已读取 {size} 字节）："
+                            "确定性边界拒绝，不写失败账、不重试"
+                        ),
                     )
                 digest.update(chunk)
                 chunks.append(chunk)
@@ -83,4 +100,3 @@ class Downloader:
             path = urlsplit(handle.final_url).path
             candidate = unquote(os.path.basename(path)) or "attachment.bin"
         return sanitize_filename(candidate)
-

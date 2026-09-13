@@ -4,7 +4,10 @@
 丢掉：重新 collect 若每次都从第一页开始，预算会被已看过的页反复消耗。这里按
 “来源 + 方式 + 入口 + 运行范围”保存下一页位置，使有限预算多轮运行继续向后推进：
 
-- 站点末页、适配规则终点：游标置 completed，下次仍从入口核对；
+- 站点末页、适配规则终点：游标置 completed，下次仍从入口核对；当该入口已遍历的页数
+  超过一轮的页数上限（无法在一轮内整入口复核）时，改为**增量核对**：从入口向后取页，
+  遇到首个全为已登记目标的页即停（`incremental_head_checked`，不重取历史覆盖页），
+  并保留原遍历计数与终点原因；需要完整重遍历时用 `--max-pages` 显式覆盖页数上限；
 - 页数/项目上限、预算停止、请求失败、循环：游标保持 active，指向尚未取得的页；
 - 游标只影响从哪一页继续，不放宽访问边界、robots、限速与预算。
 
@@ -15,11 +18,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
+from crawler.output.atomic import atomic_write_json, file_lock
 from crawler.output.layout import DeliveryLayout
 
 logger = logging.getLogger(__name__)
@@ -76,17 +79,12 @@ class DiscoveryCursorStore:
         return self.load().get(key)
 
     def save(self, cursor: DiscoveryCursor) -> DiscoveryCursor:
-        cursors = self.load()
-        cursors[cursor.key] = cursor
-        rows = {key: asdict(value) for key, value in sorted(cursors.items())}
-        payload = {"version": "0.1.0", "cursors": rows}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, self.path)
+        """保存一个入口的续接位置；读-改-写在 file_lock 内完成，不覆盖并发运行的游标。"""
+        with file_lock(self.path):
+            cursors = self.load()
+            cursors[cursor.key] = cursor
+            rows = {key: asdict(value) for key, value in sorted(cursors.items())}
+            payload = {"version": "0.1.0", "cursors": rows}
+            atomic_write_json(self.path, payload)
         logger.debug("发现游标更新 key=%s state=%s next=%s", cursor.key, cursor.state, cursor.next_url)
         return cursor

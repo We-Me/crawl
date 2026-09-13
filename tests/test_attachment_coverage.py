@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from crawler.fetch.budget import RunBudget
+from crawler.fetch.downloader import Downloader
 from crawler.fetch.http_client import FetchLimits, HttpClient
 from crawler.output.jsonl import read_jsonl
 from crawler.output.layout import DeliveryLayout
@@ -123,3 +124,62 @@ def test_budget_stop_persists_pending_attachments_and_next_run_resumes(
     assert row["referrer_url"] == page_url
     failures = read_jsonl(data / "manifests" / "failed_records.jsonl")
     assert any(item["url"] == pdf_url and item["stage"] == "fetch" for item in failures)
+
+
+def test_attachment_size_cap_is_boundary_rejection_not_failure(
+    site_server, registry_factory, tmp_path
+):
+    """S5-04：超过已声明大小上限的附件是确定性边界拒绝，不写失败账、不进重试。"""
+    registry = registry_factory(site_server)
+    pipeline = make_pipeline(registry, tmp_path)
+    # notice.csv 为 22 字节，超过 10 字节上限 → 边界拒绝；unavailable.pdf 为 404 传输失败。
+    pipeline.downloader = Downloader(pipeline.http, max_bytes=10)
+    data = tmp_path / "data"
+    report = pipeline.collect("TESTSRC", manual_urls=[f"{site_server}/detail_1.html"])
+
+    coverage = report.coverage["attachments"]
+    assert coverage["boundary_rejected"] == 1
+    assert coverage["downloaded"] == 0 and coverage["failed"] == 1
+    size_skips = [item for item in report.skipped if "size_limit_exceeded" in item.reason]
+    assert len(size_skips) == 1
+    assert size_skips[0].reason.startswith("boundary_rejected:size_limit_exceeded")
+    failures = read_jsonl(data / "manifests" / "failed_records.jsonl")
+    assert len(failures) == 1 and "size_limit_exceeded" not in failures[0]["message"]
+    document = read_jsonl(data / "normalized" / "documents.jsonl")[0]
+    by_file = {item["filename"]: item for item in document["attachments"]}
+    assert by_file["notice.csv"]["status"] == "boundary_rejected"
+    assert "size_limit_exceeded" in by_file["notice.csv"]["note"]
+    assert by_file["unavailable.pdf"]["status"] == "failed"
+    leftover = [
+        row for row in pending_items(data).values() if row.get("state") == "pending"
+    ]
+    assert leftover == [], "边界拒绝不留待处理项，不反复消耗预算"
+
+
+def test_pending_attachment_size_cap_marks_skipped(
+    site_server, registry_factory, tmp_path
+):
+    """S5-04：续传时遇到大小上限，按边界拒绝记 skipped（不写失败、不留在待处理）。"""
+    registry = registry_factory(site_server)
+    pipeline = make_pipeline(registry, tmp_path)
+    page_url = f"{site_server}/detail_1.html"
+    budget = RunBudget(max_requests=2)  # robots + 正文页：附件阶段预算用尽 → 登记待处理
+    pipeline.collect("TESTSRC", manual_urls=[page_url], budget=budget)
+    pending = [row for row in pending_items(tmp_path / "data").values() if row["kind"] == "attachment"]
+    assert len(pending) == 2
+
+    csv_url = f"{site_server}/attachments/notice.csv"
+    pdf_url = f"{site_server}/attachments/unavailable.pdf"
+    pipeline.downloader = Downloader(pipeline.http, max_bytes=10)
+    second = pipeline.collect("TESTSRC", manual_urls=[page_url], include_attachments=False)
+    assert second.coverage["attachments"]["boundary_rejected"] == 1
+    assert second.coverage["attachments"]["failed"] == 1
+    assert second.coverage["pending_total"] == 0
+    states = {
+        row["url"]: row["state"]
+        for row in pending_items(tmp_path / "data").values()
+        if row["kind"] == "attachment"
+    }
+    assert states[csv_url] == "skipped" and states[pdf_url] == "failed"
+    failures = read_jsonl(tmp_path / "data" / "manifests" / "failed_records.jsonl")
+    assert all("size_limit_exceeded" not in row.get("message", "") for row in failures)

@@ -45,7 +45,7 @@ from crawler.discover.strategies import (
     declared_stages,
     resolve_strategy,
 )
-from crawler.fetch.downloader import Downloader
+from crawler.fetch.downloader import AttachmentBoundaryRejected, Downloader
 from crawler.fetch.budget import BudgetStop, RunBudget
 from crawler.fetch.http_client import FetchError, HttpClient, RobotsDisallowed
 from crawler.normalize.block_schema import build_blocks
@@ -96,6 +96,9 @@ from crawler.schedule.state import IncrementalStateStore
 from crawler.util.paths import PathSafetyError, sanitize_filename
 
 logger = logging.getLogger(__name__)
+
+# discover_only 运行不受 --max-items 的发现上限约束：分页遍历以页数上限与预算为边界。
+DISCOVERY_ONLY_MAX_ITEMS = 10 ** 9
 
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
 
@@ -237,8 +240,14 @@ class CrawlPipeline:
         max_items: int = 100,
         budget: Optional[RunBudget] = None,
         scope: Optional[RunScope] = None,
+        max_pages: Optional[int] = None,
+        discover_only: bool = False,
     ) -> RunReport:
-        """按来源执行一次采集；scope 为本次运行范围（起始日期下界）。"""
+        """按来源执行一次采集；scope 为本次运行范围（起始日期下界）。
+
+        ``discover_only`` 只遍历发现入口并把全部目标入队（分页覆盖用），不处理目标；
+        ``max_pages`` 覆盖来源适配配置里的每入口页数上限（仅本次运行生效）。
+        """
         source = self.registry.get(source_id)
         if not source.enabled:
             raise ValueError(f"来源未启用，不能采集：{source_id}")
@@ -249,7 +258,9 @@ class CrawlPipeline:
         configure_run_logging(self.data_dir)
         if self.settings is not None:
             log_run_context(logger, self.settings)
-        before = output_stats(self.data_dir)
+        # 并行运行时其他来源也写同一批交付文件：增量按来源归属，避免把别的运行的追加
+        # 算进本次运行的对账（FR-018）。
+        before = output_stats(self.data_dir, source_id=source_id)
         requests_before = self.http.request_attempts
         report = RunReport(source_id=source_id)
         report.scope = scope
@@ -259,14 +270,26 @@ class CrawlPipeline:
         if budget is not None:
             budget.start()
             report.budget = budget
+        # 只遍历发现时不处理目标：不受 --max-items 的发现上限约束（仍受页数上限、
+        # 请求预算与截止时间约束），避免为了翻页先消耗正文预算。
+        discovery_max_items = DISCOVERY_ONLY_MAX_ITEMS if discover_only else max_items
+        known_target = None
+        if not discover_only:
+            # 已完成入口的增量核对（S5-06）：本轮开始前已登记的主目标不再重取整入口。
+            known_target = self.pending.target_urls(
+                source_id=source_id,
+                scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
+            ).__contains__
         discoverer = Discoverer(
             self.http,
             self.registry,
             source,
-            max_items=max_items,
+            max_items=discovery_max_items,
             archiver=self.archiver,
             cursors=self.cursors,
             now=self.now,
+            max_pages_override=max_pages,
+            known_target=known_target,
         )
         context = DiscoveryContext(
             source=source,
@@ -274,7 +297,7 @@ class CrawlPipeline:
             http=self.http,
             discoverer=discoverer,
             scope=scope,
-            max_items=max_items,
+            max_items=discovery_max_items,
         )
         moment = self.now()
         crawl_date = moment.date().isoformat()
@@ -296,7 +319,7 @@ class CrawlPipeline:
                 sitemap_urls,
                 api_urls,
                 scope,
-                max_items,
+                discovery_max_items,
                 include_default_list=default_list,
             ):
                 result = self._run_discovery(report, request, context)
@@ -332,7 +355,14 @@ class CrawlPipeline:
             )
             report.coverage["queue"] = enqueue
 
-            candidates = self.pending.candidates(source_id, limit=max_items)
+            if discover_only:
+                report.coverage["processing"] = {
+                    "mode": "discovery_only",
+                    "note": "本次只遍历发现入口并把目标入队，未处理目标（遍历覆盖用）",
+                }
+            candidates = (
+                [] if discover_only else self.pending.candidates(source_id, limit=max_items)
+            )
             for item in candidates:
                 try:
                     if item.kind == KIND_ATTACHMENT:
@@ -680,7 +710,7 @@ class CrawlPipeline:
         request_controls: Optional[dict] = None,
     ) -> dict:
         """写出日志计数与 metrics.json，并核对本次运行的交付增量。"""
-        after = output_stats(self.data_dir)
+        after = output_stats(self.data_dir, source_id=report.source_id)
         if requests_before is not None:
             report.counters.requests = self.http.request_attempts - requests_before
         duplicates = duplicate_stats_from_files(
@@ -1362,6 +1392,19 @@ class CrawlPipeline:
                 coverage["boundary_rejected"] += 1
                 attachments.append(record)
                 continue
+            except AttachmentBoundaryRejected as exc:
+                report.skipped.append(
+                    SkippedTarget(
+                        target.url,
+                        f"boundary_rejected:{exc.reason}",
+                        target.referrer_url,
+                    )
+                )
+                record["status"] = "boundary_rejected"
+                record["note"] = f"boundary_rejected:{exc.reason}"
+                coverage["boundary_rejected"] += 1
+                attachments.append(record)
+                continue
             except FetchError as exc:
                 self._record_failure(
                     report,
@@ -1452,6 +1495,13 @@ class CrawlPipeline:
             )
             coverage["boundary_rejected"] += 1
             return TargetOutcome(STATE_SKIPPED, f"robots_disallowed:{exc.rule or exc}")
+        except AttachmentBoundaryRejected as exc:
+            # 确定性边界拒绝（大小上限等）：不写失败账、不进重试队列。
+            report.skipped.append(
+                SkippedTarget(item.url, f"boundary_rejected:{exc.reason}", target.referrer_url)
+            )
+            coverage["boundary_rejected"] += 1
+            return TargetOutcome(STATE_SKIPPED, f"boundary_rejected:{exc.reason}")
         except FetchError as exc:
             self._record_failure(
                 report,
@@ -1567,7 +1617,7 @@ class CrawlPipeline:
         configure_run_logging(self.data_dir)
         if self.settings is not None:
             log_run_context(logger, self.settings)
-        before = output_stats(self.data_dir)
+        before = output_stats(self.data_dir, source_id=source_id)
         requests_before = self.http.request_attempts
         # 与 collect 相同：补抓的预算以本次调用传入的为准，遗留预算不跨轮生效。
         self.http.attach_budget(budget)

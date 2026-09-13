@@ -160,6 +160,47 @@ def test_cli_collect_fixture_closure_then_check(site_server, tmp_path, cli_env, 
     assert "documents 1/1（100.0000%）" in report
 
 
+def test_cli_discover_only_traverses_without_documents(site_server, tmp_path, cli_env, capsys):
+    # S5-03：--discover-only 只遍历发现入口并归档发现页，不产出文档
+    config = _write_sources(tmp_path / "sources.yaml", site_server)
+    code = main(
+        [
+            "collect",
+            "--config",
+            str(config),
+            "--source",
+            "TESTSRC",
+            "--entry-url",
+            f"{site_server}/index.html",
+            "--discover-only",
+            "--max-pages",
+            "2",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["counters"]["documents"] == 0
+    assert payload["counters"]["blocks"] == 0
+    assert payload["coverage"]["processing"]["mode"] == "discovery_only"
+    manifest = read_jsonl(cli_env / "manifests" / "crawl_manifest.jsonl")
+    assert manifest and all("/discovery/" in row["raw_path"] for row in manifest)
+
+    bad = main(
+        [
+            "collect",
+            "--config",
+            str(config),
+            "--source",
+            "TESTSRC",
+            "--discover-only",
+            "--url",
+            f"{site_server}/detail_1.html",
+        ]
+    )
+    assert bad == 2  # 只遍历发现时不接受显式 URL 采集
+
+
 def test_cli_collect_json_reports_counters(site_server, tmp_path, cli_env, capsys):
     config = _write_sources(tmp_path / "sources.yaml", site_server)
     code = main(

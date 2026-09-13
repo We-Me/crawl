@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from crawler.discover.discoverer import DiscoveredTarget
+from crawler.output.atomic import atomic_write_json, file_lock
 from crawler.output.layout import DeliveryLayout
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,16 @@ class PendingStore:
         items = self.load()
         return [items[key] for key in sorted(items)]
 
+    def target_urls(self, source_id: str, scope_start_date: Optional[str] = None) -> set:
+        """已登记的主目标 URL 集合（含待处理、已处理、失败与跳过），供发现增量核对。"""
+        return {
+            item.url
+            for item in self.load().values()
+            if item.kind == KIND_TARGET
+            and item.source_id == source_id
+            and (scope_start_date is None or item.scope_start_date == scope_start_date)
+        }
+
     def enqueue_targets(
         self,
         *,
@@ -124,51 +134,54 @@ class PendingStore:
 
         已成功处理、失败或跳过的目标再次被发现时标记 refresh（重新检查），不删除既有
         记录，也不把失败静默转成“待处理”。
+
+        并发运行经 file_lock 串行化整段读-改-写，其他进程的新增项不会被本次写入覆盖。
         """
-        items = self.load()
-        result = {"added": 0, "refreshed": 0, "unchanged": 0}
-        sequence = max((item.sequence for item in items.values()), default=0)
-        for target in targets:
-            key = item_key(
-                kind=KIND_TARGET,
-                source_id=source_id,
-                scope_start_date=scope_start_date,
-                url=target.url,
-            )
-            current = items.get(key)
-            if current is None:
-                sequence += 1
-                items[key] = PendingItem(
-                    key=key,
-                    source_id=source_id,
+        with file_lock(self.path):
+            items = self.load()
+            result = {"added": 0, "refreshed": 0, "unchanged": 0}
+            sequence = max((item.sequence for item in items.values()), default=0)
+            for target in targets:
+                key = item_key(
                     kind=KIND_TARGET,
-                    url=target.url,
-                    state=STATE_PENDING,
+                    source_id=source_id,
                     scope_start_date=scope_start_date,
-                    discovery_method=target.discovery_method,
-                    referrer_url=target.referrer_url,
-                    keyword=target.keyword,
-                    title_hint=target.title_hint,
-                    sequence=sequence,
-                    enqueued_at=enqueued_at,
+                    url=target.url,
                 )
-                result["added"] += 1
-                continue
-            if current.state in (STATE_PROCESSED, STATE_FAILED, STATE_SKIPPED):
-                items[key] = replace(
-                    current,
-                    state=STATE_REFRESH,
-                    previous_state=current.state,
-                    discovery_method=target.discovery_method or current.discovery_method,
-                    referrer_url=target.referrer_url or current.referrer_url,
-                    keyword=target.keyword or current.keyword,
-                    title_hint=target.title_hint or current.title_hint,
-                )
-                result["refreshed"] += 1
-                continue
-            result["unchanged"] += 1
-        self._write(items)
-        return result
+                current = items.get(key)
+                if current is None:
+                    sequence += 1
+                    items[key] = PendingItem(
+                        key=key,
+                        source_id=source_id,
+                        kind=KIND_TARGET,
+                        url=target.url,
+                        state=STATE_PENDING,
+                        scope_start_date=scope_start_date,
+                        discovery_method=target.discovery_method,
+                        referrer_url=target.referrer_url,
+                        keyword=target.keyword,
+                        title_hint=target.title_hint,
+                        sequence=sequence,
+                        enqueued_at=enqueued_at,
+                    )
+                    result["added"] += 1
+                    continue
+                if current.state in (STATE_PROCESSED, STATE_FAILED, STATE_SKIPPED):
+                    items[key] = replace(
+                        current,
+                        state=STATE_REFRESH,
+                        previous_state=current.state,
+                        discovery_method=target.discovery_method or current.discovery_method,
+                        referrer_url=target.referrer_url or current.referrer_url,
+                        keyword=target.keyword or current.keyword,
+                        title_hint=target.title_hint or current.title_hint,
+                    )
+                    result["refreshed"] += 1
+                    continue
+                result["unchanged"] += 1
+            self._write(items)
+            return result
 
     def enqueue_attachments(
         self,
@@ -180,40 +193,41 @@ class PendingStore:
         records: Sequence[dict],
         enqueued_at: str,
     ) -> int:
-        """把预算停止时未尝试的附件登记为待处理；返回新增条数。"""
-        items = self.load()
-        sequence = max((item.sequence for item in items.values()), default=0)
-        added = 0
-        for record in records:
-            key = item_key(
-                kind=KIND_ATTACHMENT,
-                source_id=source_id,
-                scope_start_date=scope_start_date,
-                url=record["url"],
-                doc_id=doc_id,
-            )
-            if key in items:
-                continue
-            sequence += 1
-            items[key] = PendingItem(
-                key=key,
-                source_id=source_id,
-                kind=KIND_ATTACHMENT,
-                url=record["url"],
-                state=STATE_PENDING,
-                scope_start_date=scope_start_date,
-                discovery_method="attachment",
-                referrer_url=record.get("referrer_url") or parent_url,
-                doc_id=doc_id,
-                parent_url=parent_url,
-                filename=record.get("filename"),
-                file_type=record.get("file_type"),
-                sequence=sequence,
-                enqueued_at=enqueued_at,
-            )
-            added += 1
-        self._write(items)
-        return added
+        """把预算停止时未尝试的附件登记为待处理；返回新增条数（并发运行同样串行化）。"""
+        with file_lock(self.path):
+            items = self.load()
+            sequence = max((item.sequence for item in items.values()), default=0)
+            added = 0
+            for record in records:
+                key = item_key(
+                    kind=KIND_ATTACHMENT,
+                    source_id=source_id,
+                    scope_start_date=scope_start_date,
+                    url=record["url"],
+                    doc_id=doc_id,
+                )
+                if key in items:
+                    continue
+                sequence += 1
+                items[key] = PendingItem(
+                    key=key,
+                    source_id=source_id,
+                    kind=KIND_ATTACHMENT,
+                    url=record["url"],
+                    state=STATE_PENDING,
+                    scope_start_date=scope_start_date,
+                    discovery_method="attachment",
+                    referrer_url=record.get("referrer_url") or parent_url,
+                    doc_id=doc_id,
+                    parent_url=parent_url,
+                    filename=record.get("filename"),
+                    file_type=record.get("file_type"),
+                    sequence=sequence,
+                    enqueued_at=enqueued_at,
+                )
+                added += 1
+            self._write(items)
+            return added
 
     def candidates(self, source_id: str, *, limit: Optional[int] = None) -> List[PendingItem]:
         """本次运行可处理的项：先从未尝试的 pending，再复查 refresh。"""
@@ -269,38 +283,36 @@ class PendingStore:
         raw_path: Optional[str] = None,
         sha256: Optional[str] = None,
     ) -> PendingItem:
-        """更新一项的处置结果；历史通过 previous_state 保留，不删除记录。"""
-        items = self.load()
-        current = items.get(key)
-        if current is None:
-            raise PendingStoreError(f"待处理项不存在：{key}")
-        updated = replace(
-            current,
-            state=state,
-            attempts=current.attempts + (1 if attempted_at else 0),
-            last_attempt_at=attempted_at or current.last_attempt_at,
-            previous_state=current.state if current.state != state else current.previous_state,
-            note=note if note is not None else current.note,
-        )
-        if crawl_id is not None:
-            updated = replace(updated, crawl_id=crawl_id)
-        if raw_path is not None:
-            updated = replace(updated, raw_path=raw_path)
-        if sha256 is not None:
-            updated = replace(updated, sha256=sha256)
-        items[key] = updated
-        self._write(items)
-        return updated
+        """更新一项的处置结果；历史通过 previous_state 保留，不删除记录。
+
+        整段读-改-写在 file_lock 内完成：并发运行时其他进程的标记不丢失。
+        """
+        with file_lock(self.path):
+            items = self.load()
+            current = items.get(key)
+            if current is None:
+                raise PendingStoreError(f"待处理项不存在：{key}")
+            updated = replace(
+                current,
+                state=state,
+                attempts=current.attempts + (1 if attempted_at else 0),
+                last_attempt_at=attempted_at or current.last_attempt_at,
+                previous_state=current.state if current.state != state else current.previous_state,
+                note=note if note is not None else current.note,
+            )
+            if crawl_id is not None:
+                updated = replace(updated, crawl_id=crawl_id)
+            if raw_path is not None:
+                updated = replace(updated, raw_path=raw_path)
+            if sha256 is not None:
+                updated = replace(updated, sha256=sha256)
+            items[key] = updated
+            self._write(items)
+            return updated
 
     def _write(self, items: Dict[str, PendingItem]) -> None:
+        """整文件原子写入；调用方须先持有 self.path 的 file_lock。"""
         rows = {key: asdict(value) for key, value in sorted(items.items())}
         payload = {"version": "0.1.0", "items": rows}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, self.path)
+        atomic_write_json(self.path, payload)
         logger.debug("待处理状态更新 items=%d", len(rows))

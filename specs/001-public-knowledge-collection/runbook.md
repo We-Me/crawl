@@ -107,7 +107,8 @@ uv run --locked --no-python-downloads --env-file .env crawl sources
 crawl sources [--config PATH] [--json]          # 校验来源配置并列出来源
 crawl collect --source ID [--config PATH]       # 指定来源采集
     [--entry-url URL ...] [--keyword WORD ...] [--sitemap URL ...] [--api URL ...]
-    [--url URL ...] [--max-items N] [--no-attachments] [--start-date YYYY-MM-DD]
+    [--url URL ...] [--max-items N] [--max-pages N] [--discover-only]
+    [--no-attachments] [--start-date YYYY-MM-DD]
     [--max-requests N] [--deadline-seconds S] [--json]
 crawl plan [--source ID] [--config PATH] [--ready-only] [--json]    # 补抓计划（只读）
 crawl resume --source ID [--config PATH] [--max-tasks N]            # 执行补抓
@@ -118,7 +119,17 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 
 补抓默认立即执行计划中的任务；加 `--respect-backoff` 只处理退避已到的任务，其余记入 `待人工`/`退避等待`。
 
-`--max-items`/`--max-tasks` 是结果数量限制，**不限制请求数或运行时间**。collect 与 resume 的运行预算参数：
+`--max-items`/`--max-tasks` 是结果数量限制，**不限制请求数或运行时间**。`--max-pages` 覆盖来源适配
+配置里的每入口页数上限（仅本次运行生效）；`--discover-only` 只遍历发现入口并把目标入队、不处理正文
+（分页覆盖用，发现阶段不受 `--max-items` 限制，仍受 `--max-pages`/预算/截止与 robots 限速约束；
+报告 `coverage.processing.mode=discovery_only`，不要与“零结果”混读）。collect 与 resume 的运行预算参数：
+
+已遍历完成（游标 `completed`）的入口，下次运行仍从入口核对：若该入口历史遍历页数不超过本轮页数上限，
+就整入口复核；超过上限（如 IN-02 已 433 页、单轮上限 5 页）时改为**增量核对**——从入口向后取页，
+遇到首个全为已登记目标的页即停（终止原因 `incremental_head_checked`，`complete=true`），不重取历史
+覆盖页；原遍历计数与终点原因保留在游标 note 里。需要完整重遍历时显式给 `--max-pages`（含
+`--discover-only --max-pages N`）。“已登记”取本轮开始前的队列状态（同一轮内更早的发现结果不参与判定，
+只会让核对多取一页，不产生漏采）。
 
 | 参数 | 含义 | 省略时 |
 | --- | --- | --- |
@@ -150,9 +161,10 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   `max_items_reached`/`request_failed`/`budget_stop`/`loop_detected`/`access_denied`/`selector_miss`/
   `sitemap_index_not_expanded`/`date_scoped_query`/`parse_error`）与是否 `complete`；
   截断或失败时发现状态为 `partial`/`parse_error`，不冒充 `ok`/`zero_results`。
-- **附件闭环**：文档 `attachments[].status` 为 `downloaded`/`failed`/`boundary_rejected`（robots 或
-  访问边界拒绝，进 skipped、不写失败账）/`pending`（预算停止，登记待处理，下一轮续传）。
-  规则排除（扩展名不在正文附件声明、适配附件规则不匹配）只计数不下载，见 `coverage.attachments.exclusions`。
+- **附件闭环**：文档 `attachments[].status` 为 `downloaded`/`failed`/`boundary_rejected`（robots 与
+  已声明大小上限等确定性边界，进 skipped、不写失败账、不重试）/`pending`（预算停止，登记待处理，
+  下一轮续传）。规则排除（扩展名不在正文附件声明、适配附件规则不匹配）只计数不下载，见
+  `coverage.attachments.exclusions`。
 - **覆盖报告**：collect 输出新增 `覆盖：主目标 …；附件 …` 一行，`--json` 与 `logs/metrics.json`
   含同口径 `coverage`（targets/attachments/discovery/queue/pending_total）。`unprocessed=0`
   只说明待处理队列已清空；发现被截断时窗口总量是未知，不能读成全站完成。
@@ -168,6 +180,9 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   并在发现结果 `note` 显式记录（如 CN-04 `/zhengce/index.htm` 双 `<html>`）；这不是静默回退。
 - **附件读取中断**：流式读取超时/连接重置按 `FetchError` 记为附件 `failed` 并写失败账，不再中断整次运行；
   未尝试的附件仍记 `pending` 续传。
+- **附件大小上限**：超过声明上限（`Downloader` 默认 64 MiB）的附件按
+  `boundary_rejected:size_limit_exceeded:<bytes>` 跳过（内联下载与待处理续传一致）：不写失败账、
+  不进重试、不留待处理项；离线核对 `tests/test_attachment_coverage.py`、`tests/test_fetch.py`。
 
 ### 运行时起始日期（`--start-date`）
 
@@ -257,6 +272,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | `check` 报缺失或契约错误 | 按提示定位：缺文件、越界 `raw_path`、字段不符或追溯悬挂引用 |
 | 同日重复运行 | 账本按来源与日期续号，`crawl_id` 不复用；失败补抓按 `crawl_id` 定位原件 |
 | 发现状态 `partial`/`parse_error` | 该入口未完整遍历（请求失败/截断/解析失败）：失败与原件保留，游标指向未取得页；下一轮同命令从该页继续 |
+| 发现终止原因 `incremental_head_checked` | 该入口此前已遍历完成且超过单轮页数上限：本轮只核对入口页（无新增即停），不重取历史覆盖页；不是截断，也不代表重新遍历过 |
 | `coverage.pending_total>0` | 待处理队列未清空（目标或附件）：同命令下一轮继续；不是失败，也不表示来源已完成 |
 | 退出码 3，`stop.reason=request_budget` | 请求预算用尽：已归档成果保留，未处理完的目标见 `stop.unprocessed`；需要更多成果时调大预算或下次继续 |
 | 退出码 3，`stop.reason=deadline` | 到达截止时间：不再发新请求；调大 `--deadline-seconds` 后重跑 |

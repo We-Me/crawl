@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Iterable, List
 
+from crawler.output.atomic import atomic_writer
+
 
 def append_jsonl(path: Path, rows: Iterable[dict]) -> int:
     """追加 JSONL 行并刷盘；返回写入行数。"""
@@ -23,18 +25,13 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> int:
 
 
 def write_jsonl(path: Path, rows: Iterable[dict]) -> int:
-    """整文件原子写入 JSONL。"""
+    """整文件原子写入 JSONL；唯一临时名避免并发运行时互相覆盖。"""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
     count = 0
-    with tmp.open("w", encoding="utf-8") as handle:
+    with atomic_writer(path) as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
             count += 1
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)
     return count
 
 

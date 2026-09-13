@@ -122,6 +122,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument("--max-items", type=int, default=100, help="本次最多采集的目标数")
     collect.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="本次运行的每入口页数上限（覆盖来源适配配置，仅本次生效）",
+    )
+    collect.add_argument(
+        "--discover-only",
+        action="store_true",
+        help="只遍历发现入口并把目标入队，不处理目标（分页覆盖用；发现阶段不受 --max-items 限制）",
+    )
+    collect.add_argument(
         "--no-attachments", action="store_true", help="不下载附件（仅正文页面）"
     )
     collect.add_argument(
@@ -259,6 +270,12 @@ def _cmd_collect(args) -> int:
     if args.max_items < 0:
         print("参数错误：--max-items 不能为负数", file=sys.stderr)
         return EXIT_CONFIG
+    if args.max_pages is not None and args.max_pages < 1:
+        print("参数错误：--max-pages 必须是 ≥1 的整数", file=sys.stderr)
+        return EXIT_CONFIG
+    if args.discover_only and args.url:
+        print("参数错误：--discover-only 不能与 --url 同用", file=sys.stderr)
+        return EXIT_CONFIG
     try:
         budget = _build_budget(args)
     except BudgetConfigError as exc:
@@ -277,6 +294,8 @@ def _cmd_collect(args) -> int:
         max_items=args.max_items,
         budget=budget,
         scope=scope,
+        max_pages=args.max_pages,
+        discover_only=args.discover_only,
     )
     counters = report.counters
     row = {

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from crawler.fetch.downloader import Downloader
+from crawler.fetch.downloader import AttachmentBoundaryRejected, Downloader
 from crawler.fetch.http_client import FetchError, FetchLimits, HttpClient
 
 SITE = Path(__file__).resolve().parent / "fixtures" / "site"
@@ -185,10 +185,13 @@ def test_download_uses_content_disposition_filename(site_server, registry_factor
 
 
 def test_download_enforces_size_cap(site_server, registry_factory):
+    """S5-04：超过大小上限是确定性边界拒绝，不是可重试的传输失败。"""
     client = make_client(registry_factory(site_server))
     downloader = Downloader(client, max_bytes=3)
-    with pytest.raises(FetchError, match="上限"):
+    with pytest.raises(AttachmentBoundaryRejected, match="上限") as excinfo:
         downloader.download(f"{site_server}/attachments/notice.csv")
+    assert excinfo.value.reason == "size_limit_exceeded:3"
+    assert excinfo.value.url.endswith("/attachments/notice.csv")
 
 
 def test_disabled_or_unregistered_source_is_denied(site_server, registry_factory):
