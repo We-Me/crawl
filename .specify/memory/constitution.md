@@ -59,3 +59,7 @@ block 表示原始结构，chunk 表示后续派生检索单元；两者不可�
 阶段二后续以 [阶段三计划](../../specs/001-public-knowledge-collection/stage-three.md) 的当前状态为准，已完成 NEXT-01/02 不回到 READY。工程预算必须由实际程序执行，结果数上限不等同请求数上限；历史通过证据不得扩大到未验证的安装或正文质量范围。
 
 当前阶段按 [阶段四交付收口](../../specs/001-public-knowledge-collection/stage-four.md) 继续。NEXT-06—NEXT-08 已完成，不作为新一轮默认开发目标；正式业务和组件阻塞继续按证据保留。
+
+## 当前范围补充（2026-09-13）
+
+用户近期补充使本轮计划止于采集、标准化与分块交付；RAG 不作为本轮交付目标。沿用原始 blocks，跨段组合未明确前不修改业务契约。原输入及范围外追踪保留，详见 [当前范围与分块](../../specs/001-public-knowledge-collection/scope-and-blocking.md)。

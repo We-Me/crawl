@@ -1,5 +1,9 @@
 # Linux 运行说明（正式 CLI）
 
+## 最新环境状态
+
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+
 版本：0.1.0｜日期：2026-09-11｜状态：本阶段交付的运行手册。原始阶段二命令在 Linux 环境执行；本轮按源码更正安装与配置传递说明，未重新执行全部示例。阶段三新增运行预算、CN-08 正文选择器与随包契约，命令与退出码已按下述实际实现更新。历史原始输出见
 [证据日志](evidence/logs/t027-cli.txt)；命令只包装既有采集管线，不改变来源边界、robots、限速或质量阈值。
 

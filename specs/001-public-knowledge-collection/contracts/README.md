@@ -38,3 +38,7 @@ Schema 方言采用 [JSON Schema Draft 2020-12](https://json-schema.org/draft/20
 5. 版本、引用、实体、立场及内容完整性按数据模型和 acceptance 验证；JSON Schema 无法证明这些业务事实。
 
 评审顺序：先确认 [待决事项](../clarifications.md)，再决定基础 schema 和候选扩展的正式组合及版本；然后用实际采集夹具验收。这里的样例检查仅证明文档和示例契约可用。
+
+## 当前分块边界（2026-09-13）
+
+现有 blocks 契约保持原始结构块含义；跨段语篇组合尚未确认，不据此修改现有字段或 JSON Schema。本轮不包含 RAG，候选派生单元须先明确规则与原块追溯关系，见 [当前范围与分块](../scope-and-blocking.md)。

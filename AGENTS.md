@@ -4,7 +4,7 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、stage-four.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 spec.md、clarifications.md、tech-stack.md、project-startup.md、uv-template.md、continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md、plan.md 和 tasks.md。四份业务输入在 docs/；保留需求来源和待决事项，不以代码或本机环境代替需求决策。
 
 ## 开发约束
 
@@ -25,5 +25,13 @@
 ## 阶段续作约束
 
 - DEV-010：每轮选择明确交付物，按 continuation.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
-- DEV-011：NEXT-09 工程交接清单（delivery-inventory.md）与 NEXT-05A 决策确认栏（decision-requests.md）已交付；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；后续等待一次业务确认（Q01/Q11/Q12/Q13/Q14）或 LINUX 组件条件变化后，按 stage-four.md 的 NEXT-04/05B/05C 收口，业务待决只阻断受影响工作，不触发泛化加固循环。
+- DEV-011：NEXT-09 工程交接清单（delivery-inventory.md）与 NEXT-05A 决策确认栏（decision-requests.md）已交付；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；先按 scope-and-blocking.md 完成 NEXT-10 的有限分块澄清；后续收到当前范围相关业务确认（Q01 剩余项/Q11/Q12/Q13/Q14）或 LINUX 组件条件变化后，按 stage-four.md 的 NEXT-04/05B/05C 收口，业务待决只阻断受影响工作，不触发泛化加固循环。
 - DEV-012：用户已授权遵守网站规则的真实站点测试，无需逐轮重复请求该授权。每次测试先登记目的、来源和有限请求预算，遵守 robots、站点条款、访问边界、限速及 Retry-After；遇登录、验证码、明确拒绝或访问限制停止，不绕过。优先已有原件离线验证；遵循 continuation.md 的线上测试停止条件，授权不等于启用全站持续采集或冻结业务范围。工具权限要求仍按实际规则处理。
+
+## 当前交付范围补充（2026-09-13）
+
+按 scope-and-blocking.md 收敛本轮范围：采集、标准化、分块和追溯交付，不安排 RAG、向量化、索引、检索或问答。语篇分块是否需要跨段组合尚待明确，先做 NEXT-10 的有限澄清；未确认前沿用原始 blocks，不新建语义分块模块。NEXT-09/NEXT-05A 已完成，勿重做交接清单；RAG 和未选领域决定不再阻塞当前采集收口。
+
+## WSL 环境已恢复（2026-09-13）
+
+用户已提供 LibreOffice 24.2.7.2 与 /usr/bin/soffice 的组件及 uv 发现证据，见 specs/001-public-knowledge-collection/evidence/next04-wsl-component-ready.md。NEXT-04 当前为 READY_FOR_VALIDATION，优先执行真实 DOC/XLS 转换与追溯验收；不再因历史 sudo/缺组件记录等待安装，不重复安装。T012 和第四阶段整体未完成，必须依据实际成功验证再更新状态。

@@ -1,5 +1,9 @@
 # 工程交付清单（NEXT-09）
 
+## 最新环境状态
+
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+
 版本：0.1.0｜日期：2026-09-11｜状态：工程交接清单；工程交接完成不等于正式验收完成
 
 本清单登记当前工作副本（项目根、git 仓库）实际可交接的工程版本：源码提交、Python/uv 与锁文件、
@@ -16,7 +20,7 @@
 
 | 项 | 实际值 | 位置/证据 |
 | --- | --- | --- |
-| 源码提交 | 代码基线 `d39bdc0`（阶段三 NEXT-06/07/08 的源码与契约变更）；其后 `1b51121` 与「阶段四 part1」提交只改文档，未改 `src/`、`tests/`、`tools/` | git 历史 |
+| 源码提交 | 代码基线 `d39bdc0`（阶段三 NEXT-06/07/08 的源码与契约变更）；其后 `1b51121`（阶段三复核文档）与 `e9e522c`（阶段四 part1）只改文档，未改 `src/`、`tests/`、`tools/` | git 历史 |
 | 交付版本号 | `0.1.0` | `pyproject.toml`、wheel 元数据 |
 | Python | CPython `3.9.25`，uv 管理 | `.python-version`；[运行说明](runbook.md) |
 | uv | `0.11.28`（`x86_64-unknown-linux-gnu`） | 历史环境证据 [T003 环境验证](evidence/T003-environment.md) |
@@ -50,9 +54,9 @@
 - 来源登记与专站输入：`specs/001-public-knowledge-collection/sources.md`、`source-adapters.md`、`sources/source-register.json`（4 份业务输入指纹）；18 个候选来源（CN-01—CN-08、IN-01—IN-10）均只有浅层核验记录，未启用。
 - 试点来源配置：`specs/001-public-knowledge-collection/examples/pilot-cn08-sources.yaml`（CN-08 试点专用，正式注册表仍只有禁用 DEMO）；随仓库的示例交付样本在 `examples/data/`（虚构 DEMO）。
 
-## 3. 构建产物（本机可取得，未随 git 仓库交付）
+## 3. 历史构建产物（当前副本不含，未随 git 仓库交付）
 
-`dist/` 被 `.gitignore` 排除，属本机产物，不随仓库副本交付；本工作副本当前存在：
+`dist/` 被 `.gitignore` 排除。下表是 2026-09-11 Linux 交接时的本机产物记录；2026-09-13 当前 Windows 副本无 dist/，不能从当前仓库直接取得这些产物：
 
 | 产物 | 大小 | SHA-256 |
 | --- | --- | --- |
@@ -60,8 +64,8 @@
 | `dist/public_knowledge_collection-0.1.0.tar.gz` | 715340 字节 | `2c7399c52a128846abc04882aab46a156a70c3898dc85935ebf0309c053e96d0` |
 
 - 构建时间 2026-09-11 21:40，构建命令与安装验证见 [next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)（`uv build`，构建后端 hatchling 来自登记清华镜像）。
-- 本轮只读核验：wheel 内 70 个 `crawler/**` 的 `.py`/`.json`/`.yaml` 成员与 `src/` 同名文件 SHA-256 全部一致，wheel 与当前源码对应；未重建 wheel。
-- wheel 含控制台入口（`crawl = crawler.cli:main`）、`crawler/config/sources.yaml` 与 6 份契约；源码外普通安装证据见 [t019-installed-wheel.txt](evidence/logs/t019-installed-wheel.txt)。
+- 阶段四 part1 的只读核验记录：wheel 内 70 个 `crawler/**` 的 `.py`/`.json`/`.yaml` 成员与 `src/` 同名文件 SHA-256 全部一致，wheel 与当前源码对应；未重建 wheel。
+- wheel 含控制台入口（`crawl = crawler.cli:main`）、`crawler/config/sources.yaml` 与 6 份契约；阶段三随包契约的源码外普通安装证据见 [next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)。
 - 历史日志中的临时目录（`/tmp/t027-wheel`、`/tmp/next08-venv`、`/tmp/next08-run`、`/tmp/cn08-pilot`）已不存在，**未随仓库交付**；需要时按 [运行说明](runbook.md) 重新安装/重建。
 
 ## 4. 安装、配置与运行入口
@@ -131,3 +135,7 @@ uv run --locked --no-python-downloads --env-file .env crawl --help
 - 局限、未交付范围与所需业务输入的交接汇总见 [局限与所需输入报告](limitations-report.md)。
 - 工程交接已完成不等于正式验收完成：正式验收与来源启用必须等 [决策请求](decision-requests.md) 的确认后按
   [阶段四交付收口](stage-four.md) 的 NEXT-05B/C 执行。
+
+## 2026-09-13 只读复核
+
+基线 e9e522c；git diff d39bdc0 HEAD -- src tests tools pyproject.toml uv.lock 无变化。当前副本无 dist/；上述产物哈希、data 大小及临时目录状态属于历史 Linux 时点，本轮未重新计算其文件哈希或重建产物。当前工作区换行符可能影响文件字节，复现锁文件应使用仓库版本及平台换行设置，不将本机字节差异直接判为依赖升级。范围与分块语义见 [当前范围与分块](scope-and-blocking.md)。

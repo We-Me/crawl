@@ -89,3 +89,7 @@ NEXT-01/NEXT-02 完成：正式业务 CLI `crawl`（sources/collect/plan/resume/
 （[delivery-inventory.md](specs/001-public-knowledge-collection/delivery-inventory.md)），NEXT-05A 决策确认栏见
 [decision-requests.md](specs/001-public-knowledge-collection/decision-requests.md)；等待业务确认与 Linux 组件条件变化后执行
 NEXT-04/05B/05C 正式验收收口。本轮不新增业务代码或重跑阶段测试。
+
+## 当前入口（2026-09-13）
+
+第四阶段 part1 已交付清单、确认栏与局限报告，勿重复生成。按 [当前范围与分块](specs/001-public-knowledge-collection/scope-and-blocking.md) 将本轮范围收敛到采集、标准化及分块交付，不安排 RAG；跨段语篇组合含义待回答。工程交接完成不等于正式来源和质量验收完成。

@@ -58,3 +58,5 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 NEXT-09 工程交接清单见 [delivery-inventory.md](../delivery-inventory.md)；NEXT-05A 的确认栏见
 [决策请求](../decision-requests.md)。本轮只做只读核对（wheel 成员与源码哈希比对）与文档校验，
 未新增证据文件、未改变本目录中的历史执行结果；T012/T019/T026/T027 仍为部分完成。
+
+最新环境更新：[用户提供的 WSL 组件就绪证据](next04-wsl-component-ready.md)。NEXT-04 为 READY_FOR_VALIDATION，历史缺组件日志保留，真实转换尚待验证。

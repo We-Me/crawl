@@ -1,5 +1,9 @@
 # 项目起步与运行目录配置
 
+## 最新环境状态
+
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+
 > 已开发项目请先阅读 [阶段续作说明](continuation.md)。当前根目录已有 pyproject.toml、uv.lock 和 src/，不要复制空模板覆盖或重做初始化；下文起步命令仅用于新空项目。
 
 

@@ -1,5 +1,9 @@
 # Python 开发约束与技术选型登记
 
+## 最新环境状态
+
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+
 状态：Python 与 uv 已由用户明确，Python 3.9 为首选基线；2026-09-11 T002/T003 完成起步环境，T011/T012 完成 PDF/OCR 与 Office 解析选型（TD-08 已选定），记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md) 与 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。业务待决 Q 项未改变，完整交付环境仍随未完成模块推进。本文补充四份业务文档，不改变原始需求来源。
 
 ## 当前基线

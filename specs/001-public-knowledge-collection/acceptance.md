@@ -1,5 +1,9 @@
 # 测试与数据交付验收规范
 
+## 最新环境状态
+
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 更新为 READY_FOR_VALIDATION：组件缺失阻塞已解除，真实 DOC/XLS 转换与追溯仍待验证；第四阶段整体未完成。见 [WSL 组件就绪证据](evidence/next04-wsl-component-ready.md)。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
 本文定义未来软件和数据成果的验收方法，不是已执行的测试报告。全部业务用例状态为 NOT RUN。schema 和文档一致性检查的实际结果单独记在 analysis.md，不能替代采集或领域系统验收。2026-09-11 的夹具级采集验收（AT-001—AT-024 与 CFG-01—CFG-09）单独记在 [evidence/T019-acceptance.md](evidence/T019-acceptance.md)，不改变本文用例的业务状态；其中 AT-014、AT-024 因 Q11 未决保持 blocked。
@@ -417,3 +421,7 @@ DEV-009 对应 T002/T003，按 [uv 模板说明](uv-template.md) 记录镜像来
 ## 阶段三后的当前入口
 
 NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付，按 [阶段四交付收口](stage-four.md) 等待业务确认与 Linux 组件条件；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
+
+## 2026-09-13 当前范围与续作
+
+以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成，NEXT-10 仅澄清原始结构分块与跨段语篇组合的差异。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量、来源与旧格式组件缺口继续保留，不因范围收敛自动通过。
