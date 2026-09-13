@@ -42,3 +42,7 @@ Schema 方言采用 [JSON Schema Draft 2020-12](https://json-schema.org/draft/20
 ## 当前分块边界（2026-09-13）
 
 现有 blocks 契约保持原始结构块含义；跨段语篇组合尚未确认，不据此修改现有字段或 JSON Schema。本轮不包含 RAG，候选派生单元须先明确规则与原块追溯关系，见 [当前范围与分块](../scope-and-blocking.md)。
+
+## 2026-09-13 基础格式确认
+
+用户要求依原文冻结数据格式。原文字段与必填层级继续保留；实现扩展单独对照，不将候选附加约束自动提升为原文要求。见 [结构对照](../structure-comparison.md) 与 [当前开发决定](../raw-first-development.md)。本轮未修改 JSON Schema 或随包副本。

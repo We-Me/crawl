@@ -829,11 +829,15 @@
   },
   "current_scope": {
     "recorded_at": "2026-09-13",
-    "basis": "用户补充：当前项目不需要完成 RAG，最多做到语篇分块；具体分块方式尚未回答",
+    "basis": "2026-09-13 用户六项决定：18来源、起始时间、按站抽象、独立结构和div空行dummy分块、raw优先、开发Git管理",
     "rag": "out_of_current_scope",
     "T025": "out_of_current_scope_not_completed",
     "T020-T024": "not_selected_conditional",
-    "blocking_semantics": "OPEN: original structural blocks or cross-paragraph discourse units",
-    "requirements_preserved": true
+    "blocking_semantics": "DECIDED: independent structural blocks and blank lines inside div; abstract base plus minimal dummy",
+    "requirements_preserved": true,
+    "sources": "all 18; implementation and verification pending",
+    "quality": "raw integrity and traceability first; advanced processing deferred",
+    "delivery": "Git development only; release deferred",
+    "format": "original base requirements retained; extensions compared separately"
   }
 }
