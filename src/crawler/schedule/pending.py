@@ -8,6 +8,9 @@
 - 已成功处理的目标在后续运行再次被发现时标记为 refresh：重新检查（条件请求可得 304），
   排在新待处理项之后，不阻塞推进；
 - 预算停止时未尝试的附件以 kind=attachment 入队，保留母文档与页面关联；
+- 正文分页/接口正文未完成时，主目标保持 open 并携带 continuation（R2）：母目标/文档
+  身份、已取得部分的原件引用、下一正文 URL 或接口与停止原因；下一轮优先续取未完成
+  部分，母页 304 不取消其未完成正文，全部完成后清除 continuation 并关闭目标；
 - 失败任务仍按失败账（failed_records.jsonl）记录，不在这里混写为“待处理”；
 - 状态文件是抓取行为索引，不属于六项交付成果；格式变化在结构对照中登记。
 
@@ -41,6 +44,16 @@ KIND_ATTACHMENT = "attachment"
 OPEN_STATES = (STATE_PENDING, STATE_REFRESH)
 
 
+class _Unset:
+    """mark() 的缺省标记：未显式传入的字段保持原值（区分“清空”和“不改”）。"""
+
+    def __repr__(self) -> str:  # pragma: no cover - 仅用于调试输出
+        return "UNSET"
+
+
+UNSET = _Unset()
+
+
 @dataclass(frozen=True)
 class PendingItem:
     """一个持久化的待处理项；key 同时编码来源、范围与对象身份。"""
@@ -68,6 +81,7 @@ class PendingItem:
     raw_path: Optional[str] = None
     sha256: Optional[str] = None
     previous_state: Optional[str] = None
+    continuation: Optional[dict] = None
 
 
 class PendingStoreError(ValueError):
@@ -289,10 +303,14 @@ class PendingStore:
         crawl_id: Optional[str] = None,
         raw_path: Optional[str] = None,
         sha256: Optional[str] = None,
+        doc_id: object = UNSET,
+        continuation: object = UNSET,
     ) -> PendingItem:
         """更新一项的处置结果；历史通过 previous_state 保留，不删除记录。
 
         整段读-改-写在 file_lock 内完成：并发运行时其他进程的标记不丢失。
+        ``doc_id`` 缺省（UNSET）保持原值；显式传 None/字符串表示改写母文档身份。
+        ``continuation`` 缺省（UNSET）保持原值；显式传 None 表示待续已关闭（R2）。
         """
         with file_lock(self.path):
             items = self.load()
@@ -313,6 +331,10 @@ class PendingStore:
                 updated = replace(updated, raw_path=raw_path)
             if sha256 is not None:
                 updated = replace(updated, sha256=sha256)
+            if doc_id is not UNSET:
+                updated = replace(updated, doc_id=doc_id)
+            if continuation is not UNSET:
+                updated = replace(updated, continuation=continuation)
             items[key] = updated
             self._write(items)
             return updated

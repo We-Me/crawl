@@ -97,6 +97,7 @@ from crawler.schedule.pending import (
     STATE_PROCESSED,
     STATE_REFRESH,
     STATE_SKIPPED,
+    UNSET as PENDING_UNSET,
     PendingItem,
     PendingStore,
 )
@@ -158,6 +159,10 @@ class TargetOutcome:
     crawl_id: Optional[str] = None
     raw_path: Optional[str] = None
     sha256: Optional[str] = None
+    # R2：正文待续状态；缺省 PENDING_UNSET 表示不改写待处理项既有值，None 表示关闭。
+    continuation: object = PENDING_UNSET
+    # R2：待续对象的母文档身份；缺省 PENDING_UNSET 表示不改写待处理项既有值。
+    doc_id: object = PENDING_UNSET
 
 
 @dataclass
@@ -170,6 +175,97 @@ class BodyExpansion:
     parts: int = 1
     incomplete: Optional[str] = None
     stop: Optional[BudgetStop] = None
+    # R2：已取得部分的原件引用（顺序即合并顺序）与未取位置，供待续状态持久化。
+    part_refs: List[dict] = field(default_factory=list)
+    next_url: Optional[str] = None
+    body_api_url: Optional[str] = None
+
+
+# 正文待续的停止原因前缀：预算停止与可重试的正文请求失败可续作；页面循环/上限/
+# 选择器未命中/robots 拒绝是确定性终止，不建立待续状态（避免每轮重复同一失败）。
+CONTINUABLE_REASONS = (
+    "budget_stop:",
+    "pagination_fetch_failed:",
+    "body_api_failed:",
+    "resume_part_failed:",
+)
+
+
+CONTINUATION_KIND = "body_pagination"
+
+
+@dataclass(frozen=True)
+class BodyContinuation:
+    """正文分页/接口正文待续状态（R2）：随主目标待处理项持久化，JSON 可序列化。
+
+    记录母目标/文档身份、原范围（在待处理项上）、已取得部分的 crawl_id/raw 引用、
+    顺序、下一正文 URL 或接口与停止原因。下一轮优先续取未取部分；母页 304 只说明
+    母响应未变，不取消未完成正文。续作完成后的文档使用新身份（母身份 + 续作序号），
+    旧 partial 文档与全部原件保留，不静默覆盖。
+    """
+
+    doc_id: str
+    mother_url: str
+    mother_final_url: str
+    mother_raw_path: str
+    mother_sha256: str
+    mother_content_type: str = ""
+    next_url: Optional[str] = None
+    body_api_url: Optional[str] = None
+    parts: Tuple[dict, ...] = ()
+    stop_reason: str = ""
+    attempts: int = 0
+    updated_at: Optional[str] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "kind": CONTINUATION_KIND,
+            "doc_id": self.doc_id,
+            "mother_url": self.mother_url,
+            "mother_final_url": self.mother_final_url,
+            "mother_raw_path": self.mother_raw_path,
+            "mother_sha256": self.mother_sha256,
+            "mother_content_type": self.mother_content_type,
+            "next_url": self.next_url,
+            "body_api_url": self.body_api_url,
+            "parts": [dict(part) for part in self.parts],
+            "stop_reason": self.stop_reason,
+            "attempts": self.attempts,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Optional[dict]) -> Optional["BodyContinuation"]:
+        """宽容读取：种类不符或身份/部分引用不完整时返回 None，按完整重取处理。"""
+        if not isinstance(payload, dict) or payload.get("kind") != CONTINUATION_KIND:
+            return None
+        required = ("doc_id", "mother_url", "mother_raw_path", "mother_sha256")
+        if any(not payload.get(key) for key in required):
+            return None
+        parts = payload.get("parts") or []
+        if not isinstance(parts, list):
+            return None
+        for part in parts:
+            if not isinstance(part, dict):
+                return None
+            if not part.get("raw_path") or not part.get("crawl_id"):
+                return None
+            if part.get("method") not in ("pagination", "api"):
+                return None
+        return cls(
+            doc_id=str(payload["doc_id"]),
+            mother_url=str(payload["mother_url"]),
+            mother_final_url=str(payload.get("mother_final_url") or payload["mother_url"]),
+            mother_raw_path=str(payload["mother_raw_path"]),
+            mother_sha256=str(payload["mother_sha256"]),
+            mother_content_type=str(payload.get("mother_content_type") or ""),
+            next_url=payload.get("next_url") or None,
+            body_api_url=payload.get("body_api_url") or None,
+            parts=tuple(dict(part) for part in parts),
+            stop_reason=str(payload.get("stop_reason") or ""),
+            attempts=int(payload.get("attempts") or 0),
+            updated_at=payload.get("updated_at") or None,
+        )
 
 
 @dataclass
@@ -407,6 +503,26 @@ class CrawlPipeline:
                             source, item, report, crawl_date, crawl_time
                         )
                     else:
+                        continuation = BodyContinuation.from_dict(item.continuation)
+                        damaged_continuation = (
+                            item.continuation is not None and continuation is None
+                        )
+                        if damaged_continuation:
+                            # 待续状态损坏：不猜造进度，也不让 304 冒充完成；按完整重取
+                            # 处理（忽略条件请求），并留下可见的工程失败记录。
+                            logger.warning("待续状态损坏，按完整重取处理 key=%s", item.key)
+                            self._record_failure(
+                                report,
+                                source_id=source_id,
+                                url=item.url,
+                                stage="validate",
+                                error_type="continuation_state_damaged",
+                                message="正文待续状态损坏：按完整重取处理",
+                                attempts=1,
+                                retryable=False,
+                                referrer_url=item.referrer_url,
+                                doc_id=item.doc_id,
+                            )
                         outcome = self._collect_target(
                             source,
                             discoverer,
@@ -417,6 +533,8 @@ class CrawlPipeline:
                             report,
                             self._scope_for_item(item),
                             parent_url=item.url,
+                            continuation=continuation,
+                            ignore_conditional=damaged_continuation,
                         )
                 except BudgetStop as stop:
                     # 该目标的主请求未取得响应：保持待处理（不写成失败），下一轮继续。
@@ -447,6 +565,8 @@ class CrawlPipeline:
                     crawl_id=outcome.crawl_id,
                     raw_path=outcome.raw_path,
                     sha256=outcome.sha256,
+                    doc_id=outcome.doc_id,
+                    continuation=outcome.continuation,
                 )
                 processed += 1
                 self._count_outcome(report, item, outcome)
@@ -862,11 +982,29 @@ class CrawlPipeline:
         scope: Optional[RunScope] = None,
         *,
         parent_url: Optional[str] = None,
+        continuation: Optional[BodyContinuation] = None,
+        ignore_conditional: bool = False,
     ) -> TargetOutcome:
         scope = scope or RunScope()
+        if continuation is not None:
+            # R2：主目标带正文待续状态时优先续取未完成部分，不从头重取整篇。
+            return self._collect_target_continuation(
+                source,
+                discoverer,
+                target,
+                continuation,
+                crawl_date,
+                crawl_time,
+                include_attachments,
+                report,
+                scope,
+                parent_url=parent_url,
+            )
         try:
             state = self.state.get(target.url)
-            plan = plan_incremental(source.resource_kind, state, now=self.now())
+            plan = plan_incremental(
+                source.resource_kind, None if ignore_conditional else state, now=self.now()
+            )
             response = self._fetch_target_response(source, target, plan)
         except AttachmentBoundaryRejected as exc:
             # 非 HTML 原件超过附件大小上限：与附件下载同口径的确定性边界拒绝，
@@ -1028,25 +1166,306 @@ class CrawlPipeline:
                 sha256=raw.sha256,
             )
 
+        return self._commit_target_document(
+            source=source,
+            discoverer=discoverer,
+            target=target,
+            report=report,
+            scope=scope,
+            parent_url=parent_url,
+            include_attachments=include_attachments,
+            crawl_date=crawl_date,
+            crawl_time=crawl_time,
+            parsed=parsed,
+            mother_bytes=response.content,
+            mother_final_url=response.final_url,
+            mother_crawl_id=crawl_id,
+            mother_raw_path=raw.relative_path,
+            mother_sha256=raw.sha256,
+            mother_content_type=response.headers.get("Content-Type", ""),
+            doc_id=crawl_id,
+            etag=response.headers.get("ETag"),
+            last_modified=response.headers.get("Last-Modified"),
+        )
+
+    def _collect_target_continuation(
+        self,
+        source,
+        discoverer: Discoverer,
+        target: DiscoveredTarget,
+        continuation: BodyContinuation,
+        crawl_date: str,
+        crawl_time: str,
+        include_attachments: bool,
+        report: RunReport,
+        scope: RunScope,
+        *,
+        parent_url: Optional[str] = None,
+    ) -> TargetOutcome:
+        """R2 续作：先续取未完成正文，母页只做必要校验，304 不取消未完成部分。
+
+        - 304：母响应未变，沿用既有母原件与已保存部分，直接续取下一页/正文接口；
+        - 200 且字节与上一版相同（站点无 304 支持时）：同样续取已保存部分；
+        - 200 且内容变化：旧 raw 与旧 partial 文档保留，按新版本重新展开正文，
+          不把旧版本部分拼进新版；文档身份用「母身份 + 续作序号」，不与 partial 行冲突。
+        """
+        state = self.state.get(target.url)
+        try:
+            plan = plan_incremental(source.resource_kind, state, now=self.now())
+            response = self._fetch_target_response(source, target, plan)
+        except AttachmentBoundaryRejected as exc:
+            report.skipped.append(
+                SkippedTarget(target.url, f"boundary_rejected:{exc.reason}", target.referrer_url)
+            )
+            return TargetOutcome(
+                STATE_SKIPPED, f"boundary_rejected:{exc.reason}", doc_id=continuation.doc_id
+            )
+        except RobotsDisallowed as exc:
+            report.skipped.append(
+                SkippedTarget(
+                    target.url, f"robots_disallowed: {exc.rule or exc}", target.referrer_url
+                )
+            )
+            return TargetOutcome(
+                STATE_SKIPPED, f"robots_disallowed:{exc.rule or exc}", doc_id=continuation.doc_id
+            )
+        except FetchError as exc:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=target.url,
+                stage="fetch",
+                error_type="http_error" if exc.status_code else "request_error",
+                http_status=exc.status_code,
+                message=str(exc),
+                attempts=exc.attempts,
+                retryable=exc.retryable,
+                referrer_url=target.referrer_url,
+                doc_id=continuation.doc_id,
+            )
+            error_type = "http_error" if exc.status_code else "request_error"
+            return TargetOutcome(
+                STATE_FAILED, f"{error_type}: {exc}", doc_id=continuation.doc_id
+            )
+
+        doc_identity = f"{continuation.doc_id}-R{continuation.attempts + 1}"
+        if response.status_code == 304:
+            report.counters.not_modified += 1
+            try:
+                mother_bytes = self.layout.resolve_raw_path(
+                    continuation.mother_raw_path
+                ).read_bytes()
+            except (PathSafetyError, OSError) as exc:
+                self._record_failure(
+                    report,
+                    source_id=source.source_id,
+                    url=target.url,
+                    stage="parse",
+                    error_type="continuation_raw_missing",
+                    message=f"续接母原件不可读：{continuation.mother_raw_path}（{exc}）",
+                    attempts=1,
+                    retryable=False,
+                    referrer_url=target.referrer_url,
+                    crawl_id=continuation.doc_id,
+                    doc_id=continuation.doc_id,
+                )
+                return TargetOutcome(
+                    STATE_FAILED,
+                    f"continuation_raw_missing:{continuation.mother_raw_path}",
+                    doc_id=continuation.doc_id,
+                )
+            try:
+                parsed = self._parse_html_page(
+                    source,
+                    mother_bytes,
+                    continuation.mother_final_url,
+                    continuation.mother_content_type,
+                )
+            except Exception as exc:
+                self._record_failure(
+                    report,
+                    source_id=source.source_id,
+                    url=target.url,
+                    stage="parse",
+                    error_type="parse_error",
+                    message=str(exc),
+                    attempts=1,
+                    retryable=False,
+                    referrer_url=target.referrer_url,
+                    crawl_id=continuation.doc_id,
+                    doc_id=continuation.doc_id,
+                )
+                return TargetOutcome(
+                    STATE_FAILED, f"parse_error: {exc}", doc_id=continuation.doc_id
+                )
+            logger.info(
+                "正文续作：母页 304，沿用既有原件与已取部分 url=%s parts=%d",
+                target.url,
+                len(continuation.parts),
+            )
+            return self._commit_target_document(
+                source=source,
+                discoverer=discoverer,
+                target=target,
+                report=report,
+                scope=scope,
+                parent_url=parent_url,
+                include_attachments=include_attachments,
+                crawl_date=crawl_date,
+                crawl_time=crawl_time,
+                parsed=parsed,
+                mother_bytes=mother_bytes,
+                mother_final_url=continuation.mother_final_url,
+                mother_crawl_id=continuation.doc_id,
+                mother_raw_path=continuation.mother_raw_path,
+                mother_sha256=continuation.mother_sha256,
+                mother_content_type=continuation.mother_content_type,
+                doc_id=doc_identity,
+                etag=response.headers.get("ETag") or (state.etag if state else None),
+                last_modified=response.headers.get("Last-Modified")
+                or (state.last_modified if state else None),
+                previous=continuation,
+            )
+
+        if not _is_html(response.headers, response.final_url):
+            # 母页不再是 HTML：无法继续正文分页；保留待续状态等待人工/恢复处理。
+            content_type = response.headers.get("Content-Type", "")
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=target.url,
+                stage="parse",
+                error_type="continuation_not_html",
+                message=f"续接母页不再是 HTML：{content_type}",
+                attempts=1,
+                retryable=False,
+                referrer_url=target.referrer_url,
+                doc_id=continuation.doc_id,
+            )
+            return TargetOutcome(
+                STATE_FAILED, f"continuation_not_html:{content_type}", doc_id=continuation.doc_id
+            )
+
+        archived = self.archiver.archive(
+            response,
+            source_id=source.source_id,
+            kind="html",
+            discovery_method=target.discovery_method,
+            keyword=target.keyword,
+            referrer_url=target.referrer_url,
+            crawl_time=crawl_time,
+        )
+        report.counters.resources += 1
+        same_version = archived.raw.sha256 == continuation.mother_sha256
+        try:
+            parsed = self._parse_html_page(
+                source, response.content, response.final_url, response.headers.get("Content-Type", "")
+            )
+        except Exception as exc:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=target.url,
+                stage="parse",
+                error_type="parse_error",
+                message=str(exc),
+                attempts=1,
+                retryable=False,
+                referrer_url=target.referrer_url,
+                crawl_id=archived.crawl_id,
+                doc_id=continuation.doc_id,
+            )
+            return TargetOutcome(
+                STATE_FAILED, f"parse_error: {exc}", doc_id=continuation.doc_id
+            )
+        if same_version:
+            previous: Optional[BodyContinuation] = continuation
+            logger.info("正文续作：母页字节与上一版相同，按续接处理 url=%s", target.url)
+        else:
+            # 新版本：旧 raw 与旧 partial 文档保留；已保存部分属于旧版本，不并入新版。
+            previous = None
+            logger.warning(
+                "正文续作：母页内容已变化，按新版本重新展开 url=%s（旧原件与 partial 文档保留）",
+                target.url,
+            )
+        return self._commit_target_document(
+            source=source,
+            discoverer=discoverer,
+            target=target,
+            report=report,
+            scope=scope,
+            parent_url=parent_url,
+            include_attachments=include_attachments,
+            crawl_date=crawl_date,
+            crawl_time=crawl_time,
+            parsed=parsed,
+            mother_bytes=response.content,
+            mother_final_url=response.final_url,
+            mother_crawl_id=archived.crawl_id,
+            mother_raw_path=archived.raw.relative_path,
+            mother_sha256=archived.raw.sha256,
+            mother_content_type=response.headers.get("Content-Type", ""),
+            doc_id=archived.crawl_id,
+            etag=response.headers.get("ETag"),
+            last_modified=response.headers.get("Last-Modified"),
+            previous=previous,
+        )
+
+    def _commit_target_document(
+        self,
+        *,
+        source,
+        discoverer: Discoverer,
+        target: DiscoveredTarget,
+        report: RunReport,
+        scope: RunScope,
+        parent_url: Optional[str],
+        include_attachments: bool,
+        crawl_date: str,
+        crawl_time: str,
+        parsed: ParsedPage,
+        mother_bytes: bytes,
+        mother_final_url: str,
+        mother_crawl_id: str,
+        mother_raw_path: str,
+        mother_sha256: str,
+        mother_content_type: str,
+        doc_id: str,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        previous: Optional[BodyContinuation] = None,
+    ) -> TargetOutcome:
+        """正文合并、附件收集与文档提交（正常路径与 R2 续作路径共用）。"""
+        resume = previous is not None
         expansion = self._expand_body(
-            source, parsed, response.final_url, crawl_date, crawl_time, report, doc_id=crawl_id
+            source,
+            parsed,
+            mother_final_url,
+            crawl_date,
+            crawl_time,
+            report,
+            # 正文部分失败的 doc_id 指向母文档身份：恢复关联与待处理项同一口径（R2/R5）。
+            doc_id=mother_crawl_id,
+            resume_parts=previous.parts if resume else (),
+            resume_next_url=previous.next_url if resume else None,
+            resume_body_api_url=previous.body_api_url if resume else None,
+            resume=resume,
         )
         parsed = expansion.page
 
-        doc_id = crawl_id
         attachments = []
         attachment_stop: Optional[BudgetStop] = None
         if include_attachments and expansion.stop is None:
             attachments, attachment_stop = self._collect_attachments(
                 source,
                 discoverer,
-                [(response.content, response.final_url), *expansion.extra_pages],
+                [(mother_bytes, mother_final_url), *expansion.extra_pages],
                 doc_id,
                 crawl_date,
                 crawl_time,
                 report,
                 scope,
-                parent_url or response.final_url,
+                parent_url or mother_final_url,
             )
         stop_after_commit = expansion.stop or attachment_stop
         try:
@@ -1054,16 +1473,16 @@ class CrawlPipeline:
                 doc_id=doc_id,
                 source_id=source.source_id,
                 source_name=source.source_name,
-                source_url=response.final_url,
+                source_url=mother_final_url,
                 title=parsed.title,
                 full_text=parsed.full_text,
                 language=source.language or parsed.language_hint or "und",
                 document_type=source.parser_type or "html_page",
-                raw_path=raw.relative_path,
-                sha256=raw.sha256,
+                raw_path=mother_raw_path,
+                sha256=mother_sha256,
                 crawl_time=crawl_time,
                 extraction_method=parsed.extraction_method,
-                crawl_ids=[crawl_id, *expansion.extra_crawl_ids],
+                crawl_ids=[mother_crawl_id, *expansion.extra_crawl_ids],
                 canonical_url=parsed.canonical_url,
                 publication_date=parsed.publication_date,
                 raw_date=parsed.raw_date_text,
@@ -1088,14 +1507,15 @@ class CrawlPipeline:
                 attempts=1,
                 retryable=False,
                 referrer_url=target.referrer_url,
-                crawl_id=crawl_id,
+                crawl_id=mother_crawl_id,
+                doc_id=mother_crawl_id if resume else None,
             )
             return TargetOutcome(
                 STATE_FAILED,
                 f"normalization_error: {exc}",
-                crawl_id=crawl_id,
-                raw_path=raw.relative_path,
-                sha256=raw.sha256,
+                crawl_id=doc_id,
+                raw_path=mother_raw_path,
+                sha256=mother_sha256,
             )
         report.counters.documents += document_count
         report.counters.blocks += block_count
@@ -1103,14 +1523,37 @@ class CrawlPipeline:
         self.state.record_success(
             target.url,
             now=self.now(),
-            etag=response.headers.get("ETag"),
-            last_modified=response.headers.get("Last-Modified"),
-            sha256=raw.sha256,
+            etag=etag,
+            last_modified=last_modified,
+            sha256=mother_sha256,
             content_hash=text_hash(document["full_text"]),
-            crawl_id=crawl_id,
+            crawl_id=doc_id,
             publication_date=document.get("publication_date"),
             version=document.get("version"),
         )
+        continuation = self._next_continuation(
+            target=target,
+            expansion=expansion,
+            mother_crawl_id=mother_crawl_id,
+            mother_final_url=mother_final_url,
+            mother_raw_path=mother_raw_path,
+            mother_sha256=mother_sha256,
+            mother_content_type=mother_content_type,
+            previous=previous,
+        )
+        if continuation is not None:
+            # R2：正文仍有未取部分时保持待续，不写成请求失败、也不冒充整体完成。
+            note = f"partial:{expansion.incomplete or 'budget_stop'}"
+            return TargetOutcome(
+                STATE_PENDING,
+                note,
+                stop=expansion.stop,
+                crawl_id=doc_id,
+                raw_path=mother_raw_path,
+                sha256=mother_sha256,
+                continuation=continuation.as_dict(),
+                doc_id=continuation.doc_id,
+            )
         if stop_after_commit is not None:
             # 已归档页面、附件与文档全部落盘后再停止本次运行（目标本身算已完成）。
             note = f"partial:{expansion.incomplete or 'attachment_budget_stop'}"
@@ -1118,27 +1561,152 @@ class CrawlPipeline:
                 STATE_PROCESSED,
                 note,
                 stop=stop_after_commit,
-                crawl_id=crawl_id,
-                raw_path=raw.relative_path,
-                sha256=raw.sha256,
+                crawl_id=doc_id,
+                raw_path=mother_raw_path,
+                sha256=mother_sha256,
+                # 附件待续有自己的待处理项；正文待续已关闭时才显式清空。
+                continuation=None if expansion.stop is None else PENDING_UNSET,
             )
         if expansion.incomplete:
-            # R5：正文分页/接口仍不完整时不得报告 ok。文档已按 parse_status=partial 提交，
-            # 原件与已取部分保留；目标状态由调用方按待续处理，不冒充完整成功。
+            # R5：正文分页/接口仍不完整（循环/上限/robots/选择器未命中）时不得报告 ok。
             return TargetOutcome(
                 STATE_PROCESSED,
                 f"partial:{expansion.incomplete}",
-                crawl_id=crawl_id,
-                raw_path=raw.relative_path,
-                sha256=raw.sha256,
+                crawl_id=doc_id,
+                raw_path=mother_raw_path,
+                sha256=mother_sha256,
+                continuation=None,
             )
         return TargetOutcome(
             STATE_PROCESSED,
             "ok",
-            crawl_id=crawl_id,
-            raw_path=raw.relative_path,
-            sha256=raw.sha256,
+            crawl_id=doc_id,
+            raw_path=mother_raw_path,
+            sha256=mother_sha256,
+            continuation=None,
         )
+
+    def _next_continuation(
+        self,
+        *,
+        target: DiscoveredTarget,
+        expansion: BodyExpansion,
+        mother_crawl_id: str,
+        mother_final_url: str,
+        mother_raw_path: str,
+        mother_sha256: str,
+        mother_content_type: str,
+        previous: Optional[BodyContinuation],
+    ) -> Optional[BodyContinuation]:
+        """把未完成的正文位置转成待续状态；确定性终止（循环/上限/robots）不建立。"""
+        continuable = expansion.stop is not None or (
+            bool(expansion.incomplete)
+            and expansion.incomplete.startswith(CONTINUABLE_REASONS)
+        )
+        if not continuable:
+            return None
+        if not expansion.next_url and not expansion.body_api_url:
+            return None
+        return BodyContinuation(
+            doc_id=mother_crawl_id,
+            mother_url=target.url,
+            mother_final_url=mother_final_url,
+            mother_raw_path=mother_raw_path,
+            mother_sha256=mother_sha256,
+            mother_content_type=mother_content_type,
+            next_url=expansion.next_url,
+            body_api_url=expansion.body_api_url,
+            parts=tuple(expansion.part_refs),
+            stop_reason=expansion.incomplete or "budget_stop",
+            attempts=(previous.attempts if previous is not None else 0) + 1,
+            updated_at=self.now().isoformat(),
+        )
+
+    @staticmethod
+    def _parse_html_page(
+        source, content: bytes, final_url: str, content_type: str = ""
+    ) -> ParsedPage:
+        """HTML 解析 + 规范化；与正常采集路径同一解析器与选择器配置。"""
+        return normalize_page(
+            parse_html(
+                content,
+                final_url,
+                encoding_hint=_charset(content_type or ""),
+                content_selector=source.adapter.content_selector,
+                date_selector=source.adapter.date_selector,
+                pagination_selector=source.adapter.pagination_selector,
+            ),
+            language_hints=(source.language,),
+            base_url=final_url,
+        )
+
+    def _restore_body_part(
+        self,
+        source,
+        ref: dict,
+        report: RunReport,
+        *,
+        doc_id: Optional[str] = None,
+        referrer: Optional[str] = None,
+    ) -> Optional[Tuple[List[ParsedBlock], bytes, str]]:
+        """从已归档原件重建一个已取得部分；原件缺失/损坏时返回 None 并留痕。"""
+        raw_path = str(ref.get("raw_path") or "")
+        url = str(ref.get("url") or "")
+        method = str(ref.get("method") or "pagination")
+        try:
+            content = self.layout.resolve_raw_path(raw_path).read_bytes()
+        except (PathSafetyError, OSError) as exc:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=url,
+                stage="parse",
+                error_type="continuation_part_unreadable",
+                message=f"已取得正文部分原件不可读：{raw_path}（{exc}）",
+                attempts=1,
+                retryable=False,
+                referrer_url=referrer,
+                crawl_id=ref.get("crawl_id"),
+                doc_id=doc_id,
+            )
+            return None
+        final_url = str(ref.get("final_url") or url)
+        try:
+            if method == "api":
+                payload = json.loads(decode_html(content))
+                body = _body_text_from_payload(payload)
+                if not body:
+                    raise ValueError("接口原件未包含候选正文字段")
+                if "<" in body:
+                    parsed = normalize_page(
+                        parse_html(body.encode("utf-8"), final_url),
+                        language_hints=(source.language,),
+                        base_url=final_url,
+                    )
+                    blocks = list(parsed.blocks)
+                else:
+                    blocks = [ParsedBlock(block_type="paragraph", text=" ".join(body.split()))]
+            else:
+                parsed = self._parse_html_page(
+                    source, content, final_url, str(ref.get("content_type") or "")
+                )
+                blocks = list(parsed.blocks)
+        except Exception as exc:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=url,
+                stage="parse",
+                error_type="continuation_part_unreadable",
+                message=f"已取得正文部分无法重建：{raw_path}（{exc}）",
+                attempts=1,
+                retryable=False,
+                referrer_url=referrer,
+                crawl_id=ref.get("crawl_id"),
+                doc_id=doc_id,
+            )
+            return None
+        return blocks, content, final_url
 
     def _expand_body(
         self,
@@ -1149,6 +1717,11 @@ class CrawlPipeline:
         crawl_time: str,
         report: RunReport,
         doc_id: Optional[str] = None,
+        *,
+        resume_parts: Sequence[dict] = (),
+        resume_next_url: Optional[str] = None,
+        resume_body_api_url: Optional[str] = None,
+        resume: bool = False,
     ) -> BodyExpansion:
         """还原正文分页与接口加载正文（FR-005）。
 
@@ -1158,132 +1731,167 @@ class CrawlPipeline:
         正文为 HTML 时按同一 HTML 解析器抽取，纯文本按单一文本块保留。
         任一部分失败不静默：写入失败账并保持文档 parse_status=partial。失败行带母文档
         doc_id，供恢复关联回到具体母目标（R5），不按 URL 关闭其它窗口。
+
+        R2 续作：``resume_parts`` 按保存顺序从原件重建已取得部分（不重复请求、不重复
+        拼接），``resume_next_url``/``resume_body_api_url`` 给出未取位置；母页 304 只
+        说明母响应未变，未完成正文与附件继续取，不被首响应阻断。
         """
 
         first_blocks = list(parsed.blocks)
         extra_blocks: List[ParsedBlock] = []
         extra_crawl_ids: List[str] = []
         extra_pages: List[Tuple[bytes, str]] = []
+        part_refs: List[dict] = []
         incomplete: Optional[str] = None
         budget_stop: Optional[BudgetStop] = None
         parts = 1
         visited = {page_url}
-        next_url = parsed.next_page_url
+        next_url = resume_next_url if resume else parsed.next_page_url
+        pending_api = resume_body_api_url if resume else parsed.body_api_url
         referrer = page_url
 
-        while next_url:
-            if parts >= MAX_BODY_PARTS:
-                incomplete = f"pagination_cap:{MAX_BODY_PARTS}:{next_url}"
-                logger.warning("正文分页超过上限，停止合并 url=%s", next_url)
-                break
-            if next_url in visited:
-                incomplete = f"pagination_loop:{next_url}"
-                logger.warning("正文分页出现循环，停止合并 url=%s", next_url)
-                break
-            visited.add(next_url)
-            decision = self.registry.check_access(next_url, source.source_id)
-            if not decision.allowed:
-                report.skipped.append(SkippedTarget(next_url, decision.reason, referrer))
-                incomplete = f"pagination_blocked:{next_url}"
-                break
-            try:
-                part = self.http.get(next_url, source_id=source.source_id)
-            except BudgetStop as stop:
-                # 预算停止不是抓取失败：已合并的部分保留，停止原因交给运行报告。
-                incomplete = f"budget_stop:{stop.reason}"
-                budget_stop = stop
-                logger.warning("正文分页按预算停止 url=%s reason=%s", next_url, stop.reason)
-                break
-            except RobotsDisallowed as exc:
-                report.skipped.append(
-                    SkippedTarget(next_url, f"robots_disallowed: {exc.rule or exc}", referrer)
-                )
-                incomplete = f"pagination_robots:{next_url}"
-                break
-            except FetchError as exc:
-                self._record_failure(
-                    report,
-                    source_id=source.source_id,
-                    url=next_url,
-                    stage="fetch",
-                    error_type="http_error" if exc.status_code else "request_error",
-                    http_status=exc.status_code,
-                    message=str(exc),
-                    attempts=exc.attempts,
-                    retryable=exc.retryable,
-                    referrer_url=referrer,
-                    doc_id=doc_id,
-                )
-                incomplete = f"pagination_fetch_failed:{next_url}"
-                break
-            archived = self.archiver.archive(
-                part,
-                source_id=source.source_id,
-                kind="html",
-                discovery_method="pagination",
-                referrer_url=referrer,
-                crawl_time=crawl_time,
+        # R2：已取得部分按保存顺序从原件重建；全部可重建时才继续请求未取部分，
+        # 避免把不可重建的部分悄悄跳过或重复拼接。
+        for ref in resume_parts:
+            part_url = str(ref.get("url") or "")
+            if part_url:
+                visited.add(part_url)
+            restored = self._restore_body_part(
+                source, ref, report, doc_id=doc_id, referrer=referrer
             )
-            raw = archived.raw
-            part_crawl_id = archived.crawl_id
-            report.counters.resources += 1
-            try:
-                part_parsed = normalize_page(
-                    parse_html(
-                        part.content,
-                        part.final_url,
-                        encoding_hint=_charset(part.headers.get("Content-Type", "")),
-                        content_selector=source.adapter.content_selector,
-                        date_selector=source.adapter.date_selector,
-                        pagination_selector=source.adapter.pagination_selector,
-                    ),
-                    language_hints=(source.language,),
-                    base_url=part.final_url,
-                )
-            except Exception as exc:  # 解析失败保留该部分原件与失败记录
-                self._record_failure(
-                    report,
-                    source_id=source.source_id,
-                    url=next_url,
-                    stage="parse",
-                    error_type="parse_error",
-                    message=str(exc),
-                    attempts=1,
-                    retryable=False,
-                    referrer_url=referrer,
-                    crawl_id=part_crawl_id,
-                    doc_id=doc_id,
-                )
-                incomplete = f"pagination_parse_failed:{next_url}"
+            if restored is None:
+                incomplete = f"resume_part_failed:{part_url}"
+                next_url = part_url or None
                 break
-            if part_parsed.content_selector_missed:
-                self._record_failure(
-                    report,
-                    source_id=source.source_id,
-                    url=next_url,
-                    stage="parse",
-                    error_type="adapter_selector_miss",
-                    message=f"适配正文选择器未命中：{source.adapter.content_selector}",
-                    attempts=1,
-                    retryable=False,
-                    referrer_url=referrer,
-                    crawl_id=part_crawl_id,
-                    doc_id=doc_id,
-                )
-                incomplete = f"pagination_selector_miss:{next_url}"
-                break
+            part_blocks, part_content, part_final_url = restored
+            index = len(part_refs) + 2
+            if ref.get("method") == "pagination":
+                extra_blocks.extend(replace(block, page_no=index) for block in part_blocks)
+            else:
+                extra_blocks.extend(part_blocks)
             parts += 1
-            extra_blocks.extend(replace(block, page_no=parts) for block in part_parsed.blocks)
-            extra_crawl_ids.append(part_crawl_id)
-            extra_pages.append((part.content, part.final_url))
-            referrer = part.final_url
-            next_url = part_parsed.next_page_url
+            extra_crawl_ids.append(str(ref["crawl_id"]))
+            extra_pages.append((part_content, part_final_url))
+            part_refs.append(dict(ref))
+            referrer = part_final_url
+        else:
+            while next_url:
+                requested_url = next_url
+                if parts >= MAX_BODY_PARTS:
+                    incomplete = f"pagination_cap:{MAX_BODY_PARTS}:{next_url}"
+                    logger.warning("正文分页超过上限，停止合并 url=%s", next_url)
+                    break
+                if next_url in visited:
+                    incomplete = f"pagination_loop:{next_url}"
+                    logger.warning("正文分页出现循环，停止合并 url=%s", next_url)
+                    break
+                visited.add(next_url)
+                decision = self.registry.check_access(next_url, source.source_id)
+                if not decision.allowed:
+                    report.skipped.append(SkippedTarget(next_url, decision.reason, referrer))
+                    incomplete = f"pagination_blocked:{next_url}"
+                    break
+                try:
+                    part = self.http.get(next_url, source_id=source.source_id)
+                except BudgetStop as stop:
+                    # 预算停止不是抓取失败：已合并的部分保留，停止原因交给运行报告。
+                    incomplete = f"budget_stop:{stop.reason}"
+                    budget_stop = stop
+                    logger.warning("正文分页按预算停止 url=%s reason=%s", next_url, stop.reason)
+                    break
+                except RobotsDisallowed as exc:
+                    report.skipped.append(
+                        SkippedTarget(next_url, f"robots_disallowed: {exc.rule or exc}", referrer)
+                    )
+                    incomplete = f"pagination_robots:{next_url}"
+                    break
+                except FetchError as exc:
+                    self._record_failure(
+                        report,
+                        source_id=source.source_id,
+                        url=next_url,
+                        stage="fetch",
+                        error_type="http_error" if exc.status_code else "request_error",
+                        http_status=exc.status_code,
+                        message=str(exc),
+                        attempts=exc.attempts,
+                        retryable=exc.retryable,
+                        referrer_url=referrer,
+                        doc_id=doc_id,
+                    )
+                    incomplete = f"pagination_fetch_failed:{next_url}"
+                    break
+                archived = self.archiver.archive(
+                    part,
+                    source_id=source.source_id,
+                    kind="html",
+                    discovery_method="pagination",
+                    referrer_url=referrer,
+                    crawl_time=crawl_time,
+                )
+                raw = archived.raw
+                part_crawl_id = archived.crawl_id
+                report.counters.resources += 1
+                try:
+                    part_parsed = self._parse_html_page(
+                        source, part.content, part.final_url, part.headers.get("Content-Type", "")
+                    )
+                except Exception as exc:  # 解析失败保留该部分原件与失败记录
+                    self._record_failure(
+                        report,
+                        source_id=source.source_id,
+                        url=next_url,
+                        stage="parse",
+                        error_type="parse_error",
+                        message=str(exc),
+                        attempts=1,
+                        retryable=False,
+                        referrer_url=referrer,
+                        crawl_id=part_crawl_id,
+                        doc_id=doc_id,
+                    )
+                    incomplete = f"pagination_parse_failed:{next_url}"
+                    break
+                if part_parsed.content_selector_missed:
+                    self._record_failure(
+                        report,
+                        source_id=source.source_id,
+                        url=next_url,
+                        stage="parse",
+                        error_type="adapter_selector_miss",
+                        message=f"适配正文选择器未命中：{source.adapter.content_selector}",
+                        attempts=1,
+                        retryable=False,
+                        referrer_url=referrer,
+                        crawl_id=part_crawl_id,
+                        doc_id=doc_id,
+                    )
+                    incomplete = f"pagination_selector_miss:{next_url}"
+                    break
+                parts += 1
+                extra_blocks.extend(replace(block, page_no=parts) for block in part_parsed.blocks)
+                extra_crawl_ids.append(part_crawl_id)
+                extra_pages.append((part.content, part.final_url))
+                part_refs.append(
+                    {
+                        "order": len(part_refs) + 2,
+                        "url": requested_url,
+                        "final_url": part.final_url,
+                        "crawl_id": part_crawl_id,
+                        "raw_path": raw.relative_path,
+                        "sha256": raw.sha256,
+                        "method": "pagination",
+                        "content_type": part.headers.get("Content-Type", ""),
+                    }
+                )
+                referrer = part.final_url
+                next_url = part_parsed.next_page_url
 
-        if parsed.body_api_url:
+        if pending_api:
             try:
                 api_result = self._fetch_body_api(
                     source,
-                    parsed.body_api_url,
+                    pending_api,
                     referrer,
                     crawl_date,
                     crawl_time,
@@ -1294,13 +1902,15 @@ class CrawlPipeline:
                 api_result = None
                 budget_stop = budget_stop or stop
                 incomplete = incomplete or f"budget_stop:{stop.reason}"
-                logger.warning("接口正文按预算停止 url=%s reason=%s", parsed.body_api_url, stop.reason)
+                logger.warning("接口正文按预算停止 url=%s reason=%s", pending_api, stop.reason)
             if api_result is None:
-                incomplete = incomplete or f"body_api_failed:{parsed.body_api_url}"
+                incomplete = incomplete or f"body_api_failed:{pending_api}"
             else:
-                api_blocks, api_text, api_crawl_id = api_result
+                api_blocks, api_ref = api_result
                 extra_blocks.extend(api_blocks)
-                extra_crawl_ids.append(api_crawl_id)
+                extra_crawl_ids.append(str(api_ref["crawl_id"]))
+                part_refs.append({**api_ref, "order": len(part_refs) + 2})
+                pending_api = None
 
         if parts > 1:
             blocks = [replace(block, page_no=1) for block in first_blocks] + extra_blocks
@@ -1324,6 +1934,9 @@ class CrawlPipeline:
             parts=parts,
             incomplete=incomplete,
             stop=budget_stop,
+            part_refs=part_refs,
+            next_url=next_url,
+            body_api_url=pending_api,
         )
 
     def _fetch_body_api(
@@ -1336,7 +1949,10 @@ class CrawlPipeline:
         report: RunReport,
         doc_id: Optional[str] = None,
     ):
-        """获取接口正文档：归档、记账后按候选字段取正文；失败返回 None 并留痕。"""
+        """获取接口正文档：归档、记账后按候选字段取正文；失败返回 None 并留痕。
+
+        成功返回 (blocks, 部分引用)：引用含 crawl_id/raw_path/sha256/顺序，供 R2 待续。
+        """
         decision = self.registry.check_access(api_url, source.source_id)
         if not decision.allowed:
             report.skipped.append(SkippedTarget(api_url, decision.reason, referrer))
@@ -1413,10 +2029,20 @@ class CrawlPipeline:
                 language_hints=(source.language,),
                 base_url=response.final_url,
             )
-            return list(parsed.blocks), parsed.full_text, crawl_id
-        text = " ".join(body.split())
-        block = ParsedBlock(block_type="paragraph", text=text)
-        return [block], text, crawl_id
+            blocks = list(parsed.blocks)
+        else:
+            text = " ".join(body.split())
+            blocks = [ParsedBlock(block_type="paragraph", text=text)]
+        ref = {
+            "url": api_url,
+            "final_url": response.final_url,
+            "crawl_id": crawl_id,
+            "raw_path": raw.relative_path,
+            "sha256": raw.sha256,
+            "method": "api",
+            "content_type": response.headers.get("Content-Type", ""),
+        }
+        return blocks, ref
 
     def _collect_attachments(
         self,
@@ -1880,8 +2506,17 @@ class CrawlPipeline:
             referrer_url=task.referrer_url,
         )
         crawl_date = moment.date().isoformat()
+        # R2：补抓同样按既有待续状态续取未完成正文，不因母页 304 丢掉未取部分。
         outcome = self._collect_target(
-            source, None, target, crawl_date, moment.isoformat(), False, report, scope
+            source,
+            None,
+            target,
+            crawl_date,
+            moment.isoformat(),
+            False,
+            report,
+            scope,
+            continuation=self._pending_continuation_for(source.source_id, task),
         )
         attempt = {
             "crawl_id": outcome.crawl_id,
@@ -2020,6 +2655,8 @@ class CrawlPipeline:
                 crawl_id=crawl_id,
                 raw_path=raw_path,
                 sha256=sha256,
+                # 完整处理时才清除待续；待续/失败处置保持原续作状态。
+                continuation=None if state == STATE_PROCESSED else PENDING_UNSET,
             )
             logger.info("补抓回写待处理项 key=%s state=%s", item.key, state)
             matched.append(item.key)
@@ -2031,6 +2668,22 @@ class CrawlPipeline:
                 task.doc_id,
             )
         return matched
+
+    def _pending_continuation_for(
+        self, source_id: str, task: RecoveryTask
+    ) -> Optional[BodyContinuation]:
+        """补抓任务的待续状态（来源 + URL + 原范围 + 母文档身份）；无匹配返回 None。"""
+        for item in self.pending.all_items():
+            if item.source_id != source_id or item.url != task.url:
+                continue
+            if (item.scope_start_date or None) != (task.scope_start_date or None):
+                continue
+            if not _same_recovery_object(item, task):
+                continue
+            continuation = BodyContinuation.from_dict(item.continuation)
+            if continuation is not None:
+                return continuation
+        return None
 
     def _recover_reparse(
         self,
