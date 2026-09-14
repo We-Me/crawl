@@ -274,3 +274,5 @@ T002 按 [uv 模板说明](uv-template.md) 核验登记镜像、依赖兼容性�
 ## 历史阶段记录
 
 原阶段追加说明已移至 [SDD 历史说明](../../SDD历史说明.md)；已有任务证据与需求编号保留。当前执行按 [阶段七](stage-seven.md)，不按旧等待条件重新调度。
+
+阶段七进展（2026-09-14）：按 [stage-seven.md](stage-seven.md) 执行——S7-01 四项审查问题修复、S7-02 错误处置能力补齐（`crawl failures`/`crawl resolve`）、S7-03 有界闭环与交付证据已完成，交付说明见 [evidence/stage-seven-delivery.md](evidence/stage-seven-delivery.md)（最终提交号以 `git log` 为准）。T019/T026/T027 仍为部分完成，不因本轮勾选；18 来源中 9 个为有限窗口验证、9 个访问受限。

@@ -1,0 +1,209 @@
+# 阶段七只读评估：正式数据根 data/（17GB，只读；不批量改写历史数据）
+# 目的：确认新增身份口径下交付校验、失败可见性与补抓计划仍与实际数据一致
+$ uv run --no-cache python -m crawler.cli check --json
+{
+  "ok": true,
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "delivery": {
+    "data_dir": "/home/zhou/workspaces/crawl/data",
+    "ok": true,
+    "deliverables": [
+      {
+        "name": "raw/",
+        "path": "raw",
+        "kind": "dir",
+        "present": true
+      },
+      {
+        "name": "manifests/crawl_manifest.jsonl",
+        "path": "manifests/crawl_manifest.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "normalized/documents.jsonl",
+        "path": "normalized/documents.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "normalized/blocks.jsonl",
+        "path": "normalized/blocks.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "manifests/failed_records.jsonl",
+        "path": "manifests/failed_records.jsonl",
+        "kind": "file_optional_if_empty",
+        "present": true
+      },
+      {
+        "name": "logs/",
+        "path": "logs",
+        "kind": "dir",
+        "present": true
+      }
+    ],
+    "missing": [],
+    "counts": {
+      "manifest_rows": 12164,
+      "document_rows": 4728,
+      "block_rows": 26774,
+      "failure_rows": 10,
+      "raw_files": 11838
+    },
+    "forbidden_artifacts": [],
+    "path_issues": [],
+    "notes": []
+  },
+  "schema": {
+    "ok": true,
+    "error_count": 0,
+    "by_file": {},
+    "errors": []
+  },
+  "trace": {
+    "ok": true,
+    "documents": {
+      "total": 4728,
+      "traceable": 4728,
+      "rate": 1.0
+    },
+    "blocks": {
+      "total": 26774,
+      "traceable": 26774,
+      "rate": 1.0
+    },
+    "problems": []
+  },
+  "reconcile": {
+    "ok": true,
+    "items_total": 5392,
+    "items_by_state": {
+      "processed": 5374,
+      "skipped": 18
+    },
+    "open_failures": 4,
+    "problems": []
+  }
+}
+
+$ uv run --no-cache python -m crawler.cli failures --json
+{
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "open": 4,
+  "shown": 4,
+  "by_action": {
+    "record_only": 4,
+    "recovered": 5
+  },
+  "rows": [
+    {
+      "source_id": "IN-05",
+      "url": "https://www.mha.gov.in/sites/default/files/2026-02/ReportOutput_Current_Year_PDF_2026_16022026.pdf",
+      "time": "2026-09-13T21:23:39.615523+08:00",
+      "stage": "fetch",
+      "error_type": "request_error",
+      "message": "读取响应失败：('Connection broken: IncompleteRead(28583205 bytes read, 134200808 more expected)', IncompleteRead(28583205 bytes read, 134200808 more expected))",
+      "retry_count": 0,
+      "final_action": "record_only",
+      "referrer_url": "https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management",
+      "scope_start_date": "2026-09-06"
+    },
+    {
+      "source_id": "IN-02",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/KW13B1831.pdf",
+      "time": "2026-09-14T01:42:27.005040+08:00",
+      "stage": "fetch",
+      "error_type": "request_error",
+      "message": "读取响应失败：HTTPSConnectionPool(host='www.mea.gov.in', port=443): Read timed out.",
+      "retry_count": 0,
+      "final_action": "record_only",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1831",
+      "scope_start_date": "2026-09-06"
+    },
+    {
+      "source_id": "IN-02",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/JP11B0043.pdf",
+      "time": "2026-09-14T02:14:17.132504+08:00",
+      "stage": "fetch",
+      "error_type": "request_error",
+      "message": "附件超过 67108864 字节上限",
+      "retry_count": 0,
+      "final_action": "record_only",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?618",
+      "scope_start_date": "2026-09-06"
+    },
+    {
+      "source_id": "IN-02",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/YU48B1207.pdf",
+      "time": "2026-09-14T06:14:11.812443+08:00",
+      "stage": "fetch",
+      "error_type": "request_error",
+      "message": "读取响应失败：HTTPSConnectionPool(host='www.mea.gov.in', port=443): Read timed out.",
+      "retry_count": 0,
+      "final_action": "record_only",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1207",
+      "scope_start_date": "2026-09-06"
+    }
+  ]
+}
+
+$ uv run --no-cache python -m crawler.cli plan --json
+{
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "summary": {
+    "refetch": 4
+  },
+  "tasks": [
+    {
+      "action": "refetch",
+      "url": "https://www.mha.gov.in/sites/default/files/2026-02/ReportOutput_Current_Year_PDF_2026_16022026.pdf",
+      "stage": "fetch",
+      "source_id": "IN-05",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "referrer_url": "https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/KW13B1831.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1831",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/JP11B0043.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?618",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/YU48B1207.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1207",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    }
+  ]
+}

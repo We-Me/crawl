@@ -33,6 +33,7 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [阶段五 raw 完整性](stage-five-raw-completeness.md) | S5-01/S5-03/S5-04/S5-06：发现响应统一归档、分页终止原因与游标、附件闭环、多轮续接与覆盖报告（关联 T005/T006/T007/T015/T016/T026/T027 的工程部分） | 已完成工程实施并通过离线夹具验证（新增 13 项用例，全量 419 passed，见 [logs/stage-five-full-pytest.txt](logs/stage-five-full-pytest.txt)）；S5-02 复用受限来源证据不新增探测，正式验收与逐站取值仍待 Q12/Q13 |
 | [阶段六 R1—R6 一致性修复](stage-six-r1-r6.md) | R1—R6 / S5-01、S5-03、S5-04、S5-06：复查覆盖、正文待续、归档事务锁、发现提交顺序、显式恢复判定、损坏状态失败（关联 T005/T006/T007/T015/T016/T019 的工程部分） | 六项修复已提交（`f53a899`、`8bbbdda`、`ec2edd3`、`9f74bd1`、`b925705`）并通过离线夹具验证：定向 103 passed、完整回归 492 passed，见 [logs/stage-six-full-pytest.txt](logs/stage-six-full-pytest.txt)；T019/T026/T027 仍为部分完成 |
 | [阶段六历史数据只读影响评估](stage-six-historical-impact.md) | R3/R5/R1/R4/R2 遗留：现有 data/ 的重复身份、旧失败账、旧游标、旧 partial 与附件状态滞后 | 只读评估（`crawl check` ok、`plan` refetch 4；检查前后非 raw 输入字节一致），列出受影响身份与选项，未执行任何迁移 |
+| [阶段七交付证据](stage-seven-delivery.md) | S7-01—S7-03：四项审查问题修复、六项错误处置能力、有界闭环与候选回归（关联 T016/T019/T027 的工程部分） | 复现 16 failed → 定向 80 passed、全量 507 passed；本机闭环 9 步、正式数据根只读 `check ok=true`；T019/T026/T027 仍为部分完成，9/18 来源受限 |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -104,3 +105,14 @@ T019/T026/T027 与 18 来源状态不因本记录改变。
 [阶段六 R1—R6](stage-six-r1-r6.md)（定向 103 passed、完整回归 492 passed）与
 [历史数据只读评估](stage-six-historical-impact.md)；契约未改动（`tools/sync_contracts.py --check` 通过），
 未新增真实站点请求。已有 data/ 未改写。S5-02/S5-05/07 与 T019/T026/T027 状态不因本记录改变。
+
+## 阶段七记录（2026-09-14）
+
+按 [阶段七](../stage-seven.md) 完成 S7-01 四项审查问题修复（`b779562`：待续位置与增量状态同一原子写入、
+非 HTML 母页先归档再判定、失败/恢复/对账统一对象身份、正文顺序固定为母页→分页→接口）、
+S7-02 错误处置能力补齐（`62d3648`：`crawl failures`、`crawl resolve`、`manual_review` 保持未关闭）
+与 S7-03 有界闭环。证据见 [阶段七交付证据](stage-seven-delivery.md)：
+[复现 16 failed](logs/stage-seven-baseline-repro.txt)、[定向 80 passed](logs/stage-seven-targeted-pytest.txt)、
+[全量 507 passed](logs/stage-seven-full-pytest.txt)、[本机闭环](logs/stage-seven-closed-loop.txt)、
+[正式数据根只读评估](logs/stage-seven-readonly-check.txt)。未新增真实站点请求，已有 data/ 只读；
+契约未改动。T019/T026/T027 与 18 来源状态（9 个有限窗口验证、9 个访问受限）不因本记录改变。

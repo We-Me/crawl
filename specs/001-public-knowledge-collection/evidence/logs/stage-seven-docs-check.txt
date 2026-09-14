@@ -1,0 +1,5 @@
+# 阶段七文档一致性检查（只读；在文档定稿后重跑）
+$ uv run --no-cache python tools/verify_sdd_documents.py
+{"status": "PASS", "requirements": 37, "tasks": 27, "acceptance_cases": 37, "open_decisions": 17, "common_requirements": 17, "markdown_files": 64, "local_links_checked": 832, "source_hashes_verified": 4, "demo_manifests": 2, "demo_documents": 2, "demo_blocks": 3, "demo_failures": 1, "scope": "documentation and fictional fixtures only"}
+$ uv run --no-cache python tools/sync_contracts.py --check
+契约一致：6 个文件（/home/zhou/workspaces/crawl/src/crawler/contracts）

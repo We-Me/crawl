@@ -1,0 +1,6 @@
+# 阶段七定向用例：S7-01 A-D 与 S7-02 增量用例（实现提交 62d3648）
+$ uv run --no-cache pytest -q tests/test_body_continuation.py tests/test_recovery.py tests/test_validate_reconcile.py tests/test_cli.py
+
+........................................................................ [ 90%]
+........                                                                 [100%]
+80 passed in 8.47s

@@ -20,7 +20,8 @@
 [NEXT-01 证据](evidence/T027-cli-runbook.md)。阶段三补充：collect/resume 的统一请求预算、
 运行截止时间与停止报告（[NEXT-06 证据](evidence/next06-budget.md)），CN-08 正文边界修复
 （[NEXT-07 证据](evidence/next07-cn08-body.md)），随包契约与源码外普通安装
-（[NEXT-08 证据](evidence/next08-packaged-contracts.md)）。
+（[NEXT-08 证据](evidence/next08-packaged-contracts.md)）。阶段七补充错误处置命令面：失败账查询
+`crawl failures` 与人工处置 `crawl resolve`（[阶段七证据](evidence/stage-seven-delivery.md)）。
 
 未交付：真实来源启用名单与时间范围（Q12/Q13 未决）、后台调度/守护进程、并发采集；
 随包来源注册表只有默认禁用的 DEMO 示例；CN-08 的正文选择器只记录在试点配置里，不改正式启用状态。
@@ -118,8 +119,24 @@ crawl plan [--source ID] [--config PATH] [--ready-only] [--json]    # 补抓计�
 crawl resume --source ID [--config PATH] [--max-tasks N]            # 执行补抓
     [--respect-backoff] [--max-attempts N] [--base-delay-seconds S] [--max-delay-seconds S]
     [--max-requests N] [--deadline-seconds S] [--json]
+crawl failures [--source ID] [--url URL] [--stage STAGE]            # 失败账查询（只读）
+    [--all] [--limit N] [--json]
+crawl resolve --url URL --action ACTION [--source ID]               # 人工处置（追加处置行）
+    [--stage STAGE] [--scope-start-date YYYY-MM-DD] [--doc-id ID]
+    [--crawl-id ID] [--note TEXT] [--json]
 crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、schema、追溯、队列对账）
 ```
+
+失败账查询与人工处置（阶段七，S7-02）：
+
+- `crawl failures` 默认只列**未关闭**失败（`record_only`/`retry_later`/`manual_review`），`--all` 输出全部
+  历史与处置行；每行带身份（来源 / 原运行范围 / 母文档 / `crawl_id`）与阶段、错误类型、动作、说明，
+  并统计未关闭数与动作分布。处置结果用 `crawl failures --url URL --all` 按 URL 查询。
+- `crawl resolve` 按**显式身份**追加一行处置：`recovered`（已恢复）、`skip`（确认跳过）、
+  `manual_review`（保持未关闭、等待人工）。记录里带值的身份维度必须显式给出；写不全时以退出码 2
+  拒绝并列出该 URL 的现有身份（宁可不动，不按 URL 全局关闭）。处置只追加，不删除或改写历史失败行。
+- `manual_review` 不等于 `recovered`：它保持未关闭并在 `failures`/`plan`/`check` 与失败计数中可见，
+  `plan` 把它标为人工任务且不自动补抓，直到按同一身份再次处置。
 
 补抓默认立即执行计划中的任务；加 `--respect-backoff` 只处理退避已到的任务，其余记入 `待人工`/`退避等待`。
 
@@ -283,6 +300,8 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | 失败账 `error_type=http_error` | 网络阶段失败；`crawl plan` 给 `refetch`，`crawl resume` 重新获取 |
 | 失败账 `adapter_selector_miss` | 逐来源正文选择器未命中：修复 `adapter.content_selector` 后 `crawl resume` 本地重解析，不重复下载 |
 | 计划中 `action=manual` | 永久 4xx、重试耗尽或缺少原件；需人工确认后调整来源配置 |
+| 失败账出现 `manual_review` | 已转人工，保持未关闭：`crawl failures`/`crawl plan` 会继续显示；确认后按同一身份 `crawl resolve` 关闭 |
+| `crawl resolve` 退出码 2，`未按给定身份找到失败记录` | 身份没写全或与记录不符：按提示补 `--source/--stage/--scope-start-date/--doc-id`，或先 `crawl failures --url URL --all` 查看现有身份 |
 | 429 / `Retry-After` | 客户端按站点要求退避；等待会超出本次运行预算时结束本轮，不高频探测 |
 | 镜像连接失败 | 排查网络/DNS 或有记录地更换登记镜像；不退回官方 PyPI，不据此升级 Python |
 | `check` 报缺失或契约错误 | 按提示定位：缺文件、越界 `raw_path`、字段不符或追溯悬挂引用 |
@@ -313,6 +332,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 运行预算与停止报告：[NEXT-06 证据](evidence/next06-budget.md)、阶段三完整回归 [stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)（345 passed）
 - raw 完整性（发现响应归档、分页终止原因与游标、附件闭环、多轮续接）：[阶段五证据](evidence/stage-five-raw-completeness.md)、完整回归 [stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)（419 passed）
 - 一致性修复（阶段六 R1—R6：复查覆盖、正文待续、归档事务锁、发现提交顺序、损坏状态失败）：[R1—R6 证据](evidence/stage-six-r1-r6.md)、完整回归 [stage-six-full-pytest.txt](evidence/logs/stage-six-full-pytest.txt)（492 passed）、[历史数据只读评估](evidence/stage-six-historical-impact.md)
+- 错误可处置性与有界闭环（阶段七）：[交付证据](evidence/stage-seven-delivery.md)、复现 [16 failed](evidence/logs/stage-seven-baseline-repro.txt)、定向 [80 passed](evidence/logs/stage-seven-targeted-pytest.txt)、全量 [507 passed](evidence/logs/stage-seven-full-pytest.txt)、本机闭环 [逐步输出](evidence/logs/stage-seven-closed-loop.txt)（`uv run --locked --no-python-downloads python tools/closed_loop_fixture.py --clean`，只连 127.0.0.1 夹具站点）
 - CN-08 正文边界修复（离线差异与重解析）：[NEXT-07 证据](evidence/next07-cn08-body.md)
 - 随包契约与源码外安装：[NEXT-08 证据](evidence/next08-packaged-contracts.md)、[next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)
 - 旧式 DOC/XLS 真实转换、结构保留与原件追溯：[NEXT-04 证据](evidence/next04-legacy-office.md)；夹具重建 `uv run --locked --no-python-downloads python tools/make_legacy_fixtures.py`（需系统组件）

@@ -1,0 +1,1083 @@
+# 阶段七 S7-01/S7-02 复现：用阶段六代码（0cd04e0 的 src/）跑本轮新增用例
+# 判读：S7-01 A-D 13 项应按预期失败；S7-02 3 项因 CLI 尚无 failures/resolve 子命令失败
+$ PYTHONPATH=/tmp/s7-repro-src/src uv run --no-cache python -m pytest -q <16 项新增用例>
+
+FFFFFFFFFFFFFFFF                                                         [100%]
+=================================== FAILURES ===================================
+__ test_interrupted_progress_without_queue_continuation_resumes_not_complete ___
+
+mutable_site = ('http://127.0.0.1:38239', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_interrupted_progress_with0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899cf5bc10>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_interrupted_progress_with0')
+
+    def test_interrupted_progress_without_queue_continuation_resumes_not_complete(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """A：队列回写前中断（待处理项无待续）时，重启母页 304 不得误报完整。
+    
+        第二轮仍取不到第二页：目标必须保持待续并留下失败记录，不能以 304 关闭为“已处理”。
+        """
+        base_url, root = mutable_site
+        _write_paged_site(root)
+        missing = root / "r2_paged_2.html"
+        missing.unlink()
+        registry = registry_factory(base_url)
+        data = tmp_path / "data"
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=3)
+        _collect(pipeline, base_url, budget)
+        item = _pending_item(data, "r2_paged_1.html")
+        assert item["state"] == "pending" and item["continuation"]["kind"] == CONTINUATION_KIND
+    
+        # 模拟“正文续抓进度已随增量状态原子写入，但待处理项还没回写”的中断窗口
+        path = data / "manifests" / "pending_items.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        key = next(key for key, row in payload["items"].items() if row["url"].endswith("r2_paged_1.html"))
+        payload["items"][key]["continuation"] = None
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=8)
+        second = _collect(pipeline, base_url, budget)
+        assert second.stop_reason is None
+        assert second.counters.not_modified == 1, "母页按条件请求得到 304"
+    
+        item = _pending_item(data, "r2_paged_1.html")
+>       assert item["state"] == "pending", "正文未完成时不得因母页 304 关闭目标"
+E       AssertionError: 正文未完成时不得因母页 304 关闭目标
+E       assert 'processed' == 'pending'
+E         
+E         - pending
+E         + processed
+
+tests/test_body_continuation.py:403: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0001 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:38239/r2_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0002 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=http://127.0.0.1:38239/r2_paged_2.html type=http_error message=HTTP 404
+WARNING  crawler.pipeline:pipeline.py:1897 接口正文按预算停止 url=http://127.0.0.1:38239/api_body.json reason=request_budget
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+WARNING  crawler.pipeline:pipeline.py:572 采集按预算停止 reason=request_budget message=运行已发出 3 个请求，达到请求上限 3
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_interrupted_progress_with0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=partial requests=3 resources=2 documents=1 blocks=2 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0003 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:38239/r2_index.html replay=False added=0 refreshed=0
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=ok metrics=/tmp/pytest-of-zhou/pytest-34/test_interrupted_progress_with0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=ok requests=2 resources=1 documents=0 blocks=0 failures=0 skipped=1 not_modified=1 reconciliation_ok=True
+_____ test_continuation_mother_non_html_success_is_archived_before_failing _____
+
+mutable_site = ('http://127.0.0.1:38635', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_continuation_mother_non_h0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899c68ec10>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_continuation_mother_non_h0')
+
+    def test_continuation_mother_non_html_success_is_archived_before_failing(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """B：续抓母页返回成功但非 HTML 时，先留存 raw 与账本，再按失败处置。"""
+        base_url, root = mutable_site
+        _write_paged_site(root)
+        registry = registry_factory(base_url)
+        data = tmp_path / "data"
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=2)
+    
+        mother_url = f"{base_url}/_as_pdf/mother.html"
+        pipeline.pending.enqueue_targets(
+            source_id="TESTSRC",
+            targets=[
+                DiscoveredTarget(url=mother_url, discovery_method="manual"),
+            ],
+            scope_start_date=None,
+            enqueued_at=FIXED_NOW.isoformat(),
+        )
+        item = next(row for row in pipeline.pending.all_items() if row.url == mother_url)
+        continuation = {
+            "kind": CONTINUATION_KIND,
+            "doc_id": "TESTSRC_20260914_9001",
+            "mother_url": mother_url,
+            "mother_final_url": mother_url,
+            "mother_raw_path": "raw/TESTSRC/2026-09-14/html/mother.html",
+            "mother_sha256": "0" * 64,
+            "mother_content_type": "text/html; charset=utf-8",
+            "next_url": None,
+            "body_api_url": f"{base_url}/api_body.json",
+            "parts": [],
+            "stop_reason": "body_api_failed",
+            "attempts": 1,
+            "updated_at": FIXED_NOW.isoformat(),
+        }
+        pipeline.pending.mark(item.key, state="pending", continuation=continuation)
+    
+        report = pipeline.collect("TESTSRC", manual_urls=[mother_url], budget=budget)
+        assert report.stop_reason is None
+    
+        manifest = read_jsonl(data / "manifests" / "crawl_manifest.jsonl")
+        rows = [
+            row
+            for row in manifest
+            if row["requested_url"] == mother_url or row["final_url"] == mother_url
+        ]
+>       assert len(rows) == 1, "成功响应先归档，不丢原件"
+E       AssertionError: 成功响应先归档，不丢原件
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_body_continuation.py:462: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_continuation_mother_non_h0/sources.yaml version=tests sources=1 digest=0bd5b0518a120b2959d45a9922e535f78a7fe2d23592fcf94b1c9883c9bd0e7f
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=parse url=http://127.0.0.1:38635/_as_pdf/mother.html type=continuation_not_html message=续接母页不再是 HTML：application/pdf
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=failed metrics=/tmp/pytest-of-zhou/pytest-34/test_continuation_mother_non_h0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=failed requests=1 resources=0 documents=0 blocks=0 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+________ test_damaged_queue_continuation_resumes_from_incremental_state ________
+
+mutable_site = ('http://127.0.0.1:34875', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_damaged_queue_continuatio0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899c737ca0>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_damaged_queue_continuatio0')
+
+    def test_damaged_queue_continuation_resumes_from_incremental_state(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """队列待续损坏、增量状态待续可用：按增量状态续作，并留下工程失败记录。
+    
+        阶段七 A：待续位置与增量状态同一次原子写入，队列回写损坏时以状态记录为准；
+        母页 304 只说明母响应未变，不把未完成正文当完整实体。
+        """
+        base_url, root = mutable_site
+        _write_paged_site(root)
+        registry = registry_factory(base_url)
+        data = tmp_path / "data"
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=2)
+        _collect(pipeline, base_url, budget)
+    
+        path = data / "manifests" / "pending_items.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        key = next(key for key, item in payload["items"].items() if item["url"].endswith("r2_paged_1.html"))
+        payload["items"][key]["continuation"] = {"kind": CONTINUATION_KIND, "doc_id": "BAD"}
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=8)
+        report = _collect(pipeline, base_url, budget)
+        assert report.stop_reason is None
+        failures = read_jsonl(data / "manifests" / "failed_records.jsonl")
+        assert any(row["error_type"] == "continuation_state_damaged" for row in failures)
+        names = _manifest_names(data)
+>       assert names.count("r2_paged_1.html") == 1, "状态记录可用时按续作处理，不重取母页"
+E       AssertionError: 状态记录可用时按续作处理，不重取母页
+E       assert 2 == 1
+E        +  where 2 = <built-in method count of list object at 0x75899cf6e480>('r2_paged_1.html')
+E        +    where <built-in method count of list object at 0x75899cf6e480> = ['r2_index.html', 'r2_paged_1.html', 'r2_index.html', 'r2_paged_1.html', 'r2_paged_2.html', 'r2_paged_3.html', ...].count
+
+tests/test_body_continuation.py:290: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_damaged_queue_continuatio0/sources.yaml version=tests sources=1 digest=55c4937f16e304ccc2bdbe8a768579d3dcf8a11f9773c1e45d896e5252148e23
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0001 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:34875/r2_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0002 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+WARNING  crawler.pipeline:pipeline.py:1792 正文分页按预算停止 url=http://127.0.0.1:34875/r2_paged_2.html reason=request_budget
+WARNING  crawler.pipeline:pipeline.py:1897 接口正文按预算停止 url=http://127.0.0.1:34875/api_body.json reason=request_budget
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+WARNING  crawler.pipeline:pipeline.py:572 采集按预算停止 reason=request_budget message=运行已发出 2 个请求，达到请求上限 2
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_damaged_queue_continuatio0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=partial requests=2 resources=2 documents=1 blocks=2 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0003 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:34875/r2_index.html replay=False added=0 refreshed=0
+WARNING  crawler.pipeline:pipeline.py:505 待续状态损坏，按完整重取处理 key=target|TESTSRC|-|http://127.0.0.1:34875/r2_paged_1.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=validate url=http://127.0.0.1:34875/r2_paged_1.html type=continuation_state_damaged message=正文待续状态损坏：按完整重取处理
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0004 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0005 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_2.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0006 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_3.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0007 status=200 raw_path=raw/TESTSRC/2026-09-14/api/api_body.json
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0008 status=200 raw_path=raw/TESTSRC/2026-09-14/attachment/notice.csv
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=8
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_damaged_queue_continuatio0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=partial requests=6 resources=6 documents=1 blocks=8 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+______ test_damaged_continuation_without_state_record_is_refetched_fully _______
+
+mutable_site = ('http://127.0.0.1:38591', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_damaged_continuation_with0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899c737e50>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_damaged_continuation_with0')
+
+    def test_damaged_continuation_without_state_record_is_refetched_fully(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """队列与增量状态的待续都不可用：不猜进度，忽略条件请求按完整重取并记录。"""
+        base_url, root = mutable_site
+        _write_paged_site(root)
+        registry = registry_factory(base_url)
+        data = tmp_path / "data"
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=2)
+        _collect(pipeline, base_url, budget)
+    
+        path = data / "manifests" / "pending_items.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        key = next(key for key, item in payload["items"].items() if item["url"].endswith("r2_paged_1.html"))
+        payload["items"][key]["continuation"] = {"kind": CONTINUATION_KIND, "doc_id": "BAD"}
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        state_path = data / "manifests" / "incremental_state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        mother = next(
+            row for row in state["resources"].values() if row["url"].endswith("r2_paged_1.html")
+        )
+        mother["continuation"] = {"kind": CONTINUATION_KIND, "doc_id": "BAD"}
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=8)
+>       report = _collect(pipeline, base_url, budget)
+
+tests/test_body_continuation.py:324: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_body_continuation.py:83: in _collect
+    return pipeline.collect("TESTSRC", entry_urls=[f"{base_url}/r2_index.html"], budget=budget)
+/tmp/s7-repro-src/src/crawler/pipeline.py:518: in collect
+    outcome = self._collect_target(
+/tmp/s7-repro-src/src/crawler/pipeline.py:996: in _collect_target
+    state = self.state.get(target.url)
+/tmp/s7-repro-src/src/crawler/schedule/state.py:59: in get
+    return self.load().get(url)
+/tmp/s7-repro-src/src/crawler/schedule/state.py:56: in load
+    return {url: ResourceState(**row) for url, row in resources.items()}
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <dict_itemiterator object at 0x75899c6cf400>
+
+>   return {url: ResourceState(**row) for url, row in resources.items()}
+E   TypeError: __init__() got an unexpected keyword argument 'continuation'
+
+/tmp/s7-repro-src/src/crawler/schedule/state.py:56: TypeError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_damaged_continuation_with0/sources.yaml version=tests sources=1 digest=cef60752daab75b7dbb8f94180008a45fe434738899340657a75778e7ef555d9
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0001 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:38591/r2_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0002 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+WARNING  crawler.pipeline:pipeline.py:1792 正文分页按预算停止 url=http://127.0.0.1:38591/r2_paged_2.html reason=request_budget
+WARNING  crawler.pipeline:pipeline.py:1897 接口正文按预算停止 url=http://127.0.0.1:38591/api_body.json reason=request_budget
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+WARNING  crawler.pipeline:pipeline.py:572 采集按预算停止 reason=request_budget message=运行已发出 2 个请求，达到请求上限 2
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_damaged_continuation_with0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=partial requests=2 resources=2 documents=1 blocks=2 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0003 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:38591/r2_index.html replay=False added=0 refreshed=0
+WARNING  crawler.pipeline:pipeline.py:505 待续状态损坏，按完整重取处理 key=target|TESTSRC|-|http://127.0.0.1:38591/r2_paged_1.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=validate url=http://127.0.0.1:38591/r2_paged_1.html type=continuation_state_damaged message=正文待续状态损坏：按完整重取处理
+__ test_pagination_failure_then_api_recovery_matches_single_successful_crawl ___
+
+mutable_site = ('http://127.0.0.1:42539', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899c737dc0>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0')
+
+    def test_pagination_failure_then_api_recovery_matches_single_successful_crawl(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """D：分页失败但接口可用，随后恢复时正文与块顺序同一次成功抓取一致。"""
+        base_url, root = mutable_site
+        _write_paged_site(root)
+        registry = registry_factory(base_url)
+        page3 = root / "r2_paged_3.html"
+        page3_bytes = page3.read_bytes()
+    
+        # 参考：page3 一直可用的一次成功抓取
+        reference_data = tmp_path / "reference"
+        reference_pipeline = CrawlPipeline(
+            registry, reference_data, http=HttpClient(registry, limits=LIMITS, robots=False),
+            now=lambda: FIXED_NOW,
+        )
+        reference_report = reference_pipeline.collect(
+            "TESTSRC", entry_urls=[f"{base_url}/r2_index.html"]
+        )
+        assert reference_report.stop_reason is None
+        reference_doc = read_jsonl(reference_data / "normalized" / "documents.jsonl")[-1]
+        assert reference_doc["parse_status"] == "ok"
+    
+        # 失败轮：page3 暂时不可用，接口正文可用 → partial 文档 + 待续（分页未完、接口已取）
+        page3.unlink()
+        data = tmp_path / "data"
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=8)
+        first = _collect(pipeline, base_url, budget)
+        assert first.stop_reason is None
+        item = _pending_item(data, "r2_paged_1.html")
+        assert item["state"] == "pending"
+        assert item["continuation"]["next_url"].endswith("r2_paged_3.html")
+        methods = [ref["method"] for ref in item["continuation"]["parts"]]
+        assert methods == ["pagination", "api"], "接口正文已取得并记录在待续状态中"
+        partial_doc = read_jsonl(data / "normalized" / "documents.jsonl")[-1]
+        assert "接口正文" in partial_doc["full_text"]
+        assert "正文第三部分" not in partial_doc["full_text"]
+    
+        # 恢复轮：page3 恢复可用 → 合并顺序与参考一致
+        page3.write_bytes(page3_bytes)
+        pipeline, budget = _pipeline(registry, tmp_path, max_requests=8)
+        second = _collect(pipeline, base_url, budget)
+        assert second.stop_reason is None
+        final_doc = read_jsonl(data / "normalized" / "documents.jsonl")[-1]
+        assert final_doc["doc_id"] != partial_doc["doc_id"]
+        assert final_doc["parse_status"] == "ok"
+>       assert final_doc["full_text"] == reference_doc["full_text"]
+E       AssertionError: assert '三页正文样本\n正文第一...附件：notice.csv' == '三页正文样本\n正文第一...v\n接口正文：补充说明。'
+E         
+E         Skipping 37 identical leading characters in diff, use -v to show
+E           二部分：具体安排。
+E         + 接口正文：补充说明。
+E           三页正文样本（第三部分）
+E           正文第三部分：附件与联系方式。
+E         - 附件：notice.csv...
+E         
+E         ...Full output truncated (3 lines hidden), use '-vv' to show
+
+tests/test_body_continuation.py:534: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0/sources.yaml version=tests sources=1 digest=3cb04a2e589e8f3c3b87994b79d6f2eb56e9a71dd909898e47d7ee833d1b0920
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0001 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:42539/r2_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0002 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0003 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_2.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0004 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_3.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0005 status=200 raw_path=raw/TESTSRC/2026-09-14/api/api_body.json
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0006 status=200 raw_path=raw/TESTSRC/2026-09-14/attachment/notice.csv
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=8
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=ok metrics=/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0/reference/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=ok requests=6 resources=6 documents=1 blocks=8 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0001 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:42539/r2_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0002 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_1.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0003 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_2.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=http://127.0.0.1:42539/r2_paged_3.html type=http_error message=HTTP 404
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0004 status=200 raw_path=raw/TESTSRC/2026-09-14/api/api_body.json
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=5
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=partial requests=5 resources=4 documents=1 blocks=5 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0005 status=200 raw_path=raw/TESTSRC/2026-09-14/discovery/r2_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:42539/r2_index.html replay=False added=0 refreshed=0
+INFO     crawler.pipeline:pipeline.py:1293 正文续作：母页 304，沿用既有原件与已取部分 url=http://127.0.0.1:42539/r2_paged_1.html parts=2
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0006 status=200 raw_path=raw/TESTSRC/2026-09-14/html/r2_paged_3.html
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260914_0007 status=200 raw_path=raw/TESTSRC/2026-09-14/attachment/notice.csv
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=8
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260914T100000 status=ok metrics=/tmp/pytest-of-zhou/pytest-34/test_pagination_failure_then_a0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260914T100000 status=ok requests=4 resources=3 documents=1 blocks=8 failures=0 skipped=0 not_modified=1 reconciliation_ok=True
+____________________ test_open_failures_are_kept_per_source ____________________
+
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_open_failures_are_kept_pe0')
+
+    def test_open_failures_are_kept_per_source(tmp_path):
+        """C：同一 URL/stage/范围/母文档的失败行按来源分开，不互相覆盖。"""
+        from crawler.monitor.failures import FailureLedger
+    
+        ledger = FailureLedger(tmp_path)
+        common = {
+            "url": "https://example.invalid/a.pdf",
+            "time": NOW.isoformat(),
+            "stage": "fetch",
+            "error_type": "request_error",
+            "message": "HTTP 500",
+            "retry_count": 0,
+        }
+        ledger.writer.record(source_id="A", final_action="retry_later", **common)
+        ledger.writer.record(source_id="B", final_action="retry_later", **common)
+    
+        keys = set(ledger.latest_by_key())
+>       assert ("A", *[common["url"], "fetch", None, None]) in keys
+E       AssertionError: assert ('A', 'https://example.invalid/a.pdf', 'fetch', None, None) in {('https://example.invalid/a.pdf', 'fetch', None, None)}
+
+tests/test_recovery.py:944: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/a.pdf type=request_error message=HTTP 500
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/a.pdf type=request_error message=HTTP 500
+___________ test_pending_documents_ignores_other_source_open_failure ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_pending_documents_ignores0')
+
+    def test_pending_documents_ignores_other_source_open_failure(tmp_path):
+        """C：别的来源的未关闭失败不得把本来源已下载原件排除在重解析候选之外。"""
+        from crawler.monitor.failures import FailureLedger
+        from crawler.output.jsonl import write_jsonl
+    
+        ledger = FailureLedger(tmp_path)
+        (tmp_path / "manifests").mkdir(parents=True, exist_ok=True)
+        write_jsonl(
+            tmp_path / "manifests" / "crawl_manifest.jsonl",
+            [
+                {
+                    "crawl_id": "C1",
+                    "source_id": "A",
+                    "requested_url": "https://example.invalid/a.pdf",
+                    "final_url": "https://example.invalid/a.pdf",
+                    "raw_path": "raw/a.pdf",
+                }
+            ],
+        )
+        ledger.writer.record(
+            source_id="B",
+            url="https://example.invalid/a.pdf",
+            time=NOW.isoformat(),
+            stage="fetch",
+            error_type="request_error",
+            message="HTTP 500",
+            retry_count=0,
+            final_action="retry_later",
+        )
+    
+        pending = ledger.pending_documents()
+    
+>       assert [row["crawl_id"] for row in pending] == ["C1"]
+E       AssertionError: assert [] == ['C1']
+E         
+E         Right contains one more item: 'C1'
+E         Use -v to get more diff
+
+tests/test_recovery.py:980: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/a.pdf type=request_error message=HTTP 500
+____________ test_failure_records_pending_item_scope_not_run_scope _____________
+
+site_server = 'http://127.0.0.1:32983'
+registry_factory = <function registry_factory.<locals>.make at 0x75899c5b9670>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_failure_records_pending_i0')
+
+    def test_failure_records_pending_item_scope_not_run_scope(
+        site_server, registry_factory, tmp_path
+    ):
+        """C：处理待处理项时，失败记录使用该对象入队范围（不是本次运行窗口）。
+    
+        否则补抓计划与对账会按不同范围找不到同一对象，队列与账本无法互相关闭。
+        """
+        registry = registry_factory(site_server)
+        pipeline = _pipeline(registry, tmp_path / "data")
+        url = f"{site_server}/missing-page.html"
+        pipeline.pending.enqueue_targets(
+            source_id="TESTSRC",
+            targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+            scope_start_date="2026-09-01",
+            enqueued_at=NOW.isoformat(),
+        )
+    
+        report = pipeline.collect(
+            "TESTSRC",
+            manual_urls=[url],
+            scope=RunScope(start_date=date(2026, 9, 10)),
+            max_items=1,
+        )
+    
+        assert report.counters.failures == 1
+        row = report.failures[0]
+>       assert row["scope_start_date"] == "2026-09-01", "对象范围优先于本次运行窗口"
+E       AssertionError: 对象范围优先于本次运行窗口
+E       assert '2026-09-10' == '2026-09-01'
+E         
+E         - 2026-09-01
+E         ?          -
+E         + 2026-09-10
+E         ?         +
+
+tests/test_recovery.py:1009: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_failure_records_pending_i0/sources.yaml version=tests sources=1 digest=66a30cec7bc00798888700619a200ddc52568f6fdbff34db58578d3da442113b
+INFO     crawler.fetch.http_client:http_client.py:331 robots.txt 已加载 host=http://127.0.0.1:32983 {'groups': 1, 'rules': 2, 'agents': 1}
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=http://127.0.0.1:32983/missing-page.html type=http_error message=HTTP 404
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260911T100000 status=failed metrics=/tmp/pytest-of-zhou/pytest-34/test_failure_records_pending_i0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260911T100000 status=failed requests=2 resources=0 documents=0 blocks=0 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+______________ test_part_failure_recovery_resumes_mother_document ______________
+
+mutable_site = ('http://127.0.0.1:40073', PosixPath('/tmp/pytest-of-zhou/pytest-34/test_part_failure_recovery_res0/site'))
+registry_factory = <function registry_factory.<locals>.make at 0x75899c5c1b80>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_part_failure_recovery_res0')
+
+    def test_part_failure_recovery_resumes_mother_document(
+        mutable_site, registry_factory, tmp_path
+    ):
+        """C：正文片段失败在补抓时回到母文档续作，不产出片段文档、不误关其它对象。"""
+        base_url, root = mutable_site
+        _write_paged_body_site(root)
+        registry = registry_factory(base_url)
+        data = tmp_path / "data"
+    
+        # 第二轮正文请求瞬时失败（第 3 个请求：列表、母页之后的分页部分）
+        budget = RunBudget(max_requests=3)
+        session = requests.Session()
+        session.headers.setdefault("User-Agent", "test-agent")
+        inner = _FailingCallSession(
+            session, fail_calls={3}, exc=requests.exceptions.ReadTimeout("瞬时读取超时")
+        )
+        http = HttpClient(
+            registry,
+            limits=FetchLimits(request_rate_per_second=1000, max_retries=0),
+            robots=False,
+            session=inner,
+            budget=budget,
+        )
+        pipeline = CrawlPipeline(registry, data, http=http, now=lambda: NOW)
+        pipeline.collect("TESTSRC", entry_urls=[f"{base_url}/r7_index.html"], budget=budget)
+        item = next(
+            row for row in pipeline.pending.all_items() if row.url.endswith("r7_paged_1.html")
+        )
+        assert item.state == "pending" and item.continuation is not None
+        part_failure = next(
+            row
+            for row in pipeline.failures_ledger.open_failures()
+            if row["url"].endswith("r7_paged_2.html")
+        )
+        assert part_failure["doc_id"] == item.continuation["doc_id"]
+        assert pipeline.recovery_plan()[0].action == REFETCH
+    
+        (root / "r7_paged_2.html").write_text(
+            _page(
+                "两页正文（第二部分）",
+                "<h1>两页正文样本（第二部分）</h1><p>正文第二部分：结尾。</p>",
+            ),
+            encoding="utf-8",
+        )
+        report = pipeline.resume_failures("TESTSRC")
+    
+        assert [row["note"] for row in report.recovered] == ["补抓成功，账本与文档已更新"]
+        documents = read_jsonl(data / "normalized" / "documents.jsonl")
+>       assert all(
+            doc["source_url"].endswith(("r7_paged_1.html", "r7_index.html")) for doc in documents
+        ), "分页片段不得独立成文"
+E       AssertionError: 分页片段不得独立成文
+E       assert False
+E        +  where False = all(<generator object test_part_failure_recovery_resumes_mother_document.<locals>.<genexpr> at 0x75899c671430>)
+
+tests/test_recovery.py:1064: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_part_failure_recovery_res0/sources.yaml version=tests sources=1 digest=a76d722fb92a03b6accebb5053a463410550a65c83b034a82357e20b03b08257
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260911_0001 status=200 raw_path=raw/TESTSRC/2026-09-11/discovery/r7_index.html
+INFO     crawler.pipeline:pipeline.py:391 发现页目标已入队 page=http://127.0.0.1:40073/r7_index.html replay=False added=1 refreshed=0
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260911_0002 status=200 raw_path=raw/TESTSRC/2026-09-11/html/r7_paged_1.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=http://127.0.0.1:40073/r7_paged_2.html type=request_error message=请求失败：瞬时读取超时
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260911T100000 status=partial metrics=/tmp/pytest-of-zhou/pytest-34/test_part_failure_recovery_res0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=collect source=TESTSRC run_id=TESTSRC_20260911T100000 status=partial requests=3 resources=2 documents=1 blocks=2 failures=1 skipped=0 not_modified=0 reconciliation_ok=True
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=TESTSRC_20260911_0003 status=200 raw_path=raw/TESTSRC/2026-09-11/html/r7_paged_2.html
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+WARNING  crawler.pipeline:pipeline.py:2656 补抓未匹配到同身份待处理项 url=http://127.0.0.1:40073/r7_paged_2.html scope=None doc_id=TESTSRC_20260911_0002（不按 URL 关闭其它对象）
+INFO     crawler.monitor.failures:failures.py:110 失败处置 url=http://127.0.0.1:40073/r7_paged_2.html stage=fetch action=recovered
+INFO     crawler.pipeline:pipeline.py:2431 补抓完成 source=TESTSRC recovered=1 skipped=0 manual=0 pending=0 failed=0
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260911T100000 status=ok metrics=/tmp/pytest-of-zhou/pytest-34/test_part_failure_recovery_res0/data/logs/metrics.json reconciliation_ok=True
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=recovery source=TESTSRC run_id=TESTSRC_20260911T100000 status=ok requests=1 resources=1 documents=1 blocks=2 failures=0 skipped=0 not_modified=0 reconciliation_ok=True
+_________ test_part_reparse_failure_does_not_create_fragment_document __________
+
+site_server = 'http://127.0.0.1:32983'
+registry_factory = <function registry_factory.<locals>.make at 0x75899c645160>
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_part_reparse_failure_does0')
+
+    def test_part_reparse_failure_does_not_create_fragment_document(
+        site_server, registry_factory, tmp_path
+    ):
+        """C：正文片段的本地重解析任务不得产出片段文档；对象有未完成正文时回到母页续作。"""
+        registry = registry_factory(site_server)
+        data = tmp_path / "data"
+        pipeline = _pipeline(registry, data)
+        mother_url = f"{site_server}/detail_1.html"
+        part_url = f"{site_server}/detail_paged_2.html"
+        mother_doc_id = "MOTHER1"
+    
+        pipeline.pending.enqueue_targets(
+            source_id="TESTSRC",
+            targets=[DiscoveredTarget(url=mother_url, discovery_method="manual")],
+            scope_start_date=None,
+            enqueued_at=NOW.isoformat(),
+        )
+        item = next(row for row in pipeline.pending.all_items() if row.url == mother_url)
+        pipeline.pending.mark(
+            item.key,
+            state="pending",
+            doc_id=mother_doc_id,
+            continuation={
+                "kind": "body_pagination",
+                "doc_id": mother_doc_id,
+                "mother_url": mother_url,
+                "mother_final_url": mother_url,
+                "mother_raw_path": "raw/TESTSRC/2026-09-11/html/detail_1.html",
+                "mother_sha256": "0" * 64,
+                "mother_content_type": "text/html; charset=utf-8",
+                "next_url": part_url,
+                "body_api_url": None,
+                "parts": [],
+                "stop_reason": "resume_part_failed",
+                "attempts": 1,
+                "updated_at": NOW.isoformat(),
+            },
+        )
+        raw = pipeline.store.write_bytes(
+            source_id="TESTSRC",
+            crawl_date="2026-09-11",
+            kind="html",
+            filename="detail_paged_2.html",
+            content=(FIXTURES / "site" / "detail_paged_2.html").read_bytes(),
+        )
+        pipeline.manifest.record(
+            crawl_id="PART1",
+            source_id="TESTSRC",
+            requested_url=part_url,
+            final_url=part_url,
+            crawl_time=NOW.isoformat(),
+            http_status=200,
+            content_type="text/html; charset=utf-8",
+            raw=raw,
+            discovery_method="pagination",
+            referrer_url=mother_url,
+        )
+        pipeline.failures.record(
+            source_id="TESTSRC",
+            url=part_url,
+            time=NOW.isoformat(),
+            stage="parse",
+            error_type="continuation_part_unreadable",
+            message="已取得正文部分无法重建",
+            retry_count=0,
+            final_action="record_only",
+            crawl_id="PART1",
+            doc_id=mother_doc_id,
+            referrer_url=mother_url,
+        )
+        assert pipeline.recovery_plan()[0].action == REPARSE
+    
+        report = pipeline.resume_failures("TESTSRC")
+    
+        documents = read_jsonl(data / "normalized" / "documents.jsonl")
+>       assert all(doc["source_url"] != part_url for doc in documents), "片段不得独立成文"
+E       AssertionError: 片段不得独立成文
+E       assert False
+E        +  where False = all(<generator object test_part_reparse_failure_does_not_create_fragment_document.<locals>.<genexpr> at 0x75899c6717b0>)
+
+tests/test_recovery.py:1149: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     crawler.config.registry:registry.py:186 来源配置载入 path=/tmp/pytest-of-zhou/pytest-34/test_part_reparse_failure_does0/sources.yaml version=tests sources=1 digest=66a30cec7bc00798888700619a200ddc52568f6fdbff34db58578d3da442113b
+INFO     crawler.output.manifest_writer:manifest_writer.py:64 账本记录 crawl_id=PART1 status=200 raw_path=raw/TESTSRC/2026-09-11/html/detail_paged_2.html
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=parse url=http://127.0.0.1:32983/detail_paged_2.html type=continuation_part_unreadable message=已取得正文部分无法重建
+INFO     crawler.output.documents_writer:documents_writer.py:40 成组提交 documents=1 blocks=2
+WARNING  crawler.pipeline:pipeline.py:2656 补抓未匹配到同身份待处理项 url=http://127.0.0.1:32983/detail_paged_2.html scope=None doc_id=MOTHER1（不按 URL 关闭其它对象）
+INFO     crawler.monitor.failures:failures.py:110 失败处置 url=http://127.0.0.1:32983/detail_paged_2.html stage=parse action=recovered
+INFO     crawler.pipeline:pipeline.py:2431 补抓完成 source=TESTSRC recovered=1 skipped=0 manual=0 pending=0 failed=0
+INFO     crawler.monitor.metrics:metrics.py:418 运行指标 run_id=TESTSRC_20260911T100000 status=ok metrics=/tmp/pytest-of-zhou/pytest-34/test_part_reparse_failure_does0/data/logs/metrics.json reconciliation_ok=False
+INFO     crawler.pipeline:pipeline.py:909 运行汇总 kind=recovery source=TESTSRC run_id=TESTSRC_20260911T100000 status=ok requests=0 resources=0 documents=1 blocks=2 failures=0 skipped=0 not_modified=0 reconciliation_ok=False
+WARNING  crawler.pipeline:pipeline.py:926 交付对账差异 kind=recovery run_id=TESTSRC_20260911T100000 差异=['块数与 blocks 追加行数一致']
+________ test_cross_source_closed_row_does_not_close_other_source_item _________
+
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cross_source_closed_row_d0')
+
+    def test_cross_source_closed_row_does_not_close_other_source_item(tmp_path):
+        """C：同一 URL 在别的来源已关闭时，本来源仍未关闭的失败不得被掩盖。"""
+        data = tmp_path / "data"
+        url = "https://example.invalid/shared.pdf"
+        _write_pending(data, {"k1": {"key": "k1", "source_id": "A", "url": url, "state": "failed"}})
+        _write_failures(
+            data,
+            [
+                {**_failure(url, "retry_later"), "source_id": "A"},
+                {**_failure(url, "recovered"), "source_id": "B"},
+            ],
+        )
+    
+        report = reconcile_queue_and_failures(data)
+    
+>       assert report.ok is True, "来源 B 的 closed 行不是同一对象的处置"
+E       AssertionError: 来源 B 的 closed 行不是同一对象的处置
+E       assert False is True
+E        +  where False = ReconcileReport(items_total=1, items_by_state={'failed': 1}, open_failures=0, problems=[{'key': 'k1', 'url': 'https://...pdf', 'item_state': 'failed', 'ledger_action': 'recovered', 'message': '待处理项为 failed，但失败账该 URL 已按 recovered/skip 关闭'}]).ok
+
+tests/test_validate_reconcile.py:275: AssertionError
+____________ test_cross_source_open_failures_are_counted_separately ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cross_source_open_failure0')
+
+    def test_cross_source_open_failures_are_counted_separately(tmp_path):
+        data = tmp_path / "data"
+        url = "https://example.invalid/shared.pdf"
+        _write_failures(
+            data,
+            [
+                {**_failure(url, "retry_later"), "source_id": "A"},
+                {**_failure(url, "retry_later", "另一来源"), "source_id": "B"},
+            ],
+        )
+    
+        report = reconcile_queue_and_failures(data)
+    
+>       assert report.ok is True and report.open_failures == 2, "身份含来源，两个来源各自未关闭"
+E       AssertionError: 身份含来源，两个来源各自未关闭
+E       assert (True is True and 1 == 2)
+E        +  where True = ReconcileReport(items_total=0, items_by_state={}, open_failures=1, problems=[]).ok
+E        +  and   1 = ReconcileReport(items_total=0, items_by_state={}, open_failures=1, problems=[]).open_failures
+
+tests/test_validate_reconcile.py:303: AssertionError
+____________ test_cross_source_doc_id_identity_does_not_close_item _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cross_source_doc_id_ident0')
+
+    def test_cross_source_doc_id_identity_does_not_close_item(tmp_path):
+        """C：来源不同、doc_id 相同时，本来源待处理项不因别的来源处置而被关闭。"""
+        data = tmp_path / "data"
+        url = "https://example.invalid/shared.pdf"
+        _write_pending(
+            data,
+            {
+                "k1": {
+                    "key": "k1",
+                    "source_id": "A",
+                    "url": url,
+                    "state": "failed",
+                    "doc_id": "DOC-1",
+                }
+            },
+        )
+        _write_failures(
+            data,
+            [
+                {
+                    **_failure(url, "retry_later"),
+                    "source_id": "A",
+                    "doc_id": "DOC-1",
+                },
+                {
+                    **_failure(url, "skip"),
+                    "source_id": "B",
+                    "doc_id": "DOC-1",
+                },
+            ],
+        )
+    
+        report = reconcile_queue_and_failures(data)
+    
+>       assert report.ok is True and report.problems == []
+E       AssertionError: assert (False is True)
+E        +  where False = ReconcileReport(items_total=1, items_by_state={'failed': 1}, open_failures=0, problems=[{'key': 'k1', 'url': 'https://...ared.pdf', 'item_state': 'failed', 'ledger_action': 'skip', 'message': '待处理项为 failed，但失败账该 URL 已按 recovered/skip 关闭'}]).ok
+
+tests/test_validate_reconcile.py:340: AssertionError
+___________________ test_cli_failures_lists_open_and_history ___________________
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+args = ['failures'], namespace = Namespace(command=None)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            # args default to the system args
+            args = _sys.argv[1:]
+        else:
+            # make sure that args are mutable
+            args = list(args)
+    
+        # default Namespace built from parser defaults
+        if namespace is None:
+            namespace = Namespace()
+    
+        # add any action defaults that aren't present
+        for action in self._actions:
+            if action.dest is not SUPPRESS:
+                if not hasattr(namespace, action.dest):
+                    if action.default is not SUPPRESS:
+                        setattr(namespace, action.dest, action.default)
+    
+        # add any parser defaults that aren't present
+        for dest in self._defaults:
+            if not hasattr(namespace, dest):
+                setattr(namespace, dest, self._defaults[dest])
+    
+        # parse the arguments and exit if there are any errors
+        if self.exit_on_error:
+            try:
+>               namespace, args = self._parse_known_args(args, namespace)
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1858: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2070: in _parse_known_args
+    stop_index = consume_positionals(start_index)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2026: in consume_positionals
+    take_action(action, args)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1919: in take_action
+    argument_values = self._get_values(action, argument_strings)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2460: in _get_values
+    self._check_value(action, value[0])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+action = _SubParsersAction(option_strings=[], dest='command', nargs='A...', const=None, default=None, type=None, choices={'sour...lass 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)}, required=True, help=None, metavar='COMMAND')
+value = 'failures'
+
+    def _check_value(self, action, value):
+        # converted value must be one of the choices (if specified)
+        if action.choices is not None and value not in action.choices:
+            args = {'value': value,
+                    'choices': ', '.join(map(repr, action.choices))}
+            msg = _('invalid choice: %(value)r (choose from %(choices)s)')
+>           raise ArgumentError(action, msg % args)
+E           argparse.ArgumentError: argument COMMAND: invalid choice: 'failures' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2507: ArgumentError
+
+During handling of the above exception, another exception occurred:
+
+cli_env = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cli_failures_lists_open_a0/data')
+capsys = <_pytest.capture.CaptureFixture object at 0x75899d093280>
+
+    def test_cli_failures_lists_open_and_history(cli_env, capsys):
+        _record_failure(cli_env)
+        _record_failure(cli_env, url="https://example.invalid/b.pdf", final_action="record_only")
+    
+>       assert main(["failures"]) == 0
+
+tests/test_cli.py:449: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/tmp/s7-repro-src/src/crawler/cli.py:187: in main
+    args = parser.parse_args(argv)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1825: in parse_args
+    args, argv = self.parse_known_args(args, namespace)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1861: in parse_known_args
+    self.error(str(err))
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2582: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = "crawl: error: argument COMMAND: invalid choice: 'failures' (choose from 'sources', 'collect', 'plan', 'resume', 'check')\n"
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2569: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: crawl [-h] [--version] COMMAND ...
+crawl: error: argument COMMAND: invalid choice: 'failures' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+------------------------------ Captured log call -------------------------------
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/a.pdf type=request_error message=读取响应失败：连接中断
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/b.pdf type=request_error message=读取响应失败：连接中断
+______________ test_cli_resolve_closes_failure_and_queries_result ______________
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+args = ['resolve', '--url', 'https://example.invalid/a.pdf', '--action', 'skip']
+namespace = Namespace(command=None)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            # args default to the system args
+            args = _sys.argv[1:]
+        else:
+            # make sure that args are mutable
+            args = list(args)
+    
+        # default Namespace built from parser defaults
+        if namespace is None:
+            namespace = Namespace()
+    
+        # add any action defaults that aren't present
+        for action in self._actions:
+            if action.dest is not SUPPRESS:
+                if not hasattr(namespace, action.dest):
+                    if action.default is not SUPPRESS:
+                        setattr(namespace, action.dest, action.default)
+    
+        # add any parser defaults that aren't present
+        for dest in self._defaults:
+            if not hasattr(namespace, dest):
+                setattr(namespace, dest, self._defaults[dest])
+    
+        # parse the arguments and exit if there are any errors
+        if self.exit_on_error:
+            try:
+>               namespace, args = self._parse_known_args(args, namespace)
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1858: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2049: in _parse_known_args
+    positionals_end_index = consume_positionals(start_index)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2026: in consume_positionals
+    take_action(action, args)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1919: in take_action
+    argument_values = self._get_values(action, argument_strings)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2460: in _get_values
+    self._check_value(action, value[0])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+action = _SubParsersAction(option_strings=[], dest='command', nargs='A...', const=None, default=None, type=None, choices={'sour...lass 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)}, required=True, help=None, metavar='COMMAND')
+value = 'resolve'
+
+    def _check_value(self, action, value):
+        # converted value must be one of the choices (if specified)
+        if action.choices is not None and value not in action.choices:
+            args = {'value': value,
+                    'choices': ', '.join(map(repr, action.choices))}
+            msg = _('invalid choice: %(value)r (choose from %(choices)s)')
+>           raise ArgumentError(action, msg % args)
+E           argparse.ArgumentError: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2507: ArgumentError
+
+During handling of the above exception, another exception occurred:
+
+cli_env = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cli_resolve_closes_failur0/data')
+capsys = <_pytest.capture.CaptureFixture object at 0x75899c60ab20>
+
+    def test_cli_resolve_closes_failure_and_queries_result(cli_env, capsys):
+        _record_failure(cli_env, doc_id="DOC-1", scope_start_date="2026-09-06")
+    
+>       bad = main(["resolve", "--url", "https://example.invalid/a.pdf", "--action", "skip"])
+
+tests/test_cli.py:463: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/tmp/s7-repro-src/src/crawler/cli.py:187: in main
+    args = parser.parse_args(argv)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1825: in parse_args
+    args, argv = self.parse_known_args(args, namespace)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1861: in parse_known_args
+    self.error(str(err))
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2582: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = "crawl: error: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')\n"
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2569: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: crawl [-h] [--version] COMMAND ...
+crawl: error: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+------------------------------ Captured log call -------------------------------
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=fetch url=https://example.invalid/a.pdf type=request_error message=读取响应失败：连接中断
+_____________ test_cli_resolve_manual_review_keeps_failure_visible _____________
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+args = ['resolve', '--url', 'https://example.invalid/a.pdf', '--action', 'manual_review', '--source', ...]
+namespace = Namespace(command=None)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            # args default to the system args
+            args = _sys.argv[1:]
+        else:
+            # make sure that args are mutable
+            args = list(args)
+    
+        # default Namespace built from parser defaults
+        if namespace is None:
+            namespace = Namespace()
+    
+        # add any action defaults that aren't present
+        for action in self._actions:
+            if action.dest is not SUPPRESS:
+                if not hasattr(namespace, action.dest):
+                    if action.default is not SUPPRESS:
+                        setattr(namespace, action.dest, action.default)
+    
+        # add any parser defaults that aren't present
+        for dest in self._defaults:
+            if not hasattr(namespace, dest):
+                setattr(namespace, dest, self._defaults[dest])
+    
+        # parse the arguments and exit if there are any errors
+        if self.exit_on_error:
+            try:
+>               namespace, args = self._parse_known_args(args, namespace)
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1858: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2049: in _parse_known_args
+    positionals_end_index = consume_positionals(start_index)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2026: in consume_positionals
+    take_action(action, args)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1919: in take_action
+    argument_values = self._get_values(action, argument_strings)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2460: in _get_values
+    self._check_value(action, value[0])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+action = _SubParsersAction(option_strings=[], dest='command', nargs='A...', const=None, default=None, type=None, choices={'sour...lass 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)}, required=True, help=None, metavar='COMMAND')
+value = 'resolve'
+
+    def _check_value(self, action, value):
+        # converted value must be one of the choices (if specified)
+        if action.choices is not None and value not in action.choices:
+            args = {'value': value,
+                    'choices': ', '.join(map(repr, action.choices))}
+            msg = _('invalid choice: %(value)r (choose from %(choices)s)')
+>           raise ArgumentError(action, msg % args)
+E           argparse.ArgumentError: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2507: ArgumentError
+
+During handling of the above exception, another exception occurred:
+
+cli_env = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cli_resolve_manual_review0/data')
+tmp_path = PosixPath('/tmp/pytest-of-zhou/pytest-34/test_cli_resolve_manual_review0')
+capsys = <_pytest.capture.CaptureFixture object at 0x75899c57a8b0>
+
+    def test_cli_resolve_manual_review_keeps_failure_visible(cli_env, tmp_path, capsys):
+        _record_failure(cli_env, stage="parse", error_type="parse_error", final_action="record_only")
+        config = _write_sources(tmp_path / "sources.yaml", "http://127.0.0.1:1")
+    
+        assert (
+>           main(
+                [
+                    "resolve",
+                    "--url",
+                    "https://example.invalid/a.pdf",
+                    "--action",
+                    "manual_review",
+                    "--source",
+                    "TESTSRC",
+                    "--stage",
+                    "parse",
+                    "--note",
+                    "需要人工确认扫描件方向",
+                ]
+            )
+            == 0
+        )
+
+tests/test_cli.py:525: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/tmp/s7-repro-src/src/crawler/cli.py:187: in main
+    args = parser.parse_args(argv)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1825: in parse_args
+    args, argv = self.parse_known_args(args, namespace)
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:1861: in parse_known_args
+    self.error(str(err))
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2582: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = ArgumentParser(prog='crawl', usage=None, description='公开知识采集：来源校验、按来源采集、补抓与交付检查', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = "crawl: error: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')\n"
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+../../.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/argparse.py:2569: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: crawl [-h] [--version] COMMAND ...
+crawl: error: argument COMMAND: invalid choice: 'resolve' (choose from 'sources', 'collect', 'plan', 'resume', 'check')
+------------------------------ Captured log call -------------------------------
+WARNING  crawler.output.failures_writer:failures_writer.py:68 失败记录 stage=parse url=https://example.invalid/a.pdf type=parse_error message=读取响应失败：连接中断
+=========================== short test summary info ============================
+FAILED tests/test_body_continuation.py::test_interrupted_progress_without_queue_continuation_resumes_not_complete
+FAILED tests/test_body_continuation.py::test_continuation_mother_non_html_success_is_archived_before_failing
+FAILED tests/test_body_continuation.py::test_damaged_queue_continuation_resumes_from_incremental_state
+FAILED tests/test_body_continuation.py::test_damaged_continuation_without_state_record_is_refetched_fully
+FAILED tests/test_body_continuation.py::test_pagination_failure_then_api_recovery_matches_single_successful_crawl
+FAILED tests/test_recovery.py::test_open_failures_are_kept_per_source - Asser...
+FAILED tests/test_recovery.py::test_pending_documents_ignores_other_source_open_failure
+FAILED tests/test_recovery.py::test_failure_records_pending_item_scope_not_run_scope
+FAILED tests/test_recovery.py::test_part_failure_recovery_resumes_mother_document
+FAILED tests/test_recovery.py::test_part_reparse_failure_does_not_create_fragment_document
+FAILED tests/test_validate_reconcile.py::test_cross_source_closed_row_does_not_close_other_source_item
+FAILED tests/test_validate_reconcile.py::test_cross_source_open_failures_are_counted_separately
+FAILED tests/test_validate_reconcile.py::test_cross_source_doc_id_identity_does_not_close_item
+FAILED tests/test_cli.py::test_cli_failures_lists_open_and_history - SystemEx...
+FAILED tests/test_cli.py::test_cli_resolve_closes_failure_and_queries_result
+FAILED tests/test_cli.py::test_cli_resolve_manual_review_keeps_failure_visible
+16 failed in 4.54s
