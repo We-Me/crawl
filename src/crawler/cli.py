@@ -6,6 +6,8 @@
   collect   按来源执行一次采集
   plan      查看未关闭失败的补抓计划（只读，不请求网络）
   resume    对指定来源执行补抓
+  failures  查询失败账（默认未关闭；--all 显示全部历史与处置结果）
+  resolve   人工处置一条失败（按显式身份追加处置行，不删改历史）
   check     校验数据根的六项成果、契约 schema、端到端追溯与队列对账
 
 来源边界、robots 规则、限速、失败账和交付检查仍由被调用模块执行；CLI 不放宽
@@ -22,6 +24,7 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -32,6 +35,7 @@ from crawler.config.registry import SourceRegistry
 from crawler.config.settings import ConfigurationError, load_settings
 from crawler.fetch.budget import BudgetConfigError, RunBudget
 from crawler.fetch.retry import RetryConfigError, RetryPolicy, summarize_plan
+from crawler.monitor.failures import FailureLedger, FailureLedgerError, OPEN_ACTIONS
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
 from crawler.schedule.scope import ScopeConfigError, parse_start_date, RunScope
@@ -171,6 +175,47 @@ def build_parser() -> argparse.ArgumentParser:
     _add_budget_arguments(resume)
     resume.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     resume.set_defaults(handler=_cmd_resume)
+
+    failures = subparsers.add_parser(
+        "failures", parents=[common], help="查询失败账（定位错误与处置结果，只读）"
+    )
+    failures.add_argument("--source", default=None, metavar="ID", help="只看指定来源")
+    failures.add_argument("--url", default=None, metavar="URL", help="只看指定 URL（精确匹配）")
+    failures.add_argument("--stage", default=None, metavar="STAGE", help="只看指定阶段")
+    failures.add_argument(
+        "--all", action="store_true", help="显示全部历史行（含已关闭的处置行），默认只看未关闭"
+    )
+    failures.add_argument("--limit", type=int, default=None, help="最多显示的行数")
+    failures.add_argument("--json", action="store_true", help="以 JSON 输出结果")
+    failures.set_defaults(handler=_cmd_failures)
+
+    resolve = subparsers.add_parser(
+        "resolve", parents=[common], help="人工处置一条失败（追加处置行，不改写历史）"
+    )
+    resolve.add_argument("--url", required=True, metavar="URL", help="失败记录的 URL（精确匹配）")
+    resolve.add_argument(
+        "--action",
+        required=True,
+        choices=("recovered", "skip", "manual_review"),
+        help="处置动作；manual_review 保持未关闭并等待人工处理",
+    )
+    resolve.add_argument(
+        "--source", default=None, metavar="ID", help="来源（记录带来源时必须显式给出）"
+    )
+    resolve.add_argument("--stage", default=None, metavar="STAGE", help="失败阶段（缺省按该 URL 唯一阶段）")
+    resolve.add_argument(
+        "--scope-start-date",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="原运行范围（记录带值时必须显式给出）",
+    )
+    resolve.add_argument(
+        "--doc-id", default=None, metavar="ID", help="母文档身份（记录带值时必须显式给出）"
+    )
+    resolve.add_argument("--crawl-id", default=None, metavar="ID", help="关联原件 crawl_id（默认沿用原行）")
+    resolve.add_argument("--note", default=None, metavar="TEXT", help="处置说明（写入处置行）")
+    resolve.add_argument("--json", action="store_true", help="以 JSON 输出结果")
+    resolve.set_defaults(handler=_cmd_resolve)
 
     check = subparsers.add_parser("check", parents=[common], help="校验数据根的交付成果与队列对账")
     check.add_argument(
@@ -468,6 +513,130 @@ def _cmd_resume(args) -> int:
     if report.stop_reason:
         return EXIT_STOPPED
     return EXIT_RUN if remaining else EXIT_OK
+
+
+def _cmd_failures(args) -> int:
+    """失败账查询（只读）：默认列出未关闭失败，--all 显示全部历史与处置行。"""
+    settings = load_settings()
+    ledger = FailureLedger(settings.data_dir)
+    rows = ledger.load()
+    if args.source:
+        rows = [row for row in rows if (row.get("source_id") or "") == args.source]
+    if args.url:
+        rows = [row for row in rows if row.get("url") == args.url]
+    if args.stage:
+        rows = [row for row in rows if (row.get("stage") or "") == args.stage]
+    # 未关闭数与动作分布都按“每个身份的最后一行”统计，且受 --source/--url/--stage 过滤
+    # 约束（否则查询结果会与展示的行不一致）。
+    latest = ledger.latest_rows(rows)
+    if not args.all:
+        rows = [row for row in latest if row.get("final_action") in OPEN_ACTIONS]
+    if args.limit is not None:
+        rows = rows[-args.limit:] if args.limit >= 0 else rows[: abs(args.limit)]
+    open_rows = [row for row in latest if row.get("final_action") in OPEN_ACTIONS]
+    by_action: dict = {}
+    for row in latest:
+        action = str(row.get("final_action") or "unknown")
+        by_action[action] = by_action.get(action, 0) + 1
+    payload = {
+        "data_dir": str(settings.data_dir),
+        "open": len(open_rows),
+        "shown": len(rows),
+        "by_action": dict(sorted(by_action.items())),
+        "rows": rows,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return EXIT_OK
+    print(
+        f"失败账 {settings.data_dir}：显示 {len(rows)} 行，未关闭 {len(open_rows)}"
+        + (f"（{'，'.join(f'{k}={v}' for k, v in sorted(by_action.items()))}）" if by_action else "")
+    )
+    for row in rows:
+        location = " ".join(
+            part
+            for part in (
+                f"scope={row['scope_start_date']}" if row.get("scope_start_date") else "",
+                f"doc={row['doc_id']}" if row.get("doc_id") else "",
+                f"crawl={row['crawl_id']}" if row.get("crawl_id") else "",
+            )
+            if part
+        )
+        print(
+            f"  {row.get('time', '')} {row.get('source_id', '')} {row.get('stage', '')} "
+            f"{row.get('error_type', '')} {row.get('final_action', '')} "
+            f"retry={row.get('retry_count', 0)} {row.get('url', '')}"
+            + (f"  {location}" if location else "")
+        )
+        if row.get("message"):
+            print(f"      {row['message']}")
+    if open_rows:
+        print(
+            "未关闭失败需处置：crawl plan 查看补抓计划；"
+            "crawl resolve --url URL --action recovered|skip|manual_review 记录人工处置"
+        )
+    return EXIT_OK
+
+
+def _cmd_resolve(args) -> int:
+    """人工处置（追加 Only）：按显式身份找到最后一行并追加处置行，不改写历史。"""
+    settings = load_settings()
+    ledger = FailureLedger(settings.data_dir)
+    failure = ledger.find_latest(
+        url=args.url,
+        stage=args.stage,
+        source_id=args.source,
+        scope_start_date=args.scope_start_date,
+        doc_id=args.doc_id,
+    )
+    if failure is None:
+        identities = ledger.identities_for(args.url)
+        print(f"未按给定身份找到失败记录：url={args.url}", file=sys.stderr)
+        if identities:
+            print("该 URL 现有身份（请补齐 --source/--stage/--scope-start-date/--doc-id）：", file=sys.stderr)
+            for row in identities:
+                print(
+                    f"  source={row.get('source_id')} stage={row.get('stage')} "
+                    f"scope={row.get('scope_start_date')} doc={row.get('doc_id')} "
+                    f"action={row.get('final_action')}",
+                    file=sys.stderr,
+                )
+        return EXIT_CONFIG
+    note = args.note or f"人工处置：{args.action}"
+    try:
+        row = ledger.record_resolution(
+            failure,
+            now=datetime.now(timezone.utc).astimezone(),
+            note=note,
+            crawl_id=args.crawl_id,
+            action=args.action,
+        )
+    except FailureLedgerError as exc:
+        print(f"处置失败：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    open_rows = ledger.open_failures()
+    payload = {
+        "data_dir": str(settings.data_dir),
+        "recorded": row,
+        "open_failures": len(open_rows),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        identity = []
+        if row.get("source_id"):
+            identity.append(f"source={row['source_id']}")
+        if row.get("scope_start_date"):
+            identity.append(f"scope={row['scope_start_date']}")
+        if row.get("doc_id"):
+            identity.append(f"doc={row['doc_id']}")
+        print(
+            f"已记录人工处置：{row['url']} stage={row['stage']} "
+            f"action={row['final_action']}"
+            + (f"（{'，'.join(identity)}）" if identity else "")
+        )
+        print(f"仍未关闭失败：{len(open_rows)}")
+    return EXIT_OK
 
 
 def _cmd_check(args) -> int:

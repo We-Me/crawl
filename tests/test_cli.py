@@ -419,3 +419,135 @@ def test_cli_collect_manual_url_takes_only_given_page(site_server, tmp_path, cli
     manifest = read_jsonl(cli_env / "manifests" / "crawl_manifest.jsonl")
     assert [row["discovery_method"] for row in manifest] == ["manual"]
     assert manifest[0]["requested_url"] == f"{site_server}/detail_2.html"
+
+
+# ---------- 阶段七：失败查询与人工处置 ----------
+
+
+def _record_failure(data_dir, **overrides):
+    from crawler.monitor.failures import FailureLedger
+
+    row = {
+        "source_id": "TESTSRC",
+        "url": "https://example.invalid/a.pdf",
+        "time": "2026-09-14T10:00:00+08:00",
+        "stage": "fetch",
+        "error_type": "request_error",
+        "message": "读取响应失败：连接中断",
+        "retry_count": 0,
+        "final_action": "retry_later",
+    }
+    row.update(overrides)
+    FailureLedger(data_dir).writer.record(**row)
+    return row
+
+
+def test_cli_failures_lists_open_and_history(cli_env, capsys):
+    _record_failure(cli_env)
+    _record_failure(cli_env, url="https://example.invalid/b.pdf", final_action="record_only")
+
+    assert main(["failures"]) == 0
+    out = capsys.readouterr().out
+    assert "未关闭 2" in out
+    assert "https://example.invalid/a.pdf" in out and "https://example.invalid/b.pdf" in out
+
+    assert main(["failures", "--url", "https://example.invalid/a.pdf", "--all", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["open"] == 1 and payload["shown"] == 1
+    assert payload["rows"][0]["final_action"] == "retry_later"
+
+
+def test_cli_resolve_closes_failure_and_queries_result(cli_env, capsys):
+    _record_failure(cli_env, doc_id="DOC-1", scope_start_date="2026-09-06")
+
+    bad = main(["resolve", "--url", "https://example.invalid/a.pdf", "--action", "skip"])
+    assert bad == 2, "归属没写全时必须报错并提示可用身份"
+    err = capsys.readouterr().err
+    assert "现有身份" in err and "doc=DOC-1" in err
+
+    partial = main(
+        [
+            "resolve",
+            "--url",
+            "https://example.invalid/a.pdf",
+            "--action",
+            "skip",
+            "--stage",
+            "fetch",
+            "--doc-id",
+            "DOC-1",
+            "--scope-start-date",
+            "2026-09-06",
+        ]
+    )
+    assert partial == 2, "记录带来源归属时不得按未确认的来源关闭"
+    assert "source=TESTSRC" in capsys.readouterr().err
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                "https://example.invalid/a.pdf",
+                "--action",
+                "skip",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "fetch",
+                "--doc-id",
+                "DOC-1",
+                "--scope-start-date",
+                "2026-09-06",
+                "--note",
+                "边界拒绝：超过声明上限",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["recorded"]["final_action"] == "skip"
+    assert payload["open_failures"] == 0
+
+    assert main(["failures"]) == 0
+    assert "未关闭 0" in capsys.readouterr().out
+    assert main(["failures", "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "边界拒绝" in out, "处置结果可按 URL 查询到"
+
+
+def test_cli_resolve_manual_review_keeps_failure_visible(cli_env, tmp_path, capsys):
+    _record_failure(cli_env, stage="parse", error_type="parse_error", final_action="record_only")
+    config = _write_sources(tmp_path / "sources.yaml", "http://127.0.0.1:1")
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                "https://example.invalid/a.pdf",
+                "--action",
+                "manual_review",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "parse",
+                "--note",
+                "需要人工确认扫描件方向",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "仍未关闭失败：1" in out, "manual_review 不等于 recovered，必须保持可见"
+
+    assert main(["failures", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["open"] == 1
+    assert payload["rows"][0]["final_action"] == "manual_review"
+
+    assert main(["plan", "--source", "TESTSRC", "--config", str(config), "--json"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["summary"] == {"manual": 1}
+    assert "manual_review" in plan["tasks"][0]["reason"]

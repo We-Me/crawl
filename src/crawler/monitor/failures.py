@@ -66,6 +66,72 @@ class FailureLedger:
     def history_of(self, url: str) -> List[dict]:
         return [row for row in self.load() if row.get("url") == url]
 
+    def latest_rows(self, rows: Optional[Sequence[dict]] = None) -> List[dict]:
+        """每个身份（来源 + URL + stage + 范围 + 母文档）的最后一行，按 URL 稳定排序。"""
+        latest: Dict[tuple, dict] = {}
+        for index, row in enumerate(self.load() if rows is None else rows):
+            key = (
+                row.get("source_id") or None,
+                row.get("url"),
+                row.get("stage"),
+                row.get("scope_start_date") or None,
+                row.get("doc_id") or None,
+            )
+            latest[key] = (index, row)
+        return [row for _, row in sorted(latest.values(), key=lambda item: item[0])]
+
+    def find_latest(
+        self,
+        *,
+        url: str,
+        stage: Optional[str] = None,
+        source_id: Optional[str] = None,
+        scope_start_date: Optional[str] = None,
+        doc_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """按显式身份取最后一行；归属没写全就不动（返回 None），宁可人工补齐后再处置。
+
+        身份 = (source_id, url, stage, scope_start_date, doc_id)。记录里带值的归属维度
+        调用方必须显式给出：否则无法确认要关闭的是哪个对象（同 URL 可能来自别的来源、
+        别的运行范围或另一份母文档），交回调用方按 identities_for 列出的身份重试。
+        未给 stage 时只接受该 URL 唯一的 stage。
+        """
+        candidates = [row for row in self.load() if row.get("url") == url]
+        if source_id is not None:
+            candidates = [
+                row for row in candidates if (row.get("source_id") or None) == source_id
+            ]
+        elif any((row.get("source_id") or None) is not None for row in candidates):
+            return None
+        if scope_start_date is not None:
+            candidates = [
+                row
+                for row in candidates
+                if (row.get("scope_start_date") or None) == scope_start_date
+            ]
+        elif any((row.get("scope_start_date") or None) is not None for row in candidates):
+            return None
+        if doc_id is not None:
+            candidates = [
+                row for row in candidates if (row.get("doc_id") or None) == doc_id
+            ]
+        elif any((row.get("doc_id") or None) is not None for row in candidates):
+            return None
+        if stage is not None:
+            candidates = [row for row in candidates if row.get("stage") == stage]
+        else:
+            stages = {row.get("stage") for row in candidates}
+            if len(stages) != 1:
+                return None
+        if not candidates:
+            return None
+        return candidates[-1]
+
+    def identities_for(self, url: str) -> List[dict]:
+        """该 URL 下出现过的身份（供人工处置时选择），每个身份取最后一行。"""
+        rows = [row for row in self.load() if row.get("url") == url]
+        return self.latest_rows(rows)
+
     def default_raw_path(self, crawl_id: str) -> Optional[str]:
         for row in read_jsonl(self.layout.manifest_path):
             if row.get("crawl_id") == crawl_id:

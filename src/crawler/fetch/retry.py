@@ -130,6 +130,11 @@ def plan_retry(
         "scope_start_date": failure.get("scope_start_date"),
         "doc_id": failure.get("doc_id"),
     }
+    if str(failure.get("final_action") or "") == "manual_review":
+        # 人工处置状态保持可见但不自动补抓：等待操作者按同一身份恢复/跳过。
+        return RecoveryTask(
+            **common, action=MANUAL, reason="已转人工处置（manual_review），不自动补抓"
+        )
     if stage in NETWORK_STAGES:
         if is_permanent(failure):
             return RecoveryTask(**common, action=MANUAL, reason="永久 4xx，只记录不重试")
