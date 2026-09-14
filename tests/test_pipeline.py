@@ -94,6 +94,7 @@ def test_minimal_html_attachment_closure(site_server, registry_factory, pipeline
     assert failures[0]["stage"] == "fetch"
     assert failures[0]["error_type"] == "http_error"
     assert failures[0]["retry_count"] == 0
+    assert failures[0]["discovery_method"] == "attachment"
     assert [item.url for item in report.skipped] == ["https://outside.invalid/secret"]
 
     # 采集阶段边界：数据根下只有原件、账本、规范化目录与运行日志（T017）

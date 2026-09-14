@@ -39,6 +39,7 @@ class FailureWriter:
         referrer_url: Optional[str] = None,
         scope_start_date: Optional[str] = None,
         doc_id: Optional[str] = None,
+        discovery_method: Optional[str] = None,
     ) -> dict:
         if stage not in FAILURE_STAGES:
             raise ValueError(f"未知失败阶段：{stage!r}")
@@ -68,6 +69,10 @@ class FailureWriter:
             # 母文档身份（R5）：附件/分页等从属对象的失败必须能回到具体母文档，
             # 恢复关联不能只按 URL 关闭同一来源的其它对象。
             row["doc_id"] = doc_id
+        if discovery_method is not None:
+            # 对象类型（P7-01）：附件与正文分页/接口片段都可能带同一个母文档 doc_id，
+            # 恢复关联必须能区分对象种类，不能只按 doc_id 推断。
+            row["discovery_method"] = discovery_method
         try:
             append_jsonl(self.path, [row])
         except OSError as exc:

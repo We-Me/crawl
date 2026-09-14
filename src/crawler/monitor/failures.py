@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
+from crawler.output.atomic import LockUnavailable
 from crawler.output.failures_writer import FAILURE_STAGES, FailureWriter
 from crawler.output.jsonl import append_jsonl, read_jsonl
 from crawler.output.layout import DeliveryLayout
@@ -29,6 +30,18 @@ CLOSED_ACTIONS = ("recovered", "skip")
 
 class FailureLedgerError(ValueError):
     """失败账操作非法。"""
+
+
+class FailureQueueSyncError(RuntimeError):
+    """处置行已写入失败账，但队列回写失败（P7-02）。
+
+    必须显式报告：调用方不得在队列未同步时声称处置成功；按同一身份重复处置是幂等的，
+    修复队列问题（锁/权限/磁盘）后可直接重跑同一命令重试。
+    """
+
+    def __init__(self, message: str, row: Mapping) -> None:
+        super().__init__(message)
+        self.row = dict(row)
 
 
 class FailureLedger:
@@ -95,30 +108,31 @@ class FailureLedger:
         调用方必须显式给出：否则无法确认要关闭的是哪个对象（同 URL 可能来自别的来源、
         别的运行范围或另一份母文档），交回调用方按 identities_for 列出的身份重试。
         未给 stage 时只接受该 URL 唯一的 stage。
+
+        区分“未指定”与“显式空值”（P7-03）：参数缺省 None 表示未指定；显式传空字符串
+        表示要选中该字段为空的记录（同 URL 同时有带日期/不带日期、带 doc_id/不带
+        doc_id 的记录时，操作者据此准确选中空值身份，不必手改 JSONL）。
         """
         candidates = [row for row in self.load() if row.get("url") == url]
-        if source_id is not None:
+        for field, value in (
+            ("source_id", source_id),
+            ("scope_start_date", scope_start_date),
+            ("doc_id", doc_id),
+        ):
+            if value is None:
+                if any((row.get(field) or None) is not None for row in candidates):
+                    return None
+                continue
+            wanted = value or None
             candidates = [
-                row for row in candidates if (row.get("source_id") or None) == source_id
+                row for row in candidates if (row.get(field) or None) == wanted
             ]
-        elif any((row.get("source_id") or None) is not None for row in candidates):
-            return None
-        if scope_start_date is not None:
+        if stage is not None:
             candidates = [
                 row
                 for row in candidates
-                if (row.get("scope_start_date") or None) == scope_start_date
+                if (row.get("stage") or None) == (stage or None)
             ]
-        elif any((row.get("scope_start_date") or None) is not None for row in candidates):
-            return None
-        if doc_id is not None:
-            candidates = [
-                row for row in candidates if (row.get("doc_id") or None) == doc_id
-            ]
-        elif any((row.get("doc_id") or None) is not None for row in candidates):
-            return None
-        if stage is not None:
-            candidates = [row for row in candidates if row.get("stage") == stage]
         else:
             stages = {row.get("stage") for row in candidates}
             if len(stages) != 1:
@@ -189,6 +203,142 @@ class FailureLedger:
         logger.info("失败处置 url=%s stage=%s action=%s", row["url"], stage, action)
         return row
 
+    def resolve_with_queue(
+        self,
+        failure: Mapping,
+        *,
+        now: datetime,
+        note: str,
+        crawl_id: Optional[str] = None,
+        action: str = "recovered",
+    ) -> dict:
+        """人工处置：追加处置行并按完整身份协调同对象的待处理项（P7-02）。
+
+        - 追加写口径不变：历史失败行不改写，只追加一条处置行；
+        - 队列协调按对象身份（来源 + URL + 原运行范围 + 母文档）：同 URL 的其他范围、
+          别的母文档或无关对象都不受影响；
+        - 同对象仍有其他未关闭阶段时不标记完成：队列保持 failed，账本仍有开放行，
+          对账保持一致，并明确报告未越权关闭哪些阶段；
+        - manual_review 保持未关闭：队列状态不改写（保持可见），也不自动补抓；
+        - 对象仍有正文待续（continuation）时，recovered 只关闭本次失败，对象保持
+          pending 继续续作，不清空续作位置；
+        - 队列回写失败抛 :class:`FailureQueueSyncError`：处置行已记录，按同一身份
+          重复处置幂等，可修复后重试。
+        """
+        row = self.record_resolution(
+            failure, now=now, note=note, crawl_id=crawl_id, action=action
+        )
+        queue = self._sync_queue_after_resolution(
+            row, action=action, note=note, crawl_id=crawl_id
+        )
+        return {"resolution": row, "queue": queue}
+
+    def _sync_queue_after_resolution(
+        self,
+        row: Mapping,
+        *,
+        action: str,
+        note: str,
+        crawl_id: Optional[str],
+    ) -> dict:
+        from crawler.schedule.pending import (
+            STATE_PENDING,
+            STATE_PROCESSED,
+            STATE_SKIPPED,
+            PendingStore,
+            PendingStoreError,
+        )
+
+        identity = _object_identity(row)
+        queue = {
+            "identity": {
+                "source_id": identity[0],
+                "url": identity[1],
+                "scope_start_date": identity[2],
+                "doc_id": identity[3],
+            },
+            "matched": [],
+            "updated": {},
+            "unchanged": [],
+            "kept_open": [],
+            "status": "no_item",
+        }
+        try:
+            matched = [
+                item
+                for item in PendingStore(self.data_dir).all_items()
+                if _same_queue_object(item, identity)
+            ]
+        except (OSError, PendingStoreError, LockUnavailable) as exc:
+            raise FailureQueueSyncError(f"队列读取失败：{exc}", row) from exc
+        queue["matched"] = [item.key for item in matched]
+
+        if action == MANUAL_ACTION:
+            # 人工态保持未关闭：不改状态、不清续作位置，只让操作者在队列上看到处置。
+            queue["status"] = "manual_review"
+            queue["message"] = "manual_review 保持未关闭：队列状态不变，不自动补抓"
+            for item in matched:
+                new_note = f"人工处置 manual_review：{note}（保持未关闭，不自动补抓）"
+                if item.note == new_note:
+                    queue["unchanged"].append(item.key)
+                    continue
+                self._mark_queue_item(item, item.state, new_note, crawl_id)
+                queue["updated"][item.key] = item.state
+            return queue
+
+        open_rows = [
+            open_row
+            for open_row in self.open_failures()
+            if _object_identity(open_row) == identity
+        ]
+        if open_rows:
+            # 同对象还有别的未关闭阶段：不能一条处置把整个对象标成完成。
+            queue["status"] = "blocked"
+            queue["kept_open"] = sorted(
+                {str(open_row.get("stage") or "unknown") for open_row in open_rows}
+            )
+            queue["message"] = "同对象仍有未关闭阶段：队列保持现状，未标记完成"
+            return queue
+
+        target_state = STATE_SKIPPED if action == "skip" else STATE_PROCESSED
+        for item in matched:
+            new_state = target_state
+            new_note = f"人工处置 {action}：{note}"
+            if action == "recovered" and item.continuation is not None:
+                # 对象仍有正文待续：不得标完成、不得清空续作位置，保持 pending 续作。
+                new_state = STATE_PENDING
+                new_note = f"{new_note}；对象仍有正文待续，队列保持 pending 续作"
+            if item.state == new_state and item.note == new_note:
+                queue["unchanged"].append(item.key)
+                continue
+            self._mark_queue_item(item, new_state, new_note, crawl_id)
+            queue["updated"][item.key] = new_state
+        if matched:
+            queue["status"] = "synced"
+            queue["message"] = "队列已按同一身份协调"
+        else:
+            queue["message"] = "未找到同身份待处理项：账本处置已记录，队列无需协调"
+        return queue
+
+    def _mark_queue_item(
+        self,
+        item,
+        state: str,
+        note: str,
+        crawl_id: Optional[str],
+    ) -> None:
+        from crawler.schedule.pending import PendingStore, PendingStoreError
+
+        try:
+            PendingStore(self.data_dir).mark(
+                item.key, state=state, note=note, crawl_id=crawl_id
+            )
+        except (OSError, PendingStoreError, LockUnavailable) as exc:
+            raise FailureQueueSyncError(
+                f"队列回写失败 key={item.key}：{exc}（处置行已记录，可重复处置重试）",
+                {"url": item.url, "key": item.key, "state": state},
+            ) from exc
+
     def pending_documents(
         self,
         *,
@@ -220,3 +370,24 @@ class FailureLedger:
         if limit is not None:
             pending = pending[:limit]
         return pending
+
+
+def _object_identity(row: Mapping) -> tuple:
+    """对象身份（不含阶段）：来源 + URL + 原运行范围 + 母文档（缺失按 None）。"""
+    return (
+        row.get("source_id") or None,
+        row.get("url") or None,
+        row.get("scope_start_date") or None,
+        row.get("doc_id") or None,
+    )
+
+
+def _same_queue_object(item, identity: tuple) -> bool:
+    """待处理项与处置行是否同一对象；缺失值按缺失值比较，不推断（P7-02）。"""
+    source_id, url, scope_start_date, doc_id = identity
+    return (
+        (item.source_id or None) == source_id
+        and (item.url or None) == url
+        and (item.scope_start_date or None) == scope_start_date
+        and (item.doc_id or None) == doc_id
+    )

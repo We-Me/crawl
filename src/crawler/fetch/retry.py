@@ -62,6 +62,7 @@ class RecoveryTask:
     raw_path: Optional[str] = None
     scope_start_date: Optional[str] = None
     doc_id: Optional[str] = None
+    discovery_method: Optional[str] = None
     reason: str = ""
 
     def as_row(self) -> dict:
@@ -74,7 +75,14 @@ class RecoveryTask:
             "retry_count": self.retry_count,
             "not_before": self.not_before.isoformat(),
         }
-        for key in ("crawl_id", "referrer_url", "raw_path", "scope_start_date", "doc_id"):
+        for key in (
+            "crawl_id",
+            "referrer_url",
+            "raw_path",
+            "scope_start_date",
+            "doc_id",
+            "discovery_method",
+        ):
             value = getattr(self, key)
             if value:
                 row[key] = value
@@ -133,6 +141,7 @@ def plan_retry(
         "referrer_url": failure.get("referrer_url"),
         "scope_start_date": failure.get("scope_start_date"),
         "doc_id": failure.get("doc_id"),
+        "discovery_method": failure.get("discovery_method"),
     }
     if str(failure.get("final_action") or "") == "manual_review":
         # 人工处置状态保持可见但不自动补抓：等待操作者按同一身份恢复/跳过。

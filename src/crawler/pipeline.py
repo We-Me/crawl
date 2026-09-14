@@ -84,7 +84,7 @@ from crawler.fetch.retry import (
     plan_is_ready,
     plan_retry,
 )
-from crawler.monitor.failures import FailureLedger
+from crawler.monitor.failures import MANUAL_ACTION, FailureLedger
 from crawler.monitor.logger import configure_run_logging, log_run_context
 from crawler.monitor.metrics import (
     build_metrics,
@@ -96,6 +96,7 @@ from crawler.schedule.incremental import plan_incremental
 from crawler.schedule.cursor import DiscoveryCursorStore
 from crawler.schedule.pending import (
     KIND_ATTACHMENT,
+    KIND_TARGET,
     STATE_FAILED,
     STATE_PENDING,
     STATE_PROCESSED,
@@ -196,6 +197,9 @@ CONTINUABLE_REASONS = (
 
 
 CONTINUATION_KIND = "body_pagination"
+
+# 正文分页/接口片段的发现方式：这些对象必须能回到母页续作，不能独立成文（P7-01）。
+BODY_PART_DISCOVERY_METHODS = ("pagination", "api")
 
 
 @dataclass(frozen=True)
@@ -533,6 +537,7 @@ class CrawlPipeline:
                                 retryable=False,
                                 referrer_url=item.referrer_url,
                                 doc_id=item.doc_id,
+                                discovery_method=item.discovery_method,
                             )
                         outcome = self._collect_target(
                             source,
@@ -1027,6 +1032,7 @@ class CrawlPipeline:
                     retryable=False,
                     referrer_url=target.referrer_url,
                     doc_id=state.crawl_id,
+                    discovery_method=target.discovery_method,
                 )
                 ignore_conditional = True
         if continuation is not None:
@@ -1290,6 +1296,7 @@ class CrawlPipeline:
                 retryable=exc.retryable,
                 referrer_url=target.referrer_url,
                 doc_id=continuation.doc_id,
+                discovery_method=target.discovery_method,
             )
             error_type = "http_error" if exc.status_code else "request_error"
             return TargetOutcome(
@@ -1316,6 +1323,7 @@ class CrawlPipeline:
                     referrer_url=target.referrer_url,
                     crawl_id=continuation.doc_id,
                     doc_id=continuation.doc_id,
+                    discovery_method=target.discovery_method,
                 )
                 return TargetOutcome(
                     STATE_FAILED,
@@ -1389,6 +1397,7 @@ class CrawlPipeline:
                 referrer_url=target.referrer_url,
                 crawl_id=archived.crawl_id,
                 doc_id=continuation.doc_id,
+                discovery_method=target.discovery_method,
             )
             return TargetOutcome(
                 STATE_FAILED,
@@ -1543,6 +1552,7 @@ class CrawlPipeline:
                 referrer_url=target.referrer_url,
                 crawl_id=mother_crawl_id,
                 doc_id=mother_crawl_id if resume else None,
+                discovery_method=target.discovery_method,
             )
             return TargetOutcome(
                 STATE_FAILED,
@@ -1766,6 +1776,7 @@ class CrawlPipeline:
                 referrer_url=referrer,
                 crawl_id=ref.get("crawl_id"),
                 doc_id=doc_id,
+                discovery_method=method,
             )
             return None
         final_url = str(ref.get("final_url") or url)
@@ -1802,6 +1813,7 @@ class CrawlPipeline:
                 referrer_url=referrer,
                 crawl_id=ref.get("crawl_id"),
                 doc_id=doc_id,
+                discovery_method=method,
             )
             return None
         return blocks, content, final_url
@@ -1932,6 +1944,7 @@ class CrawlPipeline:
                         retryable=exc.retryable,
                         referrer_url=referrer,
                         doc_id=doc_id,
+                        discovery_method="pagination",
                     )
                     incomplete = f"pagination_fetch_failed:{next_url}"
                     break
@@ -1963,6 +1976,7 @@ class CrawlPipeline:
                         referrer_url=referrer,
                         crawl_id=part_crawl_id,
                         doc_id=doc_id,
+                        discovery_method="pagination",
                     )
                     incomplete = f"pagination_parse_failed:{next_url}"
                     break
@@ -1979,6 +1993,7 @@ class CrawlPipeline:
                         referrer_url=referrer,
                         crawl_id=part_crawl_id,
                         doc_id=doc_id,
+                        discovery_method="pagination",
                     )
                     incomplete = f"pagination_selector_miss:{next_url}"
                     break
@@ -2098,6 +2113,7 @@ class CrawlPipeline:
                 retryable=exc.retryable,
                 referrer_url=referrer,
                 doc_id=doc_id,
+                discovery_method="api",
             )
             return None
         archived = self.archiver.archive(
@@ -2126,6 +2142,7 @@ class CrawlPipeline:
                 referrer_url=referrer,
                 crawl_id=crawl_id,
                 doc_id=doc_id,
+                discovery_method="api",
             )
             return None
         body = _body_text_from_payload(payload)
@@ -2142,6 +2159,7 @@ class CrawlPipeline:
                 referrer_url=referrer,
                 crawl_id=crawl_id,
                 doc_id=doc_id,
+                discovery_method="api",
             )
             return None
         if "<" in body:
@@ -2273,6 +2291,7 @@ class CrawlPipeline:
                     retryable=exc.retryable,
                     referrer_url=target.referrer_url,
                     doc_id=doc_id,
+                    discovery_method="attachment",
                 )
                 record["status"] = "failed"
                 record["note"] = str(exc)
@@ -2372,6 +2391,7 @@ class CrawlPipeline:
                 retryable=exc.retryable,
                 referrer_url=target.referrer_url,
                 doc_id=item.doc_id,
+                discovery_method="attachment",
             )
             coverage["failed"] += 1
             return TargetOutcome(STATE_FAILED, str(exc))
@@ -2416,6 +2436,7 @@ class CrawlPipeline:
         crawl_id: Optional[str] = None,
         final_action: Optional[str] = None,
         doc_id: Optional[str] = None,
+        discovery_method: Optional[str] = None,
     ) -> None:
         row = self.failures.record(
             source_id=source_id,
@@ -2435,6 +2456,7 @@ class CrawlPipeline:
                 else None
             ),
             doc_id=doc_id,
+            discovery_method=discovery_method,
         )
         report.failures.append(row)
         report.counters.failures += 1
@@ -2498,6 +2520,20 @@ class CrawlPipeline:
                     continue
                 if respect_backoff and not plan_is_ready(task, now=moment):
                     report.pending.append(task.as_row())
+                    processed += 1
+                    continue
+                if self._body_part_needs_manual(task):
+                    # P7-01：正文分页/接口片段必须能证明回到母页续作；身份不足时
+                    # 不按 URL 独立取回（避免片段成文或误改母页），转人工保持开放。
+                    failure = self._failure_for(task)
+                    note = (
+                        "身份不足：无法证明属于所带母文档的正文分页/接口位置，"
+                        "不自动重取，等待人工按完整身份处置"
+                    )
+                    self.failures_ledger.record_resolution(
+                        failure, now=self.now(), note=note, action=MANUAL_ACTION
+                    )
+                    report.manual.append({**task.as_row(), "reason": note})
                     processed += 1
                     continue
                 try:
@@ -2796,6 +2832,25 @@ class CrawlPipeline:
             )
         return matched
 
+    def _body_part_needs_manual(self, task: RecoveryTask) -> bool:
+        """正文分页/接口任务无法证明回到母页续作时转人工（P7-01）。
+
+        只对已知类型的正文片段生效：附件等独立对象仍按自身 URL 恢复；历史记录没有
+        类型标注时不据此拦截，保持原有按 URL 恢复的能力。
+        """
+        if not task.doc_id or task.discovery_method not in BODY_PART_DISCOVERY_METHODS:
+            return False
+        continuation, resume_item = self._resume_object(task.source_id, task)
+        if resume_item is None:
+            logger.warning(
+                "正文片段身份不足，转人工 url=%s doc_id=%s method=%s",
+                task.url,
+                task.doc_id,
+                task.discovery_method,
+            )
+            return True
+        return False
+
     def _resume_object(
         self, source_id: str, task: RecoveryTask
     ) -> Tuple[Optional[BodyContinuation], Optional[PendingItem]]:
@@ -2818,10 +2873,20 @@ class CrawlPipeline:
                 if not _same_recovery_object(item, task, continuation=continuation):
                     continue
                 return continuation, item
-            if not task.doc_id or continuation is None:
+            if not task.doc_id:
                 continue
-            if continuation.doc_id == task.doc_id and (item.doc_id or None) == task.doc_id:
-                fragment = (continuation, item)
+            if not _task_resumes_mother(item, task, continuation):
+                if continuation is not None and continuation.doc_id == task.doc_id:
+                    # 共享母文档身份但不能证明是本页的续作位置（例如附件）：按独立对象
+                    # 处理，不关联母页续作（P7-01）。
+                    logger.info(
+                        "任务与待处理项共享 doc_id 但不在续作位置，按独立对象处理 "
+                        "url=%s mother=%s",
+                        task.url,
+                        item.url,
+                    )
+                continue
+            fragment = (continuation, item)
         return fragment
 
     def _recover_reparse(
@@ -2974,8 +3039,9 @@ def _same_recovery_object(
 
     - URL 相同：任务带母文档 doc_id 时，待处理项必须指向同一母文档；待处理项没有
       母文档身份说明对象类型不同（如目标是页面、任务是附件），不匹配；
-    - URL 不同：仅当任务带母文档身份，且待处理项正是该母文档的正文待续载体
-      （分页/接口部分失败回到母目标）时算同一对象；
+    - URL 不同：仅当任务可证明是该母文档正文待续位置（分页/接口片段）时算同一对象；
+      相同 doc_id 只说明共享母文档，附件与正文片段都可能带同一 doc_id，不能据此关联
+      （P7-01）；
     - 任务带 referrer_url 时，同 URL 的待处理项 referrer/parent 必须有一个与之一致
       （同一附件挂在不同母页下不算同一对象）；
     - 来源与原运行范围由调用方先行匹配；任一侧缺字段时按可判定部分判断，
@@ -2985,17 +3051,45 @@ def _same_recovery_object(
         if not item.doc_id or item.doc_id != task.doc_id:
             return False
     if item.url != task.url:
-        return bool(
-            task.doc_id
-            and continuation is not None
-            and continuation.doc_id == task.doc_id
-            and continuation.mother_url == item.url
-        )
+        return _task_resumes_mother(item, task, continuation)
     if task.referrer_url:
         candidates = {value for value in (item.referrer_url, item.parent_url) if value}
         if candidates and task.referrer_url not in candidates:
             return False
     return True
+
+
+def _task_resumes_mother(
+    item: PendingItem,
+    task: RecoveryTask,
+    continuation: Optional[BodyContinuation],
+) -> bool:
+    """任务是否可证明是该母页待续正文的分页/接口片段（P7-01）。
+
+    证明 = 任务 URL 正是该母文档待续状态记录的下一分页/接口位置或已取得部分 URL，
+    且待处理项是该母页主目标。仅仅共享 doc_id 不足以判定对象类型：附件恢复不得因此
+    回到母页续作，也不得改动仍待续母页的状态与续作位置。
+    """
+    if not task.doc_id or continuation is None:
+        return False
+    if item.kind != KIND_TARGET:
+        return False
+    if (item.doc_id or None) != task.doc_id:
+        return False
+    if continuation.doc_id != task.doc_id or continuation.mother_url != item.url:
+        return False
+    return _is_recorded_body_part(continuation, task.url)
+
+
+def _is_recorded_body_part(continuation: BodyContinuation, url: str) -> bool:
+    """URL 是否出现在母文档的待续位置（下一分页/接口或已取得部分）里。"""
+    if not url:
+        return False
+    if url in (continuation.next_url, continuation.body_api_url):
+        return True
+    return any(
+        url in (part.get("url"), part.get("final_url")) for part in continuation.parts
+    )
 
 
 def _as_run_report(report: RecoveryReport, scope: Optional[RunScope] = None) -> RunReport:

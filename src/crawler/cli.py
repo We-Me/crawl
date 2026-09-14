@@ -35,7 +35,12 @@ from crawler.config.registry import SourceRegistry
 from crawler.config.settings import ConfigurationError, load_settings
 from crawler.fetch.budget import BudgetConfigError, RunBudget
 from crawler.fetch.retry import RetryConfigError, RetryPolicy, plan_retry, summarize_plan
-from crawler.monitor.failures import FailureLedger, FailureLedgerError, OPEN_ACTIONS
+from crawler.monitor.failures import (
+    OPEN_ACTIONS,
+    FailureLedger,
+    FailureLedgerError,
+    FailureQueueSyncError,
+)
 from crawler.output.failures_writer import FailureLedgerWriteError
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
@@ -180,13 +185,31 @@ def build_parser() -> argparse.ArgumentParser:
     failures = subparsers.add_parser(
         "failures", parents=[common], help="查询失败账（定位错误与处置结果，只读）"
     )
-    failures.add_argument("--source", default=None, metavar="ID", help="只看指定来源")
-    failures.add_argument("--url", default=None, metavar="URL", help="只看指定 URL（精确匹配）")
-    failures.add_argument("--stage", default=None, metavar="STAGE", help="只看指定阶段")
     failures.add_argument(
-        "--scope-start-date", default=None, metavar="YYYY-MM-DD", help="只看指定原运行范围"
+        "--source",
+        default=None,
+        metavar="ID",
+        help="只看指定来源（显式传空字符串表示只看来源为空的记录）",
     )
-    failures.add_argument("--doc-id", default=None, metavar="ID", help="只看指定母文档/对象身份")
+    failures.add_argument("--url", default=None, metavar="URL", help="只看指定 URL（精确匹配）")
+    failures.add_argument(
+        "--stage",
+        default=None,
+        metavar="STAGE",
+        help="只看指定阶段（显式传空字符串表示只看阶段为空的记录）",
+    )
+    failures.add_argument(
+        "--scope-start-date",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="只看指定原运行范围（显式传空字符串表示只看没有日期的记录）",
+    )
+    failures.add_argument(
+        "--doc-id",
+        default=None,
+        metavar="ID",
+        help="只看指定母文档/对象身份（显式传空字符串表示只看没有 doc_id 的记录）",
+    )
     failures.add_argument(
         "--all", action="store_true", help="显示全部历史行（含已关闭的处置行），默认只看未关闭"
     )
@@ -200,7 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
     failures.set_defaults(handler=_cmd_failures)
 
     resolve = subparsers.add_parser(
-        "resolve", parents=[common], help="人工处置一条失败（追加处置行，不改写历史）"
+        "resolve",
+        parents=[common],
+        help="人工处置一条失败（追加处置行并按同一身份协调队列，不改写历史）",
     )
     resolve.add_argument("--url", required=True, metavar="URL", help="失败记录的 URL（精确匹配）")
     resolve.add_argument(
@@ -210,17 +235,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="处置动作；manual_review 保持未关闭并等待人工处理",
     )
     resolve.add_argument(
-        "--source", default=None, metavar="ID", help="来源（记录带来源时必须显式给出）"
+        "--source",
+        default=None,
+        metavar="ID",
+        help="来源（记录带来源时必须显式给出；来源为空的记录请显式传空字符串）",
     )
-    resolve.add_argument("--stage", default=None, metavar="STAGE", help="失败阶段（缺省按该 URL 唯一阶段）")
+    resolve.add_argument(
+        "--stage",
+        default=None,
+        metavar="STAGE",
+        help="失败阶段（缺省按该 URL 唯一阶段）",
+    )
     resolve.add_argument(
         "--scope-start-date",
         default=None,
         metavar="YYYY-MM-DD",
-        help="原运行范围（记录带值时必须显式给出）",
+        help="原运行范围（记录带值时必须显式给出；没有日期的记录请显式传空字符串）",
     )
     resolve.add_argument(
-        "--doc-id", default=None, metavar="ID", help="母文档身份（记录带值时必须显式给出）"
+        "--doc-id",
+        default=None,
+        metavar="ID",
+        help="母文档身份（记录带值时必须显式给出；没有 doc_id 的记录请显式传空字符串）",
     )
     resolve.add_argument("--crawl-id", default=None, metavar="ID", help="关联原件 crawl_id（默认沿用原行）")
     resolve.add_argument("--note", default=None, metavar="TEXT", help="处置说明（写入处置行）")
@@ -533,18 +569,19 @@ def _cmd_failures(args) -> int:
     settings = load_settings()
     ledger = FailureLedger(settings.data_dir)
     rows = ledger.load()
-    if args.source:
+    # 过滤条件区分“未指定”（None）与“显式空值”（空字符串）：后者只看该字段为空的记录（P7-03）。
+    if args.source is not None:
         rows = [row for row in rows if (row.get("source_id") or "") == args.source]
     if args.url:
         rows = [row for row in rows if row.get("url") == args.url]
-    if args.stage:
+    if args.stage is not None:
         rows = [row for row in rows if (row.get("stage") or "") == args.stage]
-    if args.scope_start_date:
+    if args.scope_start_date is not None:
         rows = [
             row for row in rows
             if (row.get("scope_start_date") or "") == args.scope_start_date
         ]
-    if args.doc_id:
+    if args.doc_id is not None:
         rows = [row for row in rows if (row.get("doc_id") or "") == args.doc_id]
     # 未关闭数与动作分布都按“每个身份的最后一行”统计，且受过滤条件约束
     # （否则查询结果会与展示的行不一致）。
@@ -747,7 +784,7 @@ def _failure_sample(row) -> str:
 
 
 def _cmd_resolve(args) -> int:
-    """人工处置（追加 Only）：按显式身份找到最后一行并追加处置行，不改写历史。"""
+    """人工处置（追加 Only）：按显式身份找到最后一行，追加处置行并按同一身份协调队列。"""
     settings = load_settings()
     ledger = FailureLedger(settings.data_dir)
     failure = ledger.find_latest(
@@ -761,31 +798,42 @@ def _cmd_resolve(args) -> int:
         identities = ledger.identities_for(args.url)
         print(f"未按给定身份找到失败记录：url={args.url}", file=sys.stderr)
         if identities:
-            print("该 URL 现有身份（请补齐 --source/--stage/--scope-start-date/--doc-id）：", file=sys.stderr)
+            print(
+                "该 URL 现有身份（请补齐 --source/--stage/--scope-start-date/--doc-id）；"
+                "字段为空的记录请显式传空字符串，例如 --doc-id '' --scope-start-date ''：",
+                file=sys.stderr,
+            )
             for row in identities:
-                print(
-                    f"  source={row.get('source_id')} stage={row.get('stage')} "
-                    f"scope={row.get('scope_start_date')} doc={row.get('doc_id')} "
-                    f"action={row.get('final_action')}",
-                    file=sys.stderr,
-                )
+                print(f"  {_identity_hint(row, action=args.action)}", file=sys.stderr)
         return EXIT_CONFIG
     note = args.note or f"人工处置：{args.action}"
     try:
-        row = ledger.record_resolution(
+        outcome = ledger.resolve_with_queue(
             failure,
             now=datetime.now(timezone.utc).astimezone(),
             note=note,
             crawl_id=args.crawl_id,
             action=args.action,
         )
+    except FailureQueueSyncError as exc:
+        print(f"队列协调失败：{exc}", file=sys.stderr)
+        print(
+            "失败账处置行已记录，但队列尚未同步；修复队列问题后重复执行同一 resolve 即可"
+            "（重复处置幂等，不重复改写历史）："
+            + _resolve_command(failure, action=args.action),
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
     except FailureLedgerError as exc:
         print(f"处置失败：{exc}", file=sys.stderr)
         return EXIT_CONFIG
+    row = outcome["resolution"]
+    queue = outcome["queue"]
     open_rows = ledger.open_failures()
     payload = {
         "data_dir": str(settings.data_dir),
         "recorded": row,
+        "queue": queue,
         "open_failures": len(open_rows),
     }
     if args.json:
@@ -803,8 +851,59 @@ def _cmd_resolve(args) -> int:
             f"action={row['final_action']}"
             + (f"（{'，'.join(identity)}）" if identity else "")
         )
+        print(f"队列协调：{_queue_summary(queue)}")
         print(f"仍未关闭失败：{len(open_rows)}")
     return EXIT_OK
+
+
+def _identity_hint(row, *, action: str = "skip") -> str:
+    """把失败行转成可直接复制的身份参数与处置命令示例（空值显式传空字符串）。"""
+    fields = [
+        f"source={row.get('source_id') or '（空）'}",
+        f"stage={row.get('stage') or '（空）'}",
+        f"scope={row.get('scope_start_date') or '（空）'}",
+        f"doc={row.get('doc_id') or '（空）'}",
+        f"action={row.get('final_action')}",
+    ]
+    return " ".join(fields) + "\n    可执行：" + _resolve_command(row, action=action)
+
+
+def _resolve_command(row, *, action: str) -> str:
+    """按行身份拼出可直接复制的 resolve 命令；空值显式传空字符串（P7-03）。"""
+    command = [
+        "crawl resolve",
+        f"--url '{row.get('url')}'",
+        f"--action {action}",
+        f"--stage '{row.get('stage') or ''}'",
+    ]
+    if row.get("source_id") is not None:
+        command.append(f"--source '{row.get('source_id') or ''}'")
+    if row.get("scope_start_date") is not None:
+        command.append(f"--scope-start-date '{row.get('scope_start_date') or ''}'")
+    if row.get("doc_id") is not None:
+        command.append(f"--doc-id '{row.get('doc_id') or ''}'")
+    return " ".join(command)
+
+
+def _queue_summary(queue) -> str:
+    """队列协调结果的一行说明（P7-02）。"""
+    status = queue.get("status")
+    updated = queue.get("updated") or {}
+    unchanged = queue.get("unchanged") or []
+    if status == "synced":
+        parts = [f"{key} → {state}" for key, state in sorted(updated.items())]
+        if unchanged:
+            parts.append(f"已一致 {len(unchanged)} 项")
+        return "；".join(parts) or "队列已一致"
+    if status == "manual_review":
+        return "manual_review 保持未关闭：队列状态不变，不自动补抓"
+    if status == "blocked":
+        return (
+            "同对象仍有未关闭阶段（"
+            + "，".join(queue.get("kept_open") or [])
+            + "）：队列保持现状，未标记完成"
+        )
+    return queue.get("message") or "队列无需协调"
 
 
 def _cmd_check(args) -> int:

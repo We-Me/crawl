@@ -1165,3 +1165,214 @@ def test_part_reparse_failure_does_not_create_fragment_document(
     updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
     assert updated.state == "processed" and updated.continuation is None
     assert pipeline.failures_ledger.open_failures() == []
+
+
+# ---------- P7-01/P7-02/P7-03：后审查三项定向验证 ----------
+
+
+def test_attachment_recovery_isolated_from_pending_mother_continuation(
+    site_server, registry_factory, tmp_path
+):
+    """P7-01：附件补抓只处置附件自身，不得把仍待续的母页标 processed 或清空 continuation。"""
+    registry = registry_factory(site_server)
+    data = tmp_path / "data"
+    pipeline = _pipeline(registry, data)
+    mother_url = f"{site_server}/detail_1.html"
+    mother_doc_id = "MOTHER-P7"
+    attachment_url = f"{site_server}/attachments/notice.csv"
+
+    # 母页正文仍待续：待处理项保持 pending 并携带续作位置。
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=mother_url, discovery_method="manual")],
+        scope_start_date=None,
+        enqueued_at=NOW.isoformat(),
+    )
+    mother_item = next(row for row in pipeline.pending.all_items() if row.url == mother_url)
+    continuation = {
+        "kind": "body_pagination",
+        "doc_id": mother_doc_id,
+        "mother_url": mother_url,
+        "mother_final_url": mother_url,
+        "mother_raw_path": "raw/TESTSRC/2026-09-11/html/detail_1.html",
+        "mother_sha256": "0" * 64,
+        "mother_content_type": "text/html; charset=utf-8",
+        "next_url": f"{site_server}/detail_paged_2.html",
+        "body_api_url": None,
+        "parts": [],
+        "stop_reason": "pagination_fetch_failed",
+        "attempts": 1,
+        "updated_at": NOW.isoformat(),
+    }
+    pipeline.pending.mark(
+        mother_item.key,
+        state="pending",
+        attempted_at=NOW.isoformat(),
+        doc_id=mother_doc_id,
+        continuation=continuation,
+    )
+
+    # 同一母文档下的附件失败：队列 failed，失败账身份带母文档 doc_id。
+    pipeline.pending.enqueue_attachments(
+        source_id="TESTSRC",
+        scope_start_date=None,
+        doc_id=mother_doc_id,
+        parent_url=mother_url,
+        records=[
+            {
+                "attachment_id": f"{mother_doc_id}_A01",
+                "filename": "notice.csv",
+                "file_type": "csv",
+                "url": attachment_url,
+                "doc_id": mother_doc_id,
+                "referrer_url": mother_url,
+            }
+        ],
+        enqueued_at=NOW.isoformat(),
+    )
+    attachment_item = next(
+        row for row in pipeline.pending.all_items() if row.url == attachment_url
+    )
+    pipeline.pending.mark(
+        attachment_item.key,
+        state="failed",
+        attempted_at=NOW.isoformat(),
+        note="读取响应失败：连接中断",
+    )
+    pipeline.failures.record(
+        source_id="TESTSRC",
+        url=attachment_url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="request_error",
+        message="读取响应失败：连接中断",
+        retry_count=0,
+        final_action="retry_later",
+        doc_id=mother_doc_id,
+        referrer_url=mother_url,
+        discovery_method="attachment",
+    )
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.recovered) == 1 and report.failures == []
+    attachment_after = next(
+        row for row in pipeline.pending.all_items() if row.key == attachment_item.key
+    )
+    assert attachment_after.state == "processed" and attachment_after.crawl_id
+    mother_after = next(
+        row for row in pipeline.pending.all_items() if row.key == mother_item.key
+    )
+    assert mother_after.state == "pending", "附件恢复不得改动仍待续母页状态"
+    assert mother_after.continuation == continuation, "附件恢复不得清空母页续作位置"
+    open_failures = pipeline.failures_ledger.open_failures()
+    assert [row["url"] for row in open_failures] == [], "附件失败已按同一身份关闭"
+    assert all(row["url"] != mother_url for row in pipeline.failures_ledger.load())
+
+
+def test_unprovable_body_part_goes_manual_without_fragment_document(
+    site_server, registry_factory, tmp_path
+):
+    """P7-01：正文片段无法证明回到母页续作时转人工，不按 URL 独立取回、不产出片段文档。"""
+    registry = registry_factory(site_server)
+    data = tmp_path / "data"
+    pipeline = _pipeline(registry, data)
+    mother_url = f"{site_server}/detail_1.html"
+    part_url = f"{site_server}/detail_paged_2.html"
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=mother_url, discovery_method="manual")],
+        scope_start_date=None,
+        enqueued_at=NOW.isoformat(),
+    )
+    mother_item = next(row for row in pipeline.pending.all_items() if row.url == mother_url)
+    pipeline.pending.mark(
+        mother_item.key,
+        state="pending",
+        attempted_at=NOW.isoformat(),
+        doc_id="MOTHER9",
+        continuation={
+            "kind": "body_pagination",
+            "doc_id": "MOTHER9",
+            "mother_url": mother_url,
+            "mother_final_url": mother_url,
+            "mother_raw_path": "raw/TESTSRC/2026-09-11/html/detail_1.html",
+            "mother_sha256": "0" * 64,
+            "mother_content_type": "text/html; charset=utf-8",
+            "next_url": f"{site_server}/detail_paged_3.html",
+            "body_api_url": None,
+            "parts": [],
+            "stop_reason": "pagination_fetch_failed",
+            "attempts": 1,
+            "updated_at": NOW.isoformat(),
+        },
+    )
+    pipeline.failures.record(
+        source_id="TESTSRC",
+        url=part_url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="request_error",
+        message="连接中断",
+        retry_count=0,
+        final_action="retry_later",
+        doc_id="MOTHER9",
+        referrer_url=mother_url,
+        discovery_method="pagination",
+    )
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert report.recovered == [] and report.failures == []
+    assert [row["url"] for row in report.manual] == [part_url]
+    assert "身份不足" in report.manual[0]["reason"]
+    assert pipeline.failures_ledger.open_failures()[0]["final_action"] == "manual_review"
+    documents_path = data / "normalized" / "documents.jsonl"
+    assert not documents_path.exists() or all(
+        row["source_url"] != part_url for row in read_jsonl(documents_path)
+    ), "片段不得独立成文"
+    assert [task.action for task in pipeline.recovery_plan()] == [MANUAL]
+
+
+def test_find_latest_selects_explicit_empty_identity(tmp_path):
+    """P7-03：显式空字符串选中空值身份；未指定仍按“归属没写全不动”处理。"""
+    ledger = FailureLedger(tmp_path)
+    url = "https://example.invalid/a.pdf"
+    ledger.writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="http_error",
+        message="带身份",
+        retry_count=0,
+        final_action="retry_later",
+        doc_id="DOC-1",
+        scope_start_date="2026-09-06",
+    )
+    ledger.writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="request_error",
+        message="空身份",
+        retry_count=0,
+        final_action="retry_later",
+    )
+
+    assert (
+        ledger.find_latest(url=url, stage="fetch", source_id="TESTSRC") is None
+    ), "存在两种身份时未指定归属不得猜测"
+    empty = ledger.find_latest(
+        url=url, stage="fetch", source_id="TESTSRC", doc_id="", scope_start_date=""
+    )
+    assert empty is not None and empty["message"] == "空身份"
+    named = ledger.find_latest(
+        url=url,
+        stage="fetch",
+        source_id="TESTSRC",
+        doc_id="DOC-1",
+        scope_start_date="2026-09-06",
+    )
+    assert named is not None and named["message"] == "带身份"

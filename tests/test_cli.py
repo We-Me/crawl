@@ -4,6 +4,7 @@
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -11,7 +12,14 @@ import pytest
 import yaml
 
 from crawler.cli import main
+from crawler.discover.discoverer import DiscoveredTarget
+from crawler.fetch.retry import MANUAL, RetryPolicy, build_recovery_plan
+from crawler.monitor.failures import FailureLedger
 from crawler.output.jsonl import read_jsonl
+from crawler.schedule.pending import PendingStore
+from crawler.validate.reconcile import reconcile_queue_and_failures
+
+NOW_TEXT = "2026-09-11T10:00:00+08:00"
 
 
 def _write_sources(path: Path, base_url: str, **overrides) -> Path:
@@ -684,3 +692,317 @@ def test_cli_fails_loudly_when_failure_ledger_write_fails(
     captured = capsys.readouterr()
     assert "失败账写入失败" in captured.err
     assert "采集完成" not in captured.out
+
+
+# ---------- P7-02/P7-03：人工处置的失效与可操作性 ----------
+
+
+def _failed_queue_item(data_dir: Path, url: str, *, stage="fetch", doc_id=None,
+                       scope_start_date=None, message="HTTP 500", error_type="http_error"):
+    """建一个真实 failed 待处理项并配套一条未关闭失败，返回待处理项 key。"""
+    store = PendingStore(data_dir)
+    store.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+        scope_start_date=scope_start_date,
+        enqueued_at=NOW_TEXT,
+    )
+    item = next(row for row in store.all_items() if row.url == url)
+    store.mark(
+        item.key,
+        state="failed",
+        attempted_at=NOW_TEXT,
+        note=message,
+        doc_id=doc_id,
+    )
+    FailureLedger(data_dir).writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW_TEXT,
+        stage=stage,
+        error_type=error_type,
+        message=message,
+        retry_count=0,
+        final_action="retry_later",
+        doc_id=doc_id,
+        scope_start_date=scope_start_date,
+    )
+    return item.key
+
+
+def test_cli_resolve_skip_syncs_failed_queue_item(cli_env, capsys):
+    """P7-02：resolve skip 按完整身份协调失败账与队列，check 不因 failed/已关闭矛盾失败。"""
+    url = "https://example.invalid/a.html"
+    key = _failed_queue_item(cli_env, url)
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                url,
+                "--action",
+                "skip",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "fetch",
+            ]
+        )
+        == 0
+    )
+    updated = PendingStore(cli_env).load()[key]
+    assert updated.state == "skipped", "队列必须与账本处置一致"
+    assert "人工处置" in (updated.note or "")
+    capsys.readouterr()  # 丢弃 resolve 的文本输出，check --json 单独解析
+
+    assert main(["check", "--json"]) == 1, "本数据根没有交付成果，check 仍以 1 退出"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reconcile"]["ok"] is True
+    assert payload["reconcile"]["problems"] == []
+
+
+def test_cli_resolve_skip_respects_other_open_stage_and_other_objects(cli_env, capsys):
+    """P7-02：同对象其他开放阶段不得被一条处置关闭；无关对象不受影响。"""
+    url = "https://example.invalid/b.html"
+    key = _failed_queue_item(cli_env, url)
+    FailureLedger(cli_env).writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW_TEXT,
+        stage="parse",
+        error_type="parse_error",
+        message="解析失败",
+        retry_count=0,
+        final_action="record_only",
+    )
+    other_url = "https://example.invalid/c.html"
+    other_key = _failed_queue_item(cli_env, other_url)
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                url,
+                "--action",
+                "skip",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "fetch",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["queue"]["status"] == "blocked"
+    assert payload["queue"]["kept_open"] == ["parse"]
+    items = PendingStore(cli_env).load()
+    assert items[key].state == "failed", "同对象仍有开放阶段时不得标记完成"
+    assert items[other_key].state == "failed", "无关对象不得被处置"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                url,
+                "--action",
+                "skip",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "parse",
+            ]
+        )
+        == 0
+    )
+    items = PendingStore(cli_env).load()
+    assert items[key].state == "skipped"
+    assert items[other_key].state == "failed"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+
+def test_cli_resolve_manual_review_keeps_failed_item_and_blocks_auto_retry(cli_env, capsys):
+    """P7-02：manual_review 保持可见、队列不改写、不自动补抓；重复处置结果一致。"""
+    url = "https://example.invalid/d.html"
+    key = _failed_queue_item(cli_env, url)
+    args = [
+        "resolve",
+        "--url",
+        url,
+        "--action",
+        "manual_review",
+        "--source",
+        "TESTSRC",
+        "--stage",
+        "fetch",
+        "--note",
+        "需要人工确认扫描件方向",
+        "--json",
+    ]
+    assert main(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["queue"]["status"] == "manual_review"
+    assert payload["open_failures"] == 1
+    item = PendingStore(cli_env).load()[key]
+    assert item.state == "failed"
+    assert "manual_review" in (item.note or ""), "人工处置状态必须对操作者可见"
+
+    open_rows = FailureLedger(cli_env).open_failures()
+    assert [row["final_action"] for row in open_rows] == ["manual_review"]
+    plan = build_recovery_plan(
+        open_rows, policy=RetryPolicy(), now=datetime.now(timezone.utc).astimezone()
+    )
+    assert [task.action for task in plan] == [MANUAL], "人工态不得自动补抓"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+    assert main(args) == 0, "重复处置必须可复跑"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["queue"]["status"] == "manual_review"
+    assert PendingStore(cli_env).load()[key].state == "failed"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+
+def test_cli_resolve_recovered_keeps_pending_continuation(cli_env, capsys):
+    """P7-02/P7-01：recovered 只关闭本次失败；对象仍有正文待续时不得标完成或清续作位置。"""
+    url = "https://example.invalid/f.html"
+    key = _failed_queue_item(cli_env, url, doc_id="DOC-F")
+    continuation = {
+        "kind": "body_pagination",
+        "doc_id": "DOC-F",
+        "mother_url": url,
+        "mother_final_url": url,
+        "mother_raw_path": "raw/TESTSRC/2026-09-11/html/f.html",
+        "mother_sha256": "0" * 64,
+        "mother_content_type": "text/html; charset=utf-8",
+        "next_url": "https://example.invalid/f_2.html",
+        "body_api_url": None,
+        "parts": [],
+        "stop_reason": "pagination_fetch_failed",
+        "attempts": 1,
+        "updated_at": NOW_TEXT,
+    }
+    PendingStore(cli_env).mark(key, state="failed", doc_id="DOC-F", continuation=continuation)
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                url,
+                "--action",
+                "recovered",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "fetch",
+                "--doc-id",
+                "DOC-F",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["queue"]["status"] == "synced"
+    assert payload["queue"]["updated"][key] == "pending"
+    item = PendingStore(cli_env).load()[key]
+    assert item.state == "pending", "仍待续对象不得因关闭本次失败被标完成"
+    assert item.continuation == continuation, "续作位置不得被清空"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+
+def test_cli_resolve_reports_queue_write_failure_recoverably(cli_env, monkeypatch, capsys):
+    """P7-02：队列回写失败有明确结果；处置行保留、重复执行可恢复、不冒充处置成功。"""
+    from crawler.schedule import pending as pending_module
+
+    url = "https://example.invalid/e.html"
+    key = _failed_queue_item(cli_env, url)
+    original_mark = pending_module.PendingStore.mark
+
+    def boom(self, item_key, **kwargs):
+        raise OSError("磁盘只读")
+
+    monkeypatch.setattr(pending_module.PendingStore, "mark", boom)
+    args = ["resolve", "--url", url, "--action", "skip", "--source", "TESTSRC", "--stage", "fetch"]
+    assert main(args) == 2
+    captured = capsys.readouterr()
+    assert "队列协调失败" in captured.err
+    assert "重复执行同一 resolve" in captured.err
+    assert "已记录人工处置" not in captured.out, "队列未同步时不得声称处置成功"
+
+    history = FailureLedger(cli_env).history_of(url)
+    assert [row["final_action"] for row in history] == ["retry_later", "skip"]
+    assert PendingStore(cli_env).load()[key].state == "failed"
+
+    monkeypatch.setattr(pending_module.PendingStore, "mark", original_mark)
+    assert main(args) == 0, "修复队列问题后重复执行同一处置应成功"
+    assert PendingStore(cli_env).load()[key].state == "skipped"
+    assert reconcile_queue_and_failures(cli_env).ok
+
+
+def test_cli_resolve_selects_explicit_empty_identity(cli_env, capsys):
+    """P7-03：同 URL 带/不带日期或 doc_id 时，用显式空字符串准确选中空值身份。"""
+    url = "https://example.invalid/a.pdf"
+    ledger = FailureLedger(cli_env)
+    ledger.writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW_TEXT,
+        stage="fetch",
+        error_type="http_error",
+        message="带身份",
+        retry_count=0,
+        final_action="retry_later",
+        doc_id="DOC-1",
+        scope_start_date="2026-09-06",
+    )
+    ledger.writer.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW_TEXT,
+        stage="fetch",
+        error_type="request_error",
+        message="空身份",
+        retry_count=0,
+        final_action="retry_later",
+    )
+
+    assert (
+        main(["resolve", "--url", url, "--action", "skip", "--source", "TESTSRC", "--stage", "fetch"])
+        == 2
+    ), "未指定归属而存在多种身份时必须报错"
+    err = capsys.readouterr().err
+    assert "显式传空字符串" in err and "doc=DOC-1" in err
+
+    assert (
+        main(
+            [
+                "resolve",
+                "--url",
+                url,
+                "--action",
+                "skip",
+                "--source",
+                "TESTSRC",
+                "--stage",
+                "fetch",
+                "--doc-id",
+                "",
+                "--scope-start-date",
+                "",
+            ]
+        )
+        == 0
+    )
+    open_rows = FailureLedger(cli_env).open_failures()
+    assert [row["message"] for row in open_rows] == ["带身份"], "只关闭指定的空值身份"
+    capsys.readouterr()  # 丢弃 resolve 的文本输出，failures --json 单独解析
+
+    assert main(["failures", "--url", url, "--doc-id", "", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["open"] == 0, "空值身份已关闭，可按显式空值查询"
