@@ -11,15 +11,22 @@
 - 终止原因（S5-03）：每个入口的遍历结束都记录确切原因（站点末页、适配规则终点、
   页数/目标上限、预算停止、请求失败、选择器未命中、循环、访问拒绝），失败与截断
   不冒充“零结果”或“遍历完成”。未翻到的页位置保存在发现游标，供下一轮续接。
+
+- 提交顺序（R4）：每个分页目标先提交（由上层入队持久化），成功后才把游标推进到
+  下一页；队列写入失败不推进游标。入队后游标写入失败时，重启会重放本页，按游标
+  中的提交标记（页 + 目标摘要）幂等入队，不把已处理目标整体转成 refresh。同一入口
+  并发运行时用入口级运行锁（非阻塞）隔离，旧进度不覆盖新进度。
 """
 
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, quote_plus, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -29,6 +36,7 @@ from defusedxml import ElementTree
 from crawler.config.registry import SourceConfig
 from crawler.fetch.budget import BudgetStop
 from crawler.fetch.http_client import FetchError, FetchResponse, HttpClient
+from crawler.output.atomic import LockUnavailable, file_lock
 from crawler.output.archive import ArchivedResponse, ResponseArchiver
 from crawler.parser.html_parser import decode_html
 from crawler.schedule.cursor import (
@@ -71,6 +79,9 @@ STOP_SITEMAP_INDEX = "sitemap_index_not_expanded"
 STOP_DATE_SCOPED_QUERY = "date_scoped_query"
 STOP_PARSE_ERROR = "parse_error"
 STOP_INCREMENTAL_HEAD = "incremental_head_checked"
+STOP_COMMIT_FAILED = "commit_failed"
+STOP_PROGRESS_SAVE_FAILED = "cursor_save_failed"
+STOP_ENTRY_BUSY = "entry_busy"
 
 STOP_REASON_TEXT = {
     STOP_END_OF_PAGES: "没有下一页链接（站点/规则终点）",
@@ -86,6 +97,9 @@ STOP_REASON_TEXT = {
     STOP_DATE_SCOPED_QUERY: "查询本身按日期限定（覆盖以查询范围为准）",
     STOP_PARSE_ERROR: "发现响应无法解析（原件与账本保留）",
     STOP_INCREMENTAL_HEAD: "已完成遍历的增量核对（向首个全为已知目标的页为止）",
+    STOP_COMMIT_FAILED: "发现目标入队失败，游标不推进（本轮已提交的页保留）",
+    STOP_PROGRESS_SAVE_FAILED: "目标已入队但游标未推进，重启将重放本页（幂等）",
+    STOP_ENTRY_BUSY: "同一入口已有并发运行在推进，本轮不读取也不推进游标",
 }
 
 COMPLETE_STOPS = frozenset(
@@ -114,6 +128,16 @@ class DiscoveryContentError(Exception):
         self.url = url
         self.stage = stage
         self.crawl_id = crawl_id
+
+
+class DiscoveryCommitError(Exception):
+    """发现目标入队失败（R4）：游标不得推进到该页之后，已提交的页保留。"""
+
+
+def targets_digest(targets: Sequence["DiscoveredTarget"]) -> str:
+    """一页目标的稳定摘要：用于识别崩溃后的重放，不绑定顺序。"""
+    payload = "\n".join(sorted(target.url for target in targets))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -182,6 +206,7 @@ class Discoverer:
         now: Optional[Callable[[], datetime]] = None,
         max_pages_override: Optional[int] = None,
         known_target: Optional[Callable[[str], bool]] = None,
+        commit_targets: Optional[Callable[[Sequence[DiscoveredTarget], dict], dict]] = None,
     ) -> None:
         self.http = http
         self.registry = registry
@@ -190,6 +215,11 @@ class Discoverer:
         self.max_pages_override = max_pages_override
         # 已完成入口的增量核对：判定目标是否已登记（见 _paginate 的 head 检查）。
         self.known_target = known_target
+        # R4 页级提交回调：把本页目标入队并把计数返回；未提供时保持旧行为（不页级提交）。
+        self.commit_targets = commit_targets
+        self.commit_counts = {"added": 0, "refreshed": 0, "unchanged": 0}
+        self.committed_urls: set = set()
+        self.committed_pages = 0
         self.max_items = max_items
         self.archiver = archiver
         self.cursors = cursors
@@ -308,9 +338,49 @@ class Discoverer:
         title_field: str = "title",
         scope: Optional[RunScope] = None,
     ) -> List[DiscoveredTarget]:
-        """结构化接口发现：只跟随响应自身声明的下一页，不猜测私有端点。"""
+        """结构化接口发现（R4）：只跟随响应自身声明的下一页，不猜测私有端点。
+
+        与列表分页同一提交顺序：每页目标先入队，成功后才推进接口游标。
+        """
+        lock_path = self._entry_lock_path("api", api_url, scope or RunScope())
+        if lock_path is None:
+            return self._discover_api_locked(
+                api_url, url_field=url_field, title_field=title_field, scope=scope
+            )
+        try:
+            with file_lock(lock_path, blocking=False):
+                return self._discover_api_locked(
+                    api_url, url_field=url_field, title_field=title_field, scope=scope
+                )
+        except LockUnavailable as exc:
+            self._record_stop(
+                DiscoveryStop(
+                    stage="api",
+                    entry=api_url,
+                    pages=0,
+                    targets=0,
+                    stop=STOP_ENTRY_BUSY,
+                    complete=False,
+                    detail=str(exc),
+                    cursor=self._cursor_key("api", api_url, scope or RunScope()),
+                )
+            )
+            return []
+
+    def _discover_api_locked(
+        self,
+        api_url: str,
+        *,
+        url_field: str = "url",
+        title_field: str = "title",
+        scope: Optional[RunScope] = None,
+    ) -> List[DiscoveredTarget]:
+        """接口分页遍历主体；调用方已持有入口级运行锁。"""
         scope = scope or RunScope()
         cursor = self._load_cursor("api", api_url, scope)
+        base = (
+            (cursor.pages_fetched or 0, cursor.targets_found or 0) if cursor is not None else (0, 0)
+        )
         resumed = cursor is not None and cursor.state == CURSOR_ACTIVE and bool(cursor.next_url)
         page_url: Optional[str] = cursor.next_url if resumed else api_url
         targets: List[DiscoveredTarget] = []
@@ -385,6 +455,7 @@ class Discoverer:
                 items = payload
             elif isinstance(payload, dict) and isinstance(payload.get("items"), list):
                 items = payload["items"]
+            page_targets: List[DiscoveredTarget] = []
             for item in items:
                 if not isinstance(item, dict) or not item.get(url_field):
                     continue
@@ -393,7 +464,7 @@ class Discoverer:
                 if not decision.allowed:
                     self.skipped.append(SkippedTarget(url, decision.reason, page_url))
                     continue
-                targets.append(
+                page_targets.append(
                     DiscoveredTarget(
                         url=url,
                         discovery_method="api",
@@ -401,6 +472,31 @@ class Discoverer:
                         title_hint=item.get(title_field),
                     )
                 )
+            digest = None
+            if self.commit_targets is not None and page_targets:
+                # R4：接口页目标先入队，成功后才推进接口游标。
+                try:
+                    digest = self._commit_page(
+                        page_url=page_url,
+                        page_targets=page_targets,
+                        keyword=None,
+                        stage="api",
+                        entry=api_url,
+                        scope=scope,
+                        cursor=cursor,
+                        page_index=pages,
+                    )
+                    last_commit = (page_url, digest)
+                except DiscoveryCommitError as exc:
+                    stop = DiscoveryStop(
+                        stage="api", entry=api_url, pages=pages, targets=len(targets),
+                        stop=STOP_COMMIT_FAILED, complete=False,
+                        detail=str(exc), next_url=page_url,
+                        cursor=self._cursor_key("api", api_url, scope),
+                        error_type="commit_error",
+                    )
+                    break
+            targets.extend(page_targets)
             next_page = _next_api_url(payload, page_url)
             if next_page is None:
                 stop = DiscoveryStop(
@@ -420,6 +516,29 @@ class Discoverer:
                     cursor=self._cursor_key("api", api_url, scope),
                 )
                 break
+            if self.commit_targets is not None:
+                try:
+                    self._save_progress_cursor(
+                        stage="api",
+                        entry=api_url,
+                        scope=scope,
+                        next_url=next_page,
+                        base=base,
+                        pages=pages,
+                        targets=len(targets),
+                        commit_page=page_url,
+                        commit_digest=digest,
+                        restart_coverage=not resumed,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 目标已入队，游标未推进则重放
+                    stop = DiscoveryStop(
+                        stage="api", entry=api_url, pages=pages, targets=len(targets),
+                        stop=STOP_PROGRESS_SAVE_FAILED, complete=False,
+                        detail=f"{exc}", next_url=page_url,
+                        cursor=self._cursor_key("api", api_url, scope),
+                        error_type="cursor_error",
+                    )
+                    break
             page_url = next_page
         if stop is None:  # 理论上不可达：循环内每个出口都写入终止原因
             stop = DiscoveryStop(
@@ -427,7 +546,7 @@ class Discoverer:
                 stop=STOP_END_OF_PAGES, complete=True,
             )
         self._record_stop(stop)
-        self._update_cursor(stop, scope)
+        self._update_cursor(stop, scope, base=base)
         return self._dedupe(targets)
 
     def attachments_from_html(self, content: bytes, page_url: str) -> List[DiscoveredTarget]:
@@ -482,8 +601,45 @@ class Discoverer:
         start_url: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> List[DiscoveredTarget]:
+        """列表/搜索分页遍历（R4）：入口级运行锁内先提交目标，再推进游标。"""
+        lock_path = self._entry_lock_path(stage, entry, scope)
+        if lock_path is None:
+            return self._paginate_locked(
+                stage=stage, entry=entry, scope=scope, start_url=start_url, keyword=keyword
+            )
+        try:
+            with file_lock(lock_path, blocking=False):
+                return self._paginate_locked(
+                    stage=stage, entry=entry, scope=scope, start_url=start_url, keyword=keyword
+                )
+        except LockUnavailable as exc:
+            stop = DiscoveryStop(
+                stage=stage,
+                entry=entry,
+                pages=0,
+                targets=0,
+                stop=STOP_ENTRY_BUSY,
+                complete=False,
+                detail=str(exc),
+                cursor=self._cursor_key(stage, entry, scope),
+            )
+            self._record_stop(stop)
+            return []
+
+    def _paginate_locked(
+        self,
+        *,
+        stage: str,
+        entry: str,
+        scope: RunScope,
+        start_url: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> List[DiscoveredTarget]:
         """列表/搜索分页遍历；每个出口都记录终止原因并更新发现游标。"""
         cursor = self._load_cursor(stage, entry, scope)
+        base = (
+            (cursor.pages_fetched or 0, cursor.targets_found or 0) if cursor is not None else (0, 0)
+        )
         resumed = cursor is not None and cursor.state == CURSOR_ACTIVE and bool(cursor.next_url)
         # 已完成入口的增量核对（S5-06）：历史遍历页数超过本轮页数上限时，无法在一轮内
         # 复核整个入口；若仍从入口整入口重取，已看过的页会反复消耗预算（IN-02：433 页）。
@@ -502,6 +658,10 @@ class Discoverer:
         visited: set = set()
         pages = 0
         referrer: Optional[str] = None
+        last_commit: Optional[Tuple[str, str]] = None
+        # 游标覆盖计数只统计“已消费”的页：提交失败的页与重放页都不重复计（R4）。
+        counted_pages = 0
+        counted_targets = 0
         stop: DiscoveryStop
         while page_url is not None:
             key = self._cursor_key(stage, entry, scope)
@@ -579,7 +739,35 @@ class Discoverer:
                         cursor=key,
                     )
                     break
+
+            digest = None
+            replayed_page = False
+            if self.commit_targets is not None and page_targets:
+                # R4：先持久化本页目标，成功后才允许推进游标。
+                try:
+                    digest, replayed_page = self._commit_page(
+                        page_url=page_url,
+                        page_targets=page_targets,
+                        keyword=keyword,
+                        stage=stage,
+                        entry=entry,
+                        scope=scope,
+                        cursor=cursor,
+                        page_index=pages,
+                    )
+                    last_commit = (page_url, digest)
+                except DiscoveryCommitError as exc:
+                    stop = DiscoveryStop(
+                        stage=stage, entry=entry, pages=pages, targets=len(targets),
+                        stop=STOP_COMMIT_FAILED, complete=False,
+                        detail=str(exc), next_url=page_url, cursor=key,
+                        error_type="commit_error",
+                    )
+                    break
             targets.extend(page_targets)
+            if not replayed_page:
+                counted_pages += 1
+                counted_targets += len(page_targets)
             next_page, blocked = self._next_page_url(
                 response.content, response.final_url, entry=entry
             )
@@ -591,6 +779,28 @@ class Discoverer:
                     cursor=key,
                 )
                 break
+            if next_page is not None and self.commit_targets is not None:
+                try:
+                    self._save_progress_cursor(
+                        stage=stage,
+                        entry=entry,
+                        scope=scope,
+                        next_url=next_page,
+                        base=base,
+                        pages=counted_pages,
+                        targets=counted_targets,
+                        commit_page=page_url,
+                        commit_digest=digest,
+                        restart_coverage=not resumed,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 目标已入队，游标未推进则重放
+                    stop = DiscoveryStop(
+                        stage=stage, entry=entry, pages=pages, targets=len(targets),
+                        stop=STOP_PROGRESS_SAVE_FAILED, complete=False,
+                        detail=f"{exc}", next_url=page_url, cursor=key,
+                        error_type="cursor_error",
+                    )
+                    break
             if next_page is None:
                 if self.source.adapter.pagination_selector:
                     stop = DiscoveryStop(
@@ -627,7 +837,14 @@ class Discoverer:
                         stop, detail=((stop.detail + "；") if stop.detail else "") + note
                     )
         self._record_stop(stop)
-        self._update_cursor(stop, scope)
+        self._update_cursor(
+            stop,
+            scope,
+            base=base,
+            restart_coverage=not resumed,
+            last_commit=last_commit,
+            consumed=(counted_pages, counted_targets),
+        )
         return targets
 
     def _archive(
@@ -673,11 +890,130 @@ class Discoverer:
             return None
         return self.cursors.get(key)
 
-    def _update_cursor(self, stop: DiscoveryStop, scope: RunScope) -> None:
+    def _entry_lock_path(self, stage: str, entry: str, scope: RunScope) -> Optional[Path]:
+        """入口级运行锁基路径；没有游标存储时不加锁（无共享状态可竞争）。"""
+        if self.cursors is None:
+            return None
+        key = self._cursor_key(stage, entry, scope)
+        if key is None:
+            return None
+        return self.cursors.entry_lock_path(key)
+
+    def _commit_page(
+        self,
+        *,
+        page_url: str,
+        page_targets: Sequence[DiscoveredTarget],
+        keyword: Optional[str],
+        stage: str,
+        entry: str,
+        scope: RunScope,
+        cursor: Optional[DiscoveryCursor],
+        page_index: int,
+    ) -> str:
+        """提交一页目标（R4）；返回该页目标摘要，供游标标记重放。"""
+        items = (
+            [replace(target, keyword=keyword) for target in page_targets]
+            if keyword
+            else list(page_targets)
+        )
+        digest = targets_digest(page_targets)
+        # 只有“游标仍停在本页”的中断态才识别为重放：完成态的入口重新遍历是新的
+        # 复查轮次，既有 processed 目标应进入 refresh，而不是被当作重放跳过。
+        replay = bool(
+            cursor is not None
+            and cursor.state == CURSOR_ACTIVE
+            and cursor.next_url == page_url
+            and cursor.last_commit_page == page_url
+            and cursor.last_commit_digest == digest
+        )
+        try:
+            counts = self.commit_targets(
+                items,
+                {
+                    "stage": stage,
+                    "entry": entry,
+                    "page_url": page_url,
+                    "page_index": page_index,
+                    "scope_start_date": (
+                        scope.start_date.isoformat() if scope.start_date else None
+                    ),
+                    "replay": replay,
+                },
+            ) or {}
+        except Exception as exc:  # noqa: BLE001 - 队列不可用：保留已提交页并停止
+            raise DiscoveryCommitError(f"{page_url}: {exc}") from exc
+        for name in ("added", "refreshed", "unchanged"):
+            self.commit_counts[name] += int(counts.get(name, 0) or 0)
+        self.committed_urls.update(target.url for target in items)
+        self.committed_pages += 1
+        logger.debug(
+            "发现页目标已提交 page=%s replay=%s items=%d counts=%s",
+            page_url,
+            replay,
+            len(items),
+            counts,
+        )
+        return digest, replay
+
+    def _save_progress_cursor(
+        self,
+        *,
+        stage: str,
+        entry: str,
+        scope: RunScope,
+        next_url: str,
+        base: Tuple[int, int],
+        pages: int,
+        targets: int,
+        commit_page: Optional[str],
+        commit_digest: Optional[str],
+        restart_coverage: bool = False,
+    ) -> None:
+        """目标已入队后推进游标（R4）：写入下一页位置与提交标记。"""
+        key = self._cursor_key(stage, entry, scope)
+        if key is None or self.cursors is None:
+            return
+        # 从入口重新遍历（含增量核对）时覆盖数取“已覆盖页数”与“本次遍历页数”的较大值；
+        # 续接 active 游标才累计，不把反复遍历的请求次数累计成覆盖页数（R1）。
+        pages_fetched = max(base[0], pages) if restart_coverage else base[0] + pages
+        targets_found = max(base[1], targets) if restart_coverage else base[1] + targets
+        cursor = DiscoveryCursor(
+            key=key,
+            source_id=self.source.source_id,
+            stage=stage,
+            entry=entry,
+            scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
+            next_url=next_url,
+            state=CURSOR_ACTIVE,
+            pages_fetched=pages_fetched,
+            targets_found=targets_found,
+            updated_at=self._now().isoformat(),
+            note=f"page_committed: 第 {pages} 页目标已入队，游标推进到下一页",
+            last_commit_page=commit_page,
+            last_commit_digest=commit_digest,
+        )
+        self.cursors.save(cursor)
+
+    def _update_cursor(
+        self,
+        stop: DiscoveryStop,
+        scope: RunScope,
+        base: Tuple[int, int] = (0, 0),
+        *,
+        restart_coverage: bool = False,
+        last_commit: Optional[Tuple[str, str]] = None,
+        consumed: Optional[Tuple[int, int]] = None,
+    ) -> None:
         key = self._cursor_key(stop.stage, stop.entry, scope)
         if key is None:
             return
         previous = self.cursors.get(key)
+        if last_commit is not None:
+            commit_page, commit_digest = last_commit
+        else:
+            commit_page = previous.last_commit_page if previous is not None else None
+            commit_digest = previous.last_commit_digest if previous is not None else None
         if stop.stop == STOP_INCREMENTAL_HEAD and previous is not None:
             # 增量核对没有扩展覆盖范围：保留上次遍历的计数与终点原因，只更新核对时间，
             # 避免把“列表已遍历完”的记录改写成一次截断。
@@ -693,11 +1029,20 @@ class Discoverer:
                 targets_found=previous.targets_found,
                 updated_at=self._now().isoformat(),
                 note=f"{stop.stop}: {stop.detail}；上次终点 {previous.note}",
+                last_commit_page=commit_page,
+                last_commit_digest=commit_digest,
             )
             self.cursors.save(cursor)
             return
-        cumulative_pages = (previous.pages_fetched if previous else 0) + stop.pages
-        cumulative_targets = (previous.targets_found if previous else 0) + stop.targets
+        # 本入口本次遍历的起点计数（base）由调用方给出：页级推进已按绝对计数落盘，
+        # 再次相加 previous 会重复计数（R4）。从入口重新遍历时覆盖数取较大值。
+        if restart_coverage:
+            cumulative_pages = max(base[0], (consumed or (stop.pages, stop.targets))[0])
+            cumulative_targets = max(base[1], (consumed or (stop.pages, stop.targets))[1])
+        else:
+            consumed_pages, consumed_targets = consumed or (stop.pages, stop.targets)
+            cumulative_pages = base[0] + consumed_pages
+            cumulative_targets = base[1] + consumed_targets
         if stop.complete or stop.stop in TERMINAL_STOPS:
             cursor = DiscoveryCursor(
                 key=key,
@@ -711,6 +1056,8 @@ class Discoverer:
                 targets_found=cumulative_targets,
                 updated_at=self._now().isoformat(),
                 note=f"{stop.stop}: {stop.detail or STOP_REASON_TEXT.get(stop.stop, '')}",
+                last_commit_page=commit_page,
+                last_commit_digest=commit_digest,
             )
         else:
             cursor = DiscoveryCursor(
@@ -725,6 +1072,8 @@ class Discoverer:
                 targets_found=cumulative_targets,
                 updated_at=self._now().isoformat(),
                 note=f"{stop.stop}: {stop.detail or STOP_REASON_TEXT.get(stop.stop, '')}",
+                last_commit_page=commit_page,
+                last_commit_digest=commit_digest,
             )
         self.cursors.save(cursor)
 

@@ -289,6 +289,25 @@ class CrawlPipeline:
                 source_id=source_id,
                 scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
             ).__contains__
+
+        def commit_page_targets(page_targets, page_context: dict) -> dict:
+            """R4 页级提交：发现目标先持久化入队，成功后才允许推进发现游标。"""
+            counts = self.pending.enqueue_targets(
+                source_id=source_id,
+                targets=list(page_targets),
+                scope_start_date=page_context.get("scope_start_date"),
+                enqueued_at=self.now().isoformat(),
+                replay=bool(page_context.get("replay")),
+            )
+            logger.info(
+                "发现页目标已入队 page=%s replay=%s added=%d refreshed=%d",
+                page_context.get("page_url"),
+                page_context.get("replay"),
+                counts.get("added", 0),
+                counts.get("refreshed", 0),
+            )
+            return counts
+
         discoverer = Discoverer(
             self.http,
             self.registry,
@@ -299,6 +318,7 @@ class CrawlPipeline:
             now=self.now,
             max_pages_override=max_pages,
             known_target=known_target,
+            commit_targets=commit_page_targets,
         )
         context = DiscoveryContext(
             source=source,
@@ -355,14 +375,22 @@ class CrawlPipeline:
 
             # S5-06：发现到的全部目标（含超出本次上限的部分）先入队，保证下一轮
             # 有限预算能推进到未处理部分，而不是每次从入口重选前几项。
+            # R4：分页策略已在页级提交（游标随提交推进）；这里只补交未页级提交的目标
+            # （显式 --url、sitemap、未实现/失败策略的兜底），避免重复刷新。
             report.coverage["targets"]["discovered"] = len(targets)
             enqueue = self.pending.enqueue_targets(
                 source_id=source_id,
-                targets=targets,
+                targets=[target for target in targets if target.url not in discoverer.committed_urls],
                 scope_start_date=scope_start,
                 enqueued_at=crawl_time,
             )
-            report.coverage["queue"] = enqueue
+            report.coverage["queue"] = {
+                "added": enqueue.get("added", 0) + discoverer.commit_counts.get("added", 0),
+                "refreshed": enqueue.get("refreshed", 0)
+                + discoverer.commit_counts.get("refreshed", 0),
+                "unchanged": enqueue.get("unchanged", 0)
+                + discoverer.commit_counts.get("unchanged", 0),
+            }
 
             if discover_only:
                 report.coverage["processing"] = {

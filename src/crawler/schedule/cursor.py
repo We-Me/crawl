@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import asdict, dataclass
@@ -33,7 +34,12 @@ CURSOR_COMPLETED = "completed"
 
 @dataclass(frozen=True)
 class DiscoveryCursor:
-    """一个入口的分页续接位置。"""
+    """一个入口的分页续接位置。
+
+    ``last_commit_page``/``last_commit_digest``（R4）：本入口最后一次已提交目标的
+    页及其目标摘要。游标推进前先提交目标；崩溃后重启重放同一页时按该标记识别
+    重放，幂等入队，不把已处理目标整体转成 refresh。
+    """
 
     key: str
     source_id: str
@@ -46,6 +52,8 @@ class DiscoveryCursor:
     targets_found: int = 0
     updated_at: Optional[str] = None
     note: Optional[str] = None
+    last_commit_page: Optional[str] = None
+    last_commit_digest: Optional[str] = None
 
 
 class DiscoveryCursorError(ValueError):
@@ -77,6 +85,11 @@ class DiscoveryCursorStore:
 
     def get(self, key: str) -> Optional[DiscoveryCursor]:
         return self.load().get(key)
+
+    def entry_lock_path(self, key: str) -> Path:
+        """入口级运行锁基路径（跨进程）：同一入口同时只有一个运行推进游标（R4）。"""
+        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+        return self.path.with_name(f"{self.path.name}.run-{digest}")
 
     def save(self, cursor: DiscoveryCursor) -> DiscoveryCursor:
         """保存一个入口的续接位置；读-改-写在 file_lock 内完成，不覆盖并发运行的游标。"""

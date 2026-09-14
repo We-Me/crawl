@@ -129,11 +129,15 @@ class PendingStore:
         targets: Sequence[DiscoveredTarget],
         scope_start_date: Optional[str],
         enqueued_at: str,
+        replay: bool = False,
     ) -> Dict[str, int]:
         """把本轮发现的目标并入队列；返回新增/复查/不变的计数。
 
         已成功处理、失败或跳过的目标再次被发现时标记 refresh（重新检查），不删除既有
         记录，也不把失败静默转成“待处理”。
+
+        ``replay=True``（R4）表示这是崩溃后对同一发现页的幂等重放：只补齐缺失目标，
+        既有记录保持原状态——重放不能把已经 processed 的目标整体转成 refresh。
 
         并发运行经 file_lock 串行化整段读-改-写，其他进程的新增项不会被本次写入覆盖。
         """
@@ -166,6 +170,9 @@ class PendingStore:
                         enqueued_at=enqueued_at,
                     )
                     result["added"] += 1
+                    continue
+                if replay:
+                    result["unchanged"] += 1
                     continue
                 if current.state in (STATE_PROCESSED, STATE_FAILED, STATE_SKIPPED):
                     items[key] = replace(

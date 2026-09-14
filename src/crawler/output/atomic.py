@@ -10,7 +10,8 @@
   写入本进程唯一的临时文件（uuid 后缀），完成后 ``os.replace`` 目标；异常时清理临时文件，
   读取者只会看到完整内容；
 - :func:`file_lock`：以 ``<file>.lock`` 为载体的建议锁，覆盖单个文件的一次“读-改-写”，
-  进程间用 flock，进程内用线程锁，同一路径的嵌套加锁会死锁（调用方不得嵌套）。
+  进程间用 flock，进程内用线程锁。同一路径的嵌套加锁不会死锁：阻塞模式会等自己
+  （调用方不得嵌套），非阻塞模式抛 :class:`LockUnavailable`。
 """
 
 from __future__ import annotations
@@ -32,6 +33,10 @@ _THREAD_LOCKS: Dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 
 
+class LockUnavailable(RuntimeError):
+    """锁已被其它进程或线程占用（非阻塞获取失败）；调用方据此放弃本次操作。"""
+
+
 def _thread_lock(path: Path) -> threading.Lock:
     key = str(path)
     with _THREAD_LOCKS_GUARD:
@@ -43,19 +48,27 @@ def _thread_lock(path: Path) -> threading.Lock:
 
 
 @contextmanager
-def file_lock(path: Path) -> Iterator[None]:
-    """保护 ``path`` 的一次读-改-写：``<path>.lock`` 上 flock，同进程线程先互斥。"""
+def file_lock(path: Path, *, blocking: bool = True) -> Iterator[None]:
+    """保护 ``path`` 的一次读-改-写：``<path>.lock`` 上 flock，同进程线程先互斥。
+
+    ``blocking=False`` 时锁被占用立即抛 :class:`LockUnavailable`，不等待。
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
     thread_lock = _thread_lock(lock_path)
-    thread_lock.acquire()
+    if not thread_lock.acquire(blocking=blocking):
+        raise LockUnavailable(f"锁已被占用：{lock_path}")
     try:
         if fcntl is None:  # pragma: no cover - 非 POSIX 平台没有跨进程锁
             yield
             return
         with lock_path.open("a+", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+            try:
+                fcntl.flock(handle.fileno(), flags)
+            except BlockingIOError as exc:
+                raise LockUnavailable(f"锁已被其它进程占用：{lock_path}") from exc
             try:
                 yield
             finally:
