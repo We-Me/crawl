@@ -8,9 +8,14 @@
 
 - 每个成功业务响应恰好归档一次：同一个响应对象重复交给归档器时返回既有记录，
   不追加第二行账本（避免双重写账）；不同请求即使字节相同也各自保留身份；
-- crawl_id 序号由账本推导（同来源同一天跨进程不重复），补抓可按 crawl_id 定位原件；
+- 归档事务（R3）：原件写入、编号分配与账本追加在同一跨进程临界区内完成，锁内重新
+  读取已落盘的最大序号，不依赖各实例缓存的编号。两个进程并发归档同一来源同一天也
+  不会复用 crawl_id、不会用同名原件互相覆盖；补抓可按 crawl_id 定位原件；
 - raw_path 相对数据根，字节哈希与原件在写账本前校验（ManifestWriter 负责）；
 - 304/控制请求（robots.txt 等）不经过这里，不伪造新原件。
+
+锁顺序（避免嵌套死锁）：归档锁是数据根级的叶子锁，持锁期间只做原件写入与账本追加，
+不获取 pending/cursor/增量状态等其它文件的锁；调用方必须在这些锁之外调用归档入口。
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from crawler.fetch.http_client import FetchResponse
+from crawler.output.atomic import file_lock
 from crawler.output.jsonl import read_jsonl
 from crawler.output.layout import DeliveryLayout
 from crawler.output.manifest_writer import ManifestWriter
@@ -31,6 +37,10 @@ from crawler.output.raw_store import RawRecord, RawStore
 logger = logging.getLogger(__name__)
 
 CRAWL_ID_WIDTH = 4
+
+# 数据根级归档锁：同一数据根的所有归档实例共用（跨进程 flock）。
+# file_lock 在基名后加 ".lock"，实际锁文件为 manifests/crawl_archive.lock。
+ARCHIVE_LOCK_NAME = "crawl_archive"
 
 
 def max_crawl_sequence(manifest_path: Path, prefix: str) -> int:
@@ -79,7 +89,7 @@ class ResponseArchiver:
         self.store = RawStore(data_dir)
         self.manifest = ManifestWriter(data_dir)
         self._now = now or (lambda: datetime.now(timezone.utc).astimezone())
-        self._sequences: dict = {}
+        self.lock_path = self.layout.manifests_dir / ARCHIVE_LOCK_NAME
         self._archived: dict = {}
 
     # ---- 对外入口 ----
@@ -144,35 +154,40 @@ class ResponseArchiver:
         moment = self._now()
         crawl_date = moment.date().isoformat()
         crawl_time = crawl_time or moment.isoformat()
-        raw = self.store.write_bytes(
-            source_id=source_id,
-            crawl_date=crawl_date,
-            kind=kind,
-            filename=filename,
-            content=content,
-        )
-        crawl_id = self.next_crawl_id(source_id, crawl_date)
-        row = self.manifest.record(
-            crawl_id=crawl_id,
-            source_id=source_id,
-            requested_url=requested_url,
-            final_url=final_url,
-            crawl_time=crawl_time,
-            http_status=status_code,
-            content_type=content_type,
-            raw=raw,
-            discovery_method=discovery_method,
-            keyword=keyword,
-            referrer_url=referrer_url,
-            etag=etag,
-            last_modified=last_modified,
-        )
+        # R3 归档事务：锁内完成「重新读取已落盘编号 → 写原件并校验 → 分配 crawl_id →
+        # 追加并刷盘账本」。原件同名写入也在保护范围内，避免两个进程各自 fsync 后覆盖。
+        with file_lock(self.lock_path):
+            raw = self.store.write_bytes(
+                source_id=source_id,
+                crawl_date=crawl_date,
+                kind=kind,
+                filename=filename,
+                content=content,
+            )
+            crawl_id = self._next_crawl_id(source_id, crawl_date)
+            row = self.manifest.record(
+                crawl_id=crawl_id,
+                source_id=source_id,
+                requested_url=requested_url,
+                final_url=final_url,
+                crawl_time=crawl_time,
+                http_status=status_code,
+                content_type=content_type,
+                raw=raw,
+                discovery_method=discovery_method,
+                keyword=keyword,
+                referrer_url=referrer_url,
+                etag=etag,
+                last_modified=last_modified,
+            )
         return ArchivedResponse(crawl_id=crawl_id, raw=raw, manifest_row=row)
 
-    def next_crawl_id(self, source_id: str, crawl_date: str) -> str:
-        """按账本已落盘序号继续编号：同一来源同一天多次运行不复用 crawl_id。"""
+    def _next_crawl_id(self, source_id: str, crawl_date: str) -> str:
+        """归档事务内部编号：锁内按账本已落盘序号取下一个，不使用实例缓存。
+
+        未持锁调用会返回未被持久化保留的编号，因此本方法不对外公开；编号必须与
+        原件、账本同事务写入（见 archive_bytes）。
+        """
         prefix = f"{source_id}_{crawl_date.replace('-', '')}_"
-        if prefix not in self._sequences:
-            self._sequences[prefix] = max_crawl_sequence(self.layout.manifest_path, prefix)
-        self._sequences[prefix] += 1
-        return f"{prefix}{self._sequences[prefix]:0{CRAWL_ID_WIDTH}d}"
+        sequence = max_crawl_sequence(self.layout.manifest_path, prefix) + 1
+        return f"{prefix}{sequence:0{CRAWL_ID_WIDTH}d}"
