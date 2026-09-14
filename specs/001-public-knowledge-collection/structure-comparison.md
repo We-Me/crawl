@@ -103,6 +103,10 @@ manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与�
 
 ## 阶段五差异补充（2026-09-13，已完成入口的增量核对）
 
+> **2026-09-14 R1 更新：本节的“首个全为已登记目标的页即停（`incremental_head_checked`）”已取消，**
+> **该终止原因只作为识别旧游标来源的历史标记保留；下面只描述阶段五当时的实现，不再代表当前行为。**
+> **当前行为见“阶段六差异补充”。**
+
 不改 Schema：新增的发现终止原因与游标 note 变化都在既有 `text`/`note` 字段内表达。
 
 - 新的发现终止原因 `incremental_head_checked`（`complete=true`）：入口此前已遍历完成、且历史遍历页数超过
@@ -114,6 +118,26 @@ manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与�
 - `manifests/pending_items.json` 与 `crawl_manifest.jsonl` 基础格式未变；增量核对不产出 documents/blocks，
   也不把已登记目标再标 refresh（仅当入口页出现新目标时，该页目标照常入队/复查）。
 
-## 审查后兼容性要求（2026-09-14）
+## 阶段六差异补充（2026-09-14，R1—R6 已实现）
 
-本轮只更新修复说明；原件目录、业务 JSONL 与现有队列/游标数据没有改写。后续 R1—R6 若增加正文待续、关联键或提交版本，需补具体字段对照与可预览迁移方案，保留旧 partial/失败历史；不能靠删除或整体重置 pending/cursor 使检查通过。
+本轮**未改动任何 `contracts/*.schema.json`**（规格契约与随包副本一致，`tools/sync_contracts.py --check`
+通过）；六项修复的字段变化都在运行状态文件、运行期报告字段与失败账可选字段内表达。原“审查后兼容性要求”
+已按下表实现，历史影响与迁移选项见 [阶段六只读评估](evidence/stage-six-historical-impact.md)，
+验证见 [R1—R6 证据](evidence/stage-six-r1-r6.md)。
+
+| 修复 | 文件/字段 | 变化与兼容 |
+| --- | --- | --- |
+| R1 | `manifests/discovery_cursors.json`：`pass_pages`、`coverage_rounds`、`last_round_completed_at`；`DiscoveryStop` 报告行 `round_pages`、`coverage_rounds` | 新增（缺失按 0）；`pages_fetched`/`targets_found` 保持“累计请求计数”含义，不再被当作覆盖页数；`incremental_head_checked` 不再是本轮终止原因，只作为旧游标来源标记 |
+| R1 | `manifests/discovery_cursors.json` note | 旧快检标记不再断言完成：下次运行在 note 前缀记录“历史快检标记已按 R1 失效并重新核实”，并从入口重新遍历；旧 note 原样保留在数据中，不删除、不改写 |
+| R2 | `manifests/pending_items.json`：可选 `continuation`（`kind=body_pagination`） | 新增可选对象（母身份、已取部分的 `crawl_id`/`raw_path`/顺序、下一正文 URL 或接口、停止原因、尝试数）；旧行缺省=无待续；仅预算停止与可重试正文失败建立待续 |
+| R2 | `documents.jsonl`：续作文档身份 `<母doc_id>-R<n>` | 沿用既有 `version`/追加式契约：续作产出新文档身份，旧 partial 文档与原件保留，不静默覆盖、不重复拼接已取块 |
+| R2 | 失败账：`error_type=continuation_state_damaged` | 待续状态损坏时显式失败并按整取重试（忽略条件请求）；旧失败账无此值，向前兼容 |
+| R3 | 归档锁 `manifests/crawl_archive.lock` | 新增运行状态文件（非成果）：编号重读、原件写入与账本追加在同一跨进程临界区；`crawl_id` 序列不再依赖实例缓存 |
+| R4 | `manifests/discovery_cursors.json`：`last_commit_page`、`last_commit_digest`；入口锁 `discovery_cursors.json.run-<digest>` | 新增（旧游标缺失=该页按未提交处理）；重放按页目标摘要幂等入队，不把已处理目标整体转 refresh |
+| R4 | 发现终止原因 `commit_failed`、`cursor_save_failed`、`entry_busy` | 新增运行期取值：入队失败不推进游标、游标保存失败可重放、同入口并发运行显式拒绝；旧数据不受影响 |
+| R5 | `manifests/failed_records.jsonl`：可选 `doc_id`；恢复任务 `doc_id` | 新增可选字段；恢复/对账身份统一为 `(url, stage, scope_start_date, doc_id)`，字段缺失按 None。旧行可能因此保持未关闭（见只读评估：4 项），这是保守行为，不按 URL 批量误关 |
+| R6 | 无字段变化 | `crawl check`/`reconcile_queue_and_failures` 对损坏状态文件报错并返回非零：读取/解析/结构错误进入 `problems`，合法缺失与合法空状态仍按零记录；检查只读 |
+
+兼容性结论：`documents.jsonl`/`blocks.jsonl`/`crawl_manifest.jsonl` 基础字段与必填层级未变；旧运行状态文件
+可按缺省值读取，不需要为读取而迁移。历史数据的重复身份、旧失败账、旧游标、旧 partial 与附件状态滞后
+属于遗留事实，按只读评估给出的选项处理，不在本轮批量改写。

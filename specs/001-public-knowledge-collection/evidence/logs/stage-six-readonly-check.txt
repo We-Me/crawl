@@ -1,0 +1,204 @@
+== 只读校验：输入哈希（data/ 下非 raw 文件）before ==
+70146d7fa434b9341faf54740ffb0f9c63eaa8bf23619c265556d8048442039e  data/dev-sources-probe2.yaml
+4e8bfeedf3fd26a44be8e0f19c81909916ad811dc20d6bbf295db1386529cc10  data/dev-sources-probe3.yaml
+aaea5dd326e9e774b4b03b57c94c13b0ed1adde392c850d1b86c53c776e43450  data/dev-sources-probe4.yaml
+798e1f2480fa99baec67dc89ffd5c503696c959638883377dbad0436ff66c1fe  data/dev-sources.yaml
+a34b1cb8a3218bfbba1b286cca3dc644a2b7adbd6b04b5244731e83c7246cd44  data/logs/crawler.log
+b5c01dd77a60843e9ada6d6f99f575b58bee7a0fce9265ea861a5a392fb98d29  data/logs/metrics.json
+f60d0b25fcc487526995bcb6b1a35c10e3bed03b84ac563609fa36abc659fc30  data/logs/metrics_history.jsonl
+34d3b8e79b37bc5b86f669eb232e52515286b48e5c07c7986c43bbf34ab35b90  data/manifests/crawl_manifest.jsonl
+7e60d69fcb8590d63a90f7b0a86ba3416013ff36f38e37fbc6410cbfa4deb5de  data/manifests/discovery_cursors.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/discovery_cursors.json.lock
+62df29543303cead812a6389bedd1625f09760f411e2ca64bff2c8e107f66f9e  data/manifests/failed_records.jsonl
+8e4251de70e48a862e2d067a6a76b5e58b445b4c9c529d022d00665e293437a1  data/manifests/incremental_state.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/incremental_state.json.lock
+5aa1b7209c5203c579365f60423fa4d90578b2cbbdbd95b679072006c0c292ee  data/manifests/pending_items.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/pending_items.json.lock
+463ea755f356710ac9d840c079032f7817b77dc5a1f085f3b45f01a2a0591d34  data/normalized/blocks.jsonl
+5c9782d9a806cd1db1087955c46eb4a82219d34ba44c456b52732e1faa9fe741  data/normalized/documents.jsonl
+579c6ca31c623e380a35a12627ace3be43cfdbdc16331eb3a51a7ac586f79d5c  data/pilot-cn08-sources.yaml
+e1f6db5cc14506772fbfca793bbd15c483982f2fec9e19f6426d1bf418547c18  data/realsite-probe2.json
+2491f175f151ed8384e96b9a2b4e88023847198cf6669eb72848d863d29145ed  data/realsite-probe3.json
+4ff73cf7e7eb91deeee75ae957a1d34df30031570b7164355c0791349908a48e  data/realsite-probe4.json
+e9ff308e186c94b659b5ded51e1838b1bd7e2ad5bb20591a4c65f99d9013eb87  data/realsite-smoke-run2.json
+6299f4dcd252e997a49e3d4a4c0c61809f0337ddfeaf552de2c906eb3e302371  data/realsite-smoke.json
+
+before-digest:
+8e3a170d1a146061a24ea7b3c63c94176842ee650b5071352e904e7f968bbe9c  -
+
+== crawl check --json (exit code follows) ==
+{
+  "ok": true,
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "delivery": {
+    "data_dir": "/home/zhou/workspaces/crawl/data",
+    "ok": true,
+    "deliverables": [
+      {
+        "name": "raw/",
+        "path": "raw",
+        "kind": "dir",
+        "present": true
+      },
+      {
+        "name": "manifests/crawl_manifest.jsonl",
+        "path": "manifests/crawl_manifest.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "normalized/documents.jsonl",
+        "path": "normalized/documents.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "normalized/blocks.jsonl",
+        "path": "normalized/blocks.jsonl",
+        "kind": "file",
+        "present": true
+      },
+      {
+        "name": "manifests/failed_records.jsonl",
+        "path": "manifests/failed_records.jsonl",
+        "kind": "file_optional_if_empty",
+        "present": true
+      },
+      {
+        "name": "logs/",
+        "path": "logs",
+        "kind": "dir",
+        "present": true
+      }
+    ],
+    "missing": [],
+    "counts": {
+      "manifest_rows": 12164,
+      "document_rows": 4728,
+      "block_rows": 26774,
+      "failure_rows": 10,
+      "raw_files": 11838
+    },
+    "forbidden_artifacts": [],
+    "path_issues": [],
+    "notes": []
+  },
+  "schema": {
+    "ok": true,
+    "error_count": 0,
+    "by_file": {},
+    "errors": []
+  },
+  "trace": {
+    "ok": true,
+    "documents": {
+      "total": 4728,
+      "traceable": 4728,
+      "rate": 1.0
+    },
+    "blocks": {
+      "total": 26774,
+      "traceable": 26774,
+      "rate": 1.0
+    },
+    "problems": []
+  },
+  "reconcile": {
+    "ok": true,
+    "items_total": 5392,
+    "items_by_state": {
+      "processed": 5374,
+      "skipped": 18
+    },
+    "open_failures": 4,
+    "problems": []
+  }
+}
+check-exit=0
+
+== crawl plan --json (exit code follows) ==
+{
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "summary": {
+    "refetch": 4
+  },
+  "tasks": [
+    {
+      "action": "refetch",
+      "url": "https://www.mha.gov.in/sites/default/files/2026-02/ReportOutput_Current_Year_PDF_2026_16022026.pdf",
+      "stage": "fetch",
+      "source_id": "IN-05",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T11:23:52.685366+08:00",
+      "referrer_url": "https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/KW13B1831.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T11:23:52.685366+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1831",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/JP11B0043.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T11:23:52.685366+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?618",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    },
+    {
+      "action": "refetch",
+      "url": "https://www.mea.gov.in/Portal/LegalTreatiesDoc/YU48B1207.pdf",
+      "stage": "fetch",
+      "source_id": "IN-02",
+      "attempt": 1,
+      "retry_count": 0,
+      "not_before": "2026-09-14T11:23:52.685366+08:00",
+      "referrer_url": "https://www.mea.gov.in/TreatyDetail?1207",
+      "scope_start_date": "2026-09-06",
+      "reason": "网络阶段失败，重新获取"
+    }
+  ]
+}
+plan-exit=0
+
+== 输入哈希 after ==
+70146d7fa434b9341faf54740ffb0f9c63eaa8bf23619c265556d8048442039e  data/dev-sources-probe2.yaml
+4e8bfeedf3fd26a44be8e0f19c81909916ad811dc20d6bbf295db1386529cc10  data/dev-sources-probe3.yaml
+aaea5dd326e9e774b4b03b57c94c13b0ed1adde392c850d1b86c53c776e43450  data/dev-sources-probe4.yaml
+798e1f2480fa99baec67dc89ffd5c503696c959638883377dbad0436ff66c1fe  data/dev-sources.yaml
+a34b1cb8a3218bfbba1b286cca3dc644a2b7adbd6b04b5244731e83c7246cd44  data/logs/crawler.log
+b5c01dd77a60843e9ada6d6f99f575b58bee7a0fce9265ea861a5a392fb98d29  data/logs/metrics.json
+f60d0b25fcc487526995bcb6b1a35c10e3bed03b84ac563609fa36abc659fc30  data/logs/metrics_history.jsonl
+34d3b8e79b37bc5b86f669eb232e52515286b48e5c07c7986c43bbf34ab35b90  data/manifests/crawl_manifest.jsonl
+7e60d69fcb8590d63a90f7b0a86ba3416013ff36f38e37fbc6410cbfa4deb5de  data/manifests/discovery_cursors.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/discovery_cursors.json.lock
+62df29543303cead812a6389bedd1625f09760f411e2ca64bff2c8e107f66f9e  data/manifests/failed_records.jsonl
+8e4251de70e48a862e2d067a6a76b5e58b445b4c9c529d022d00665e293437a1  data/manifests/incremental_state.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/incremental_state.json.lock
+5aa1b7209c5203c579365f60423fa4d90578b2cbbdbd95b679072006c0c292ee  data/manifests/pending_items.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  data/manifests/pending_items.json.lock
+463ea755f356710ac9d840c079032f7817b77dc5a1f085f3b45f01a2a0591d34  data/normalized/blocks.jsonl
+5c9782d9a806cd1db1087955c46eb4a82219d34ba44c456b52732e1faa9fe741  data/normalized/documents.jsonl
+579c6ca31c623e380a35a12627ace3be43cfdbdc16331eb3a51a7ac586f79d5c  data/pilot-cn08-sources.yaml
+e1f6db5cc14506772fbfca793bbd15c483982f2fec9e19f6426d1bf418547c18  data/realsite-probe2.json
+2491f175f151ed8384e96b9a2b4e88023847198cf6669eb72848d863d29145ed  data/realsite-probe3.json
+4ff73cf7e7eb91deeee75ae957a1d34df30031570b7164355c0791349908a48e  data/realsite-probe4.json
+e9ff308e186c94b659b5ded51e1838b1bd7e2ad5bb20591a4c65f99d9013eb87  data/realsite-smoke-run2.json
+6299f4dcd252e997a49e3d4a4c0c61809f0337ddfeaf552de2c906eb3e302371  data/realsite-smoke.json
+
+after-digest:
+8e3a170d1a146061a24ea7b3c63c94176842ee650b5071352e904e7f968bbe9c  -

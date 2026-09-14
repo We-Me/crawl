@@ -124,12 +124,13 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 （分页覆盖用，发现阶段不受 `--max-items` 限制，仍受 `--max-pages`/预算/截止与 robots 限速约束；
 报告 `coverage.processing.mode=discovery_only`，不要与“零结果”混读）。collect 与 resume 的运行预算参数：
 
-已遍历完成（游标 `completed`）的入口，下次运行仍从入口核对：若该入口历史遍历页数不超过本轮页数上限，
-就整入口复核；超过上限（如 IN-02 已 433 页、单轮上限 5 页）时改为**增量核对**——从入口向后取页，
-遇到首个全为已登记目标的页即停（终止原因 `incremental_head_checked`，`complete=true`），不重取历史
-覆盖页；原遍历计数与终点原因保留在游标 note 里。需要完整重遍历时显式给 `--max-pages`（含
-`--discover-only --max-pages N`）。“已登记”取本轮开始前的队列状态（同一轮内更早的发现结果不参与判定，
-只会让核对多取一页，不产生漏采）。
+已遍历完成（游标 `completed`）的入口，下次运行从入口开始新一轮覆盖（R1，2026-09-14）：“整页都已知即完成”
+的推断已取消——已登记目标按更新策略进入 refresh 复查（条件请求，可得 304），新链接照常登记；覆盖受每轮
+页数上限与预算约束，未到终点时游标保持 `active` 并从续接页继续，直到走到站点/规则终点才把
+`coverage_rounds` 加一。`pass_pages`/`coverage_rounds` 是覆盖口径，`pages_fetched` 只是累计请求数，两者
+不能混读。历史游标 note 里的 `incremental_head_checked` 是已失效标记：下次运行会重新从入口遍历核实并在
+note 前缀记录“历史快检标记已按 R1 失效并重新核实”。需要完整重遍历时显式给 `--max-pages`（含
+`--discover-only --max-pages N`）。
 
 | 参数 | 含义 | 省略时 |
 | --- | --- | --- |
@@ -159,7 +160,9 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   发现页不产出 normalized 文档，但计入 `counters.resources` 与账本行数。
 - **遍历终止原因**：每个入口记录 `stop`（`end_of_pages`/`pagination_control_missing`/`max_pages_reached`/
   `max_items_reached`/`request_failed`/`budget_stop`/`loop_detected`/`access_denied`/`selector_miss`/
-  `sitemap_index_not_expanded`/`date_scoped_query`/`parse_error`）与是否 `complete`；
+  `sitemap_index_not_expanded`/`date_scoped_query`/`parse_error`，以及阶段六的 `commit_failed`（目标入队失败，
+  游标不推进）/`cursor_save_failed`（目标已入队、游标未推进，重启重放）/`entry_busy`（同一入口已有并发运行）
+  与是否 `complete`；每行的 `round_pages`/`coverage_rounds` 是本轮覆盖范围与已完成覆盖轮次。
   截断或失败时发现状态为 `partial`/`parse_error`，不冒充 `ok`/`zero_results`。
 - **附件闭环**：文档 `attachments[].status` 为 `downloaded`/`failed`/`boundary_rejected`（robots 与
   已声明大小上限等确定性边界，进 skipped、不写失败账、不重试）/`pending`（预算停止，登记待处理，
@@ -170,6 +173,12 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   只说明待处理队列已清空；发现被截断时窗口总量是未知，不能读成全站完成。
 - **多轮推进**：同一数据根、同一来源重复 collect，先补从未尝试的 pending 项，再复查 refresh 项
   （已成功目标重新发现后按条件请求核对，可得 304），`--max-items` 限制每轮处理数量。
+- **提交顺序与正文待续（阶段六 R1—R6）**：发现目标先持久化入队、再推进分页游标（崩溃后同页重放幂等，
+  不会漏目标；同入口并发运行被 `entry_busy` 拒绝）；正文分页耗尽预算或正文请求失败时主目标保持待续
+  （`pending_items.json` 的 `continuation`），母页 304 只说明母响应未变、不取消未完成正文，续作完成产出
+  `<母doc_id>-R<n>` 新文档身份并保留旧 partial 与原件；归档编号/原件/账本在同一跨进程事务锁内；
+  `crawl check` 对损坏状态文件失败退出而不重建。证据：[R1—R6](evidence/stage-six-r1-r6.md)、
+  [历史数据只读评估](evidence/stage-six-historical-impact.md)。
 - **按站分页规则**：`adapter.pagination_selector` 现在同时作用于发现遍历与正文分页——配置后只跟随该
   控件，控件不存在即视为该来源终点（不再用 rel=next/“下一页”文本启发式）。若站点控件省略入口参数
   （如 IN-02 只带 `page=N`，缺 `PageSize/sortBy` 返回空壳），配置
@@ -275,7 +284,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | `check` 报缺失或契约错误 | 按提示定位：缺文件、越界 `raw_path`、字段不符或追溯悬挂引用 |
 | 同日重复运行 | 账本按来源与日期续号，`crawl_id` 不复用；失败补抓按 `crawl_id` 定位原件 |
 | 发现状态 `partial`/`parse_error` | 该入口未完整遍历（请求失败/截断/解析失败）：失败与原件保留，游标指向未取得页；下一轮同命令从该页继续 |
-| 发现终止原因 `incremental_head_checked` | 该入口此前已遍历完成且超过单轮页数上限：本轮只核对入口页（无新增即停），不重取历史覆盖页；不是截断，也不代表重新遍历过 |
+| 旧游标 note 含 `incremental_head_checked` | 阶段五的“整页已知即完成”推断已按 R1 失效：下次运行重新从入口遍历核实并在 note 前缀记录；`pass_pages`/`coverage_rounds` 从新语义累计，旧 note 不作为覆盖证据 |
 | `coverage.pending_total>0` | 待处理队列未清空（目标或附件）：同命令下一轮继续；不是失败，也不表示来源已完成 |
 | 退出码 3，`stop.reason=request_budget` | 请求预算用尽：已归档成果保留，未处理完的目标见 `stop.unprocessed`；需要更多成果时调大预算或下次继续 |
 | 退出码 3，`stop.reason=deadline` | 到达截止时间：不再发新请求；调大 `--deadline-seconds` 后重跑 |
@@ -299,6 +308,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 交付校验读取开发数据根（已保存原件，离线）：同上日志末节，manifest=10、documents=10、blocks=489、schema 通过、追溯 100%
 - 运行预算与停止报告：[NEXT-06 证据](evidence/next06-budget.md)、阶段三完整回归 [stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)（345 passed）
 - raw 完整性（发现响应归档、分页终止原因与游标、附件闭环、多轮续接）：[阶段五证据](evidence/stage-five-raw-completeness.md)、完整回归 [stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)（419 passed）
+- 一致性修复（阶段六 R1—R6：复查覆盖、正文待续、归档事务锁、发现提交顺序、损坏状态失败）：[R1—R6 证据](evidence/stage-six-r1-r6.md)、完整回归 [stage-six-full-pytest.txt](evidence/logs/stage-six-full-pytest.txt)（492 passed）、[历史数据只读评估](evidence/stage-six-historical-impact.md)
 - CN-08 正文边界修复（离线差异与重解析）：[NEXT-07 证据](evidence/next07-cn08-body.md)
 - 随包契约与源码外安装：[NEXT-08 证据](evidence/next08-packaged-contracts.md)、[next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)
 - 旧式 DOC/XLS 真实转换、结构保留与原件追溯：[NEXT-04 证据](evidence/next04-legacy-office.md)；夹具重建 `uv run --locked --no-python-downloads python tools/make_legacy_fixtures.py`（需系统组件）

@@ -28,6 +28,8 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [十八来源状态记录](t026-eighteen-sources.md) | T026/T005/T010/T013：按站发现抽象、`--start-date`、最小结构分块在 18 个来源上的实现/验证状态 | 已实现并验证 3 个、实现待验证 4 个、访问受限 9 个、未完成 2 个；T026/T019 仍为部分完成 |
 | [第六至九轮有限线上记录](logs/t026-round6-limited.txt) | T026/T005/T015：文章级发现、起始日包含式下界、政策文件与日期 meta 的真实站点验证（登记+结果） | 40 个请求、0 失败；CN-08 边界收录/排除、CN-01 3 篇 in_window、CN-04 政策文件与 `firstpublishedtime` |
 | [阶段五 raw 完整性](stage-five-raw-completeness.md) | S5-01/S5-03/S5-04/S5-06：发现响应统一归档、分页终止原因与游标、附件闭环、多轮续接与覆盖报告（关联 T005/T006/T007/T015/T016/T026/T027 的工程部分） | 已完成工程实施并通过离线夹具验证（新增 13 项用例，全量 419 passed，见 [logs/stage-five-full-pytest.txt](logs/stage-five-full-pytest.txt)）；S5-02 复用受限来源证据不新增探测，正式验收与逐站取值仍待 Q12/Q13 |
+| [阶段六 R1—R6 一致性修复](stage-six-r1-r6.md) | R1—R6 / S5-01、S5-03、S5-04、S5-06：复查覆盖、正文待续、归档事务锁、发现提交顺序、显式恢复判定、损坏状态失败（关联 T005/T006/T007/T015/T016/T019 的工程部分） | 六项修复已提交（`2155422`、`aad3a63`、`9d8b237`、`b37fc1c`、`2ff6ef8`）并通过离线夹具验证：定向 103 passed、完整回归 492 passed，见 [logs/stage-six-full-pytest.txt](logs/stage-six-full-pytest.txt)；T019/T026/T027 仍为部分完成 |
+| [阶段六历史数据只读影响评估](stage-six-historical-impact.md) | R3/R5/R1/R4/R2 遗留：现有 data/ 的重复身份、旧失败账、旧游标、旧 partial 与附件状态滞后 | 只读评估（`crawl check` ok、`plan` refetch 4；检查前后非 raw 输入字节一致），列出受影响身份与选项，未执行任何迁移 |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -90,3 +92,12 @@ shell 复跑通过（13 passed），用例级证据闭合。
 [完整回归](logs/stage-five-full-pytest.txt)（419 passed）；契约同步检查通过，
 `attachment.schema.json` 状态枚举扩展已同步规格与随包副本。S5-02 无新线索，只复用既有受限来源记录；
 T019/T026/T027 与 18 来源状态不因本记录改变。
+
+## 阶段六记录（2026-09-14）
+
+按 [阶段六](../stage-six.md) 完成 R1—R6 六项一致性修复并提交：损坏状态使对账失败、恢复按显式结果与
+对象身份判定、归档编号/写入/账本同一跨进程事务锁、发现目标先入队再推进游标、正文分页待续不受母页 304
+阻断、取消“整页已知即完成”并按轮次/预算推进复查覆盖。证据见
+[阶段六 R1—R6](stage-six-r1-r6.md)（定向 103 passed、完整回归 492 passed）与
+[历史数据只读评估](stage-six-historical-impact.md)；契约未改动（`tools/sync_contracts.py --check` 通过），
+未新增真实站点请求。已有 data/ 未改写。S5-02/S5-05/07 与 T019/T026/T027 状态不因本记录改变。

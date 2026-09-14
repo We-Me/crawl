@@ -123,6 +123,25 @@ schema 字段新增、改名、必填性提高和哈希语义改变必须记录�
 字段与文件的结构差异同时登记在 [结构对照](structure-comparison.md)；运行说明见
 [runbook.md](runbook.md) 第 5、6 节。
 
-## 待实施的一致性约束（2026-09-14）
+## 阶段六一致性扩展（2026-09-14，R1—R6 已实现）
 
-当前 R1—R6 见 [阶段六](stage-six.md)。必须区分 raw 已取得、解析/规范化失败、正文待续及完整目标；恢复身份包含 source、scope、类型和必要母文档引用，不能按 URL 全局关闭。发现目标先持久化再推进游标，重放入队幂等；归档 ID 与账本追加在同一跨进程临界区。具体新增字段、版本与迁移方案由修复实现时登记，本轮不声称 Schema 或持久化模型已经更新。
+R1—R6 的代码修复与验证见 [阶段六](stage-six.md) 与
+[R1—R6 实施证据](evidence/stage-six-r1-r6.md)。扩展只涉及运行状态文件、运行期字段与可兼容的可选字段，
+不改变 `documents.jsonl`/`blocks.jsonl`/`crawl_manifest.jsonl` 的基础字段与必填层级；本轮未改写既有数据
+（历史影响见 [只读评估](evidence/stage-six-historical-impact.md)）。
+
+| 对象 | 字段/取值 | 语义与兼容 |
+| --- | --- | --- |
+| `manifests/failed_records.jsonl` | 可选 `doc_id` | R5：恢复与对账身份为 `(url, stage, scope_start_date, doc_id)`；字段缺失按 None，与旧行兼容；同 URL 不同 scope/母文档不互相关闭 |
+| 失败账 `error_type` | 新增 `continuation_state_damaged` | R2：正文待续状态损坏；按整取重试（忽略条件请求），不当作已完成 |
+| `manifests/discovery_cursors.json` | `last_commit_page`、`last_commit_digest` | R4：本入口最后一次已提交目标的页与页目标摘要；旧游标缺失时该页按未提交处理，重放只做幂等入队 |
+| 同上 | `pass_pages`、`coverage_rounds`、`last_round_completed_at` | R1：本次覆盖轮已覆盖页数与已完成覆盖轮次；`pages_fetched` 仍只是累计请求数，两者不混用；缺失按 0 |
+| 同上 note | `incremental_head_checked` 仅作历史来源 | R1：不再作为本轮终止原因或完成推断；下次运行在 note 前缀记录“历史快检标记已按 R1 失效并重新核实”并重新遍历 |
+| `manifests/pending_items.json` | 可选 `continuation`（`kind=body_pagination`） | R2：母目标/文档身份、母原件引用、已取得部分的 `crawl_id`/`raw_path`/顺序、下一正文 URL 或接口、停止原因与尝试数；仅“预算停止 / 分页或接口正文请求失败 / 续取部分失败”建立待续，确定性终止不建立；旧行缺省视为无待续 |
+| `documents.jsonl` | 续作文档身份 `<母doc_id>-R<n>` | R2：续作完成产出新身份，旧 partial 文档与全部原件保留（追加式，不静默覆盖）；同 URL 复查更新沿用既有版本策略 |
+| 归档锁 | `manifests/crawl_archive.lock` | R3：编号重读、原件写入与账本追加在同一跨进程 `file_lock` 内；锁文件是运行状态，不是成果 |
+| 发现终止原因 | `commit_failed`、`cursor_save_failed`、`entry_busy` | R4：目标入队失败（游标不推进）、目标已入队但游标未推进（重启重放）、同一入口已有并发运行 |
+| 发现报告行 | `round_pages`、`coverage_rounds` | R1：每行报告本轮覆盖范围与已完成覆盖轮次；未知总量保持未知 |
+
+迁移口径：已有 `data/` 做只读影响评估，不批量重写；需要迁移时单独提供“先预览、备份、幂等可重复”的方案，
+且不从日志猜造缺失原件。

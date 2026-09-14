@@ -1,0 +1,27 @@
+# 命令（仓库根目录）：uv run python specs/001-public-knowledge-collection/evidence/logs/stage-six-r3-unlocked-sensitivity.py
+# 说明：仅用于证据的一次性灵敏度核对；临时移除 crawler.output.archive 的 file_lock，只写 /tmp 临时数据根。
+
+模式 A：同名不同字节（无锁）
+Process ForkProcess-2:
+Traceback (most recent call last):
+  File "/home/zhou/.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/multiprocessing/process.py", line 315, in _bootstrap
+    self.run()
+  File "/home/zhou/.local/share/uv/python/cpython-3.9.25-linux-x86_64-gnu/lib/python3.9/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/zhou/workspaces/crawl/specs/001-public-knowledge-collection/evidence/logs/stage-six-r3-unlocked-sensitivity.py", line 43, in worker
+    archiver.archive_bytes(
+  File "/home/zhou/workspaces/crawl/src/crawler/output/archive.py", line 168, in archive_bytes
+    row = self.manifest.record(
+  File "/home/zhou/workspaces/crawl/src/crawler/output/manifest_writer.py", line 42, in record
+    self._verify_raw(raw)
+  File "/home/zhou/workspaces/crawl/src/crawler/output/manifest_writer.py", line 80, in _verify_raw
+    raise ManifestError(
+crawler.output.manifest_writer.ManifestError: 原件字节与记录不一致：/tmp/tmp2ab9amzw/raw/SENS/2026-09-14/html/same-name.html 记录 33a2f36ccb005f4655a0ba32b8fc0063e98993dcef0c1ac7a32a9b324cab6964/10，实际 30babdec40717ff2e5fa647a68e57a69ff7d06c16b1c9ea72f9dbbf7eaf38dd2/10
+  exits=[0, 1] rows=8 duplicated_ids=0 sample=[]
+模式 B：同名相同字节（无锁，5 次）
+  attempt 1: exits=[0, 0] rows=16 duplicated_ids=3 sample=[('SENS_20260914_0001', 2), ('SENS_20260914_0002', 2), ('SENS_20260914_0003', 2)]
+  attempt 2: exits=[0, 0] rows=16 duplicated_ids=0 sample=[]
+  attempt 3: exits=[0, 0] rows=16 duplicated_ids=1 sample=[('SENS_20260914_0001', 2)]
+  attempt 4: exits=[0, 0] rows=16 duplicated_ids=2 sample=[('SENS_20260914_0001', 2), ('SENS_20260914_0002', 2)]
+  attempt 5: exits=[0, 0] rows=16 duplicated_ids=1 sample=[('SENS_20260914_0001', 2)]
+  出现重复 crawl_id 的次数=4/5
