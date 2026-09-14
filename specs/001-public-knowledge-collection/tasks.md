@@ -6,15 +6,15 @@ b6041ea 已有归档、分页游标、队列及对账实现；静态审查发现
 
 ## 当前实施入口
 
-当前按 [阶段六](stage-six.md) 的缺口与证据要求推进。用户六项决定已确认，T012 已完成；T019/T026/T027 总任务仍部分完成。表内旧阶段证据保留其时点意义，不能把“等待首批名单/分块/发布”作为当前阻塞。任务编号与历史验收不重排；当前操作计划只维护在阶段五，避免两份待办表漂移。
+当前按 [阶段七](stage-seven.md) 的四项问题、错误账闭环和基础成品退出条件推进。用户六项决定已确认，T012 已完成；T019/T026/T027 总任务仍部分完成。表内旧阶段证据保留其时点意义，不能把“等待首批名单/分块/发布”作为当前阻塞。任务编号与历史验收不重排；当前操作计划只维护在阶段七；总任务的历史业务验收状态与本轮基础软件成品验收分别记录，避免两份待办表漂移。
 
 ## 当前适用入口
 
-已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和完成标准统一见 [阶段六](stage-six.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
+已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和基础成品完成标准统一见 [阶段七](stage-seven.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。T012 已完成；T019/T026/T027 的全业务验收记录与阶段七基础软件交付分别判断。旧缺组件/权限记录不再作为当前阻塞。
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 
@@ -271,43 +271,6 @@ T001/T002 支撑全部需求的范围和契约决策；T003 支撑固定样本�
 
 T002 按 [uv 模板说明](uv-template.md) 核验登记镜像、依赖兼容性、锁文件来源和镜像失败不回退行为；T003 合并模板、配置 src 包安装，并用独立空缓存验证必要包安装及锁文件复现。完成环境验收后才能勾选；提供空依赖模板不算任务完成。
 
-## 当前续作优先级与状态更正
+## 历史阶段记录
 
-以 [阶段续作说明](continuation.md) 为本阶段调度入口：NEXT-01/02 已完成，NEXT-03 工程试点已完成；NEXT-06/07/08 已完成；NEXT-09 交付清单与 NEXT-05A 决策确认栏已交付；NEXT-04 真实旧格式验证已完成（见下）；NEXT-10 已确认且最小实现已交付；NEXT-05B/C 的当前 raw 工作统一映射到 stage-five.md 的 S5-06，发布暂缓。NEXT 是现有任务子项，不改变 27 个 T 编号。
-
-2026-09-13 更正：T012 已完成并勾选——DOCX/XLSX/CSV/JSON/XML 结构保留已有证据，真实 LibreOffice 24.2.7.2 下的 OLE2 DOC/XLS 转换、结构保留与失败路径已实测，原件追溯链路已由用例覆盖，见 `evidence/next04-legacy-office.md`；依赖组件的 5 项用例已于 2026-09-13 在目标 Linux 正常 shell 复跑通过（该文件 13 passed），能力已验证的事实得到用例级确认。T019：夹具级验证已完成，AT-014/AT-024 及正式业务验收尚缺，故保持部分完成。取消勾选不表示删除代码或重做既有有效测试。T003 依赖 T002 的已验证环境部分；T013 及后续已有工程结果在已验证格式上继续有效。T026 工程机制和有限探测可使用 T019 已有工程证据；正式来源验收仍依赖有关业务决定。T027 的 CLI 与交接准备可提前实施，但总体验收保留原依赖。
-
-2026-09-11 续作进展：NEXT-01/NEXT-02 完成（正式 CLI 与 Linux 运行说明，见 `runbook.md`）；NEXT-03 产出 CN-08 试点卡并完成一次受限真实试点；NEXT-04 记录 LibreOffice 环境阻塞；NEXT-05 仍待 Q01/Q11/Q12/Q13 业务决定。
-
-## 阶段二复核后的续作入口
-
-阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。（原文记 NEXT-04 受 Linux 组件权限阻塞；该阻塞已由 2026-09-13 的真实转换验证关闭。）NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T019/T026/T027 保留部分完成状态。
-
-## 阶段三后的当前入口
-
-NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付；NEXT-04 的真实旧格式验证已于 2026-09-13 完成（T012 勾选），剩余正式业务待决见 [阶段四交付收口](stage-four.md)。T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
-
-## 2026-09-13 当前范围与续作
-
-以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成；NEXT-04 真实旧格式验证与 T012 勾选已完成（`evidence/next04-legacy-office.md`）；NEXT-10 已按用户决定实现独立结构/div 空行最小分块，无需再确认。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量与来源缺口继续保留，不因范围收敛自动通过。
-
-2026-09-13 本轮进展（按站发现抽象、运行时起始日期、最小结构分块；不改变 27 个 T 编号）：
-
-- T005/T015：新增发现策略抽象与 `--start-date`（`src/crawler/discover/strategies.py`、`src/crawler/schedule/scope.py`），
-  贯通发现、采集记录、失败账与恢复；CN-08/CN-01/CN-04 已有限线上验证，日期边界与恢复原范围有夹具用例。
-- T010/T013：新增分块抽象与最小 dummy（`src/crawler/normalize/segmenter.py`），保留既有 HTML/Office/PDF 处理能力；
-  `extraction_method` 记 `<基础>+structural_blank_line_v1`。正式质量阈值仍 deferred。
-- T026：18 来源逐站状态与线上登记见 [evidence/t026-eighteen-sources.md](evidence/t026-eighteen-sources.md)
-  与 [evidence/logs/t026-round6-limited.txt](evidence/logs/t026-round6-limited.txt)；第 10—41 轮续作补齐逐站适配
-  （站点自身列表端点作入口、`list_link_rewrite` 等价形态改写、`attachment_pattern` 附件限幅、`date_selector`
-  发布日期），当前为已实现并验证 9 个、实现待验证 0 个、访问受限 9 个、未完成 0 个。**任务仍是部分完成**：
-  受限来源的访问方式与域名别名（Q12/Q13）及正式全范围验收未完成，不勾选正式完成；交付基线全量回归
-  406 passed（[evidence/logs/t026-full-pytest.txt](evidence/logs/t026-full-pytest.txt)），开发数据根 `crawl check`
-  为 manifest=63、documents=52、blocks=2452、failures=2、raw_files=59、追溯 100%。
-- T019/T027：raw 留存、失败账与追溯仍是部分完成（夹具与有限样本级），正式全范围验收不因本轮推进自动通过。
-- 阶段五（61e34d8 后复核）：当前任务按 [stage-five.md](stage-five.md)。S5-01/03/04/06 可执行，S5-02 分因处理；S5-05/07 暂缓，不作为前置。没有新增第 28 个 T 任务，不重做现有抽象和最小分块。
-- 阶段五实施（2026-09-13）：S5-01/03/04/06 已完成工程实施并通过离线夹具验证（新增 13 项用例，
-  全量回归 419 passed），见 [evidence/stage-five-raw-completeness.md](evidence/stage-five-raw-completeness.md)、
-  [evidence/logs/stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)。对应 T005/T006/T007/T015/T016
-  的能力补齐记录在案；T019/T026/T027 仍为**部分完成**（正式验收与来源决定未完成），不因本轮勾选；
-  T017/T018 的成果格式未变，S5-05（后处理质量）与 S5-07（发布运维）继续暂缓。
+原阶段追加说明已移至 [SDD 历史说明](../../SDD历史说明.md)；已有任务证据与需求编号保留。当前执行按 [阶段七](stage-seven.md)，不按旧等待条件重新调度。

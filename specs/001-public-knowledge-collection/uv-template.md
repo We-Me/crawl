@@ -2,12 +2,12 @@
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。T012 已完成；T019/T026/T027 的全业务验收记录与阶段七基础软件交付分别判断。旧缺组件/权限记录不再作为当前阻塞。
 
-> 已开发项目请先阅读 [阶段续作说明](continuation.md)。当前根目录已有 pyproject.toml、uv.lock 和 src/，不要复制空模板覆盖或重做初始化；下文起步命令仅用于新空项目。
+> 已开发项目请先阅读 [阶段七](stage-seven.md)。当前根目录已有 pyproject.toml、uv.lock 和 src/，不要复制空模板覆盖或重做初始化；下文起步命令仅用于新空项目。
 
 
-状态：模板已于 2026-09-11 合并进业务工程并完成起步环境验证，记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md)；当前范围依赖（含 PDF/OCR/Office/结构数据）已选定并锁定，调度与监控依赖待对应任务选定，见 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。用户明确项目必须使用镜像源；附件 pyproject.toml 仅作为配置参考，其模型项目名称、Python 3.10 下限、PyTorch/CUDA、TensorFlow 等依赖不属于本项目需求。
+状态：模板已于 2026-09-11 合并进业务工程并完成起步环境验证，记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md)；当前范围依赖（含 PDF/OCR/Office/结构数据）已选定并锁定，调度与监控已按现有标准库方案完成选型，见 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。用户明确项目必须使用镜像源；附件 pyproject.toml 仅作为配置参考，其模型项目名称、Python 3.10 下限、PyTorch/CUDA、TensorFlow 等依赖不属于本项目需求。
 
 ## 模板内容
 

@@ -2,11 +2,11 @@
 
 ## 当前适用入口
 
-已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和完成标准统一见 [阶段六](stage-six.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
+已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和基础成品完成标准统一见 [阶段七](stage-seven.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。T012 已完成；T019/T026/T027 的全业务验收记录与阶段七基础软件交付分别判断。旧缺组件/权限记录不再作为当前阻塞。
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 

@@ -74,7 +74,7 @@ def main():
         check(p.is_relative_to((ROOT / "docs").resolve()), "source must be inside docs/")
         check(p.stat().st_size == item["bytes"], f"source size changed: {p.name}")
         check(sha256(p.read_bytes()).hexdigest() == item["sha256"], f"source hash changed: {p.name}")
-    mds = [ROOT / "AGENTS.md", ROOT / "SDD文档说明.md", ROOT / ".specify/memory/constitution.md"] + list(OUT.rglob("*.md")) + list((ROOT / "docs").glob("*.md"))
+    mds = [ROOT / "AGENTS.md", ROOT / "SDD文档说明.md", ROOT / "SDD历史说明.md", ROOT / ".specify/memory/constitution.md"] + list(OUT.rglob("*.md")) + list((ROOT / "docs").glob("*.md"))
     links = 0
     for p in mds:
         text = p.read_text(encoding="utf-8")

@@ -2,11 +2,11 @@
 
 ## 当前适用入口
 
-已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和完成标准统一见 [阶段六](stage-six.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
+已确认业务边界见 [raw 优先决定](raw-first-development.md)，当前实现缺口、任务顺序和基础成品完成标准统一见 [阶段七](stage-seven.md)。本文历史阶段判断不覆盖该入口；已决定的范围不重复确认，已有能力不重新开发。
 
 ## 最新环境状态
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。T012 已完成；T019/T026/T027 的全业务验收记录与阶段七基础软件交付分别判断。旧缺组件/权限记录不再作为当前阻塞。
 
 状态：Python 与 uv 已由用户明确，Python 3.9 为首选基线；2026-09-11 T002/T003 完成起步环境，T011/T012 完成 PDF/OCR 与 Office 解析选型（TD-08 已选定），记录见 [evidence/T002-selection.md](evidence/T002-selection.md)、[evidence/T003-environment.md](evidence/T003-environment.md) 与 [evidence/T010-T013-parsers.md](evidence/T010-T013-parsers.md)。业务待决 Q 项未改变，完整交付环境仍随未完成模块推进。本文补充四份业务文档，不改变原始需求来源。
 
@@ -187,10 +187,6 @@ uv sync --locked
 `--check` 漂移校验，`tests/test_contract_resources.py` 守住一致性。该能力只用标准库与既有 hatchling 打包，
 未新增运行依赖、未引入配置框架；普通安装与源码外命令验证见 [NEXT-08 证据](evidence/next08-packaged-contracts.md)。
 
-## 阶段二复核后的续作入口
+## 历史阶段记录
 
-阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
-
-## 阶段三后的当前入口
-
-NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付，按 [阶段四交付收口](stage-four.md) 等待业务确认与 Linux 组件条件；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
+原阶段追加记录见 [SDD 历史说明](../../SDD历史说明.md)。当前开发及基础成品验收只按 [阶段七](stage-seven.md) 执行。

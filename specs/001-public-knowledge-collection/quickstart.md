@@ -1,80 +1,43 @@
 # 文档使用与后续开发交接指南
 
-## 最新环境状态
+更新：2026-09-14。当前为阶段七，目标是基础采集成品交付；尚未实施验收。旧版完整内容保存在 [SDD 历史说明](../../SDD历史说明.md)，不再作为开发入口。
 
-2026-09-13 用户已提供目标 WSL 安装成功证据：/usr/bin/soffice，LibreOffice 24.2.7.2 420(Build:2)，uv run 下 find_soffice() 同样返回 /usr/bin/soffice。NEXT-04 已用该组件完成真实 OLE2 DOC/XLS 转换、结构保留、失败路径与原件追溯验证，T012 勾选完成，见 [NEXT-04 证据](evidence/next04-legacy-office.md)；受限沙箱内 5 项依赖组件的用例按能力探测 skip，已于 2026-09-13 在目标 Linux 正常 shell 复跑，13 项全部通过（详见证据文件）。第四阶段整体仍未完成（T019/T026/T027 与正式业务待决）。下文早期缺组件/权限记录按历史时点理解，不再作为等待安装的理由。
+## 继续现有项目
 
-> 已开发项目请先阅读 [阶段续作说明](continuation.md)。当前根目录已有 pyproject.toml、uv.lock 和 src/，不要复制空模板覆盖或重做初始化；下文起步命令仅用于新空项目。
+1. 阅读根目录 [AGENTS.md](../../AGENTS.md)、[SDD 说明](../../SDD文档说明.md)、[项目原则](../../.specify/memory/constitution.md) 和 [范围决定](raw-first-development.md)。
+2. 按 [阶段七](stage-seven.md) 选择明确交付物；阶段五/六仅按需查已有方案和证据。不要重做来源选择、最小分块、CLI 或 LibreOffice 安装。
+3. 按需核对 [spec](spec.md)、[plan](plan.md)、[tasks](tasks.md)、[数据模型](data-model.md) 和 [结构对照](structure-comparison.md)。真正外部缺口见 [当前决定](decision-requests.md)，Q 编号不是重新确认全部业务的清单。
+4. 复用 [tech-stack](tech-stack.md) 中 CPython 3.9.25 与现有 uv 锁文件、登记镜像。配置及命令以 [runbook](runbook.md) 为准，先 `uv sync --locked`，按实际验证范围启用需要的依赖组；不使用空模板覆盖现有 pyproject.toml。
+5. 完成对应最小验证后更新证据；阶段七退出条件满足即交付。失败账允许保留可控异常，仍须可查询、有限重试、离线/人工处理且不伪造成功。
 
+## 环境、目录与迁移
 
-版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
+目标 Linux/WSL 的 LibreOffice 24.2.7.2 已有真实旧格式转换证据，见 [NEXT-04](evidence/next04-legacy-office.md)。新机器按运行说明核验环境，不将旧缺组件记录当成当前阻塞。
 
-当前工作区交付的是 SDD 文档、虚构契约样例与固定夹具上的采集实现。正式业务 CLI crawl 与 Linux 运行说明已交付；尚无索引或边缘软件。已有有限真实站点工程试点，不能与正式业务验收混同。以下步骤先用于审查，再用于后续开发交接。
+继续开发应克隆完整仓库，保留源码、测试、锁文件、配置样例、docs/ 原始输入和全部 SDD 文件。不要复制真实 .env、.venv、开发 data/。开发数据默认与 src/ 同级，正式运行数据根通过环境变量配置，详见 [项目目录](project-startup.md)。只有创建独立新项目时才使用 [uv 模板](uv-template.md)，并重新明确范围。
 
-2026-09-11 状态：采集范围 T003—T019 已实现并通过 310 项测试（无 CLI、无真实站点任务；AT-014/AT-024 因 Q11 未决保持 blocked），领域与真实来源任务仍待相应 Q 项决策。任务勾选见 [tasks.md](tasks.md)，证据索引见 [evidence/README.md](evidence/README.md)。
+## 文档验证
 
-## 项目输入位置
-
-四份输入位于项目根目录 docs/。新建项目时一起复制 AGENTS.md、docs/、.specify/、specs/、两个 verify_sdd_documents 校验脚本和根目录说明，并保持相对路径；不要再将输入文件放回根目录。来源登记用 path 字段定位 docs/ 文件。
-
-## 阅读顺序
-
-1. 先阅读根目录 AGENTS.md，再阅读 SDD文档说明.md、spec.md 和 tech-stack.md，明确 uv 管理、Python 3.9 优先与失败后逐个次版本升级规则，以及尚未选定的框架。
-2. 阅读 clarifications.md，先处理当前范围会用到的 Q 项；不需要先解决所有未选领域问题。
-3. 阅读 plan.md、research.md 和 data-model.md，核对候选方案和原文要求的区别。
-4. 在 contracts/ 评审字段和样例；使用 traceability.md 对照原文、任务与验收。
-5. 按 tasks.md 实施已选任务，实际执行 acceptance.md 用例后再勾选任务。
-
-## uv 与业务环境
-
-按 tech-stack.md 使用 uv 管理业务环境，优先构建 Python 3.9 的完整依赖和已选功能。不能构建时先排查依赖及平台问题，有明确失败证据才尝试 3.10，仍不成立再尝试 3.11，依次提高；找到最低可行版本即停止。uv 初始化、锁定、同步和验证命令详见 tech-stack.md；本次不实际创建业务环境。
-
-新增依赖先确认当前任务确有需要，优先成熟库的兼容正式稳定版本。pyproject.toml 设置 uv 的 prerelease = "disallow"；默认保留可行锁定版本，必要更新针对具体包并验证传递依赖变化。完整说明见 tech-stack.md 的成熟依赖与稳定版本策略。
-
-## 文档验证命令
-
-在项目根目录使用支持 Test-Json 和 ConvertFrom-Json -DateKind String 的 PowerShell 7.5 或更新版本运行：
+PowerShell 7.5+、Python 3.9+ 下，在项目根目录运行：
 
 ```powershell
 ./tools/verify_sdd_documents.ps1
-```
-
-该命令只读取规格、schema、样例和四份原文件，检查链接、编号、来源指纹、契约样例和引用，并输出核验摘要；它不会访问业务站点。当前 Test-Json 将 format 视为注解，脚本另外断言日期、带时区时间和 URI 格式；使用 DateKind String 防止 PowerShell 在检查前自动改写时间字符串。校验要求 PowerShell 7.5+ 和 Python 3.9+，不需要额外 Python 包。默认使用 PATH 中的 python 命令；若 Python 未加入 PATH 或需使用指定环境，通过 -PythonPath 传入解释器路径。脚本根据自身位置定位项目，不依赖原电脑路径或当前工作目录。
-
-```powershell
+# Python 未在 PATH 时指定解释器：
 ./tools/verify_sdd_documents.ps1 -PythonPath 'C:/path/to/python.exe'
 ```
 
-脚本中所有原件和 JSONL 都是虚构样例，验证通过只表示文档和样例一致，不能算实际爬虫验收。现有 checks 的实际结果见 analysis.md。
+Linux 基础结构检查：
 
-## 后续采集程序的操作说明要求
+```bash
+python3 tools/verify_sdd_documents.py
+# 安装 PowerShell 7.5+ 后可执行完整 Schema 正反例：
+pwsh -File tools/verify_sdd_documents.ps1 -PythonPath python3
+```
 
-实现完成后，T027 再依据真实 CLI/API 补充安装、来源配置、首次回填、增量、补抓、重新解析、数据校验和交付命令。本次不提供不存在的 python -m crawler 等命令。运行说明应明确目录根、必需权限、依赖版本、恢复方式、日志位置以及成功/失败/partial 的判定。
+校验只读取文档、契约、虚构样例和原始输入指纹，不访问业务站点，不代表业务环境或爬虫验收通过。Python 校验脚本不需要新增包。
 
-## 规格变更
+## 维护与交付
 
-新增或修改需求先记录原文或决策依据，再改 spec.md 与相应 Q 项，随后同步数据契约、plan/tasks/acceptance 和 traceability。不能只修改某个 schema 而保留过期验收。tools/build_sdd_documents.py 是本次初始文档生成脚本，维护者手工修订文档后不要直接重跑覆盖；若需要重生成，应先将已评审内容同步到生成脚本并检查差异。
+正式 crawl CLI 已存在，安装、采集、预算、恢复和校验命令使用 [运行说明](runbook.md)。阶段七仅补齐当前错误处置缺口并写入实际验证过的命令，不重新设计操作入口。
 
-## 可保留的验证资产
-
-固定原件夹具、schema、AT 场景及来源记录可供后续开发继续使用。虚构样例适合验证数据关系，但不足以覆盖 PDF、OCR、Office、真实页面和网络故障；这些实际夹具由 T003 及相应任务建立。
-
-## 新项目初始化与数据目录
-
-复制时一并带上根目录 [.env.example](../../.env.example) 与 [.gitignore](../../.gitignore)，不复制真实 .env、.venv 或开发 data/。按 [项目起步说明](project-startup.md) 创建 src/crawler/、配置包安装和统一 settings 接口。开发默认 data/ 与 src/ 同级，正式运行用环境变量指定绝对数据根。说明中的命令需在业务 uv 工程初始化后执行；当前文档校验不等于运行环境已就绪。
-
-## Linux 上使用 Codex CLI 与强制镜像
-
-新版起步步骤、模板复制命令和可直接粘贴的开发指令见 [uv 镜像模板与 Linux 使用说明](uv-template.md)。复制包必须包含 templates/。Linux 基础文档校验可执行 python3 tools/verify_sdd_documents.py；完整 Schema 正反例仍需 PowerShell 7.5+，执行 pwsh -File tools/verify_sdd_documents.ps1 -PythonPath python3。
-
-## 阶段二复核后的续作入口
-
-阶段三基线为阶段二提交 4f07c6f 之后的续作：NEXT-06—NEXT-08 已完成工程交付（统一请求预算与停止报告、CN-08 正文边界修复、随包契约与源码外安装），阶段候选一次全量回归 345 passed，证据见 [阶段三计划](stage-three.md) 与 [NEXT-06](evidence/next06-budget.md)、[NEXT-07](evidence/next07-cn08-body.md)、[NEXT-08](evidence/next08-packaged-contracts.md)。NEXT-04 仍受 Linux 组件权限阻塞，NEXT-05 仍待业务决定；不重复 NEXT-01/02 或全量测试来消耗等待时间。T012/T019/T026/T027 保留部分完成状态。
-
-## 阶段三后的当前入口
-
-NEXT-06/07/08 已由阶段三提交 d39bdc0 完成工程交付，历史候选回归 345 passed。NEXT-09 工程交付清单（[delivery-inventory.md](delivery-inventory.md)）与 NEXT-05A 决策确认栏（[decision-requests.md](decision-requests.md)）已交付，按 [阶段四交付收口](stage-four.md) 等待业务确认与 Linux 组件条件；保留 NEXT-04 环境阻塞及正式业务待决，T012/T019/T026/T027 不自动勾选完成。无新变更不重复测试或扩站。
-
-## 2026-09-13 当前范围与续作
-
-以 [当前范围与分块](scope-and-blocking.md) 为本轮入口：NEXT-09/NEXT-05A 已完成，NEXT-10 仅澄清原始结构分块与跨段语篇组合的差异。本轮不安排 RAG，T025 保留为范围外追踪且不勾选完成；T020—T024 为未选条件范围。原始业务需求和历史 AT 记录不删除，KR-010/AT-034 的检索部分不作为本轮验收门槛，来源相关 KR-011—KR-013 仍按已选范围处理。正式采集质量、来源与旧格式组件缺口继续保留，不因范围收敛自动通过。
+需求和数据语义变动先记录依据，再同步受影响 spec/plan/tasks/acceptance/契约；不改四份原始输入，不重跑 build_sdd_documents.py 覆盖维护结果。阶段七交付报告按该阶段文档生成，软件成品结论与某来源窗口数据完整性分别报告，历史证据不改写。
