@@ -59,7 +59,9 @@ source_anchor 可记录 DOM selector、paragraph_index、page_no、article_no、
 
 至少包含 source_id、url、time、stage、error_type、message、retry_count、final_action。2026-09-13 实现扩展：可选
 `scope_start_date`（YYYY-MM-DD）记录该失败发生时所处运行的内容发布日期下界，供恢复任务保留原窗口；
-缺省为空表示原运行未设起始日，不改变失败核心字段与必填层级。S1 未给完整字段类型表，契约类型和重试计数非负约束是合理的候选工程表达。stage 保持开放字符串，fetch/download/parse/normalize 为推荐值。重试成功不能抹去原失败事实；补抓关联字段需 Q15 定稿。
+缺省为空表示原运行未设起始日，不改变失败核心字段与必填层级。2026-09-14 实现扩展：可选
+`http_status`（integer，可空）记录结构化 HTTP 状态码；补抓分类优先使用该字段，消息文本只在无
+结构化状态码时按显式 `HTTP <状态码>` 前缀解析（第 83 轮修复：端口号 `port=443` 曾被误当作 4xx）。S1 未给完整字段类型表，契约类型和重试计数非负约束是合理的候选工程表达。stage 保持开放字符串，fetch/download/parse/normalize 为推荐值。重试成功不能抹去原失败事实；补抓关联字段需 Q15 定稿。
 
 ## S1 正文中的补充字段
 

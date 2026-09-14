@@ -114,7 +114,7 @@ crawl plan [--source ID] [--config PATH] [--ready-only] [--json]    # 补抓计�
 crawl resume --source ID [--config PATH] [--max-tasks N]            # 执行补抓
     [--respect-backoff] [--max-attempts N] [--base-delay-seconds S] [--max-delay-seconds S]
     [--max-requests N] [--deadline-seconds S] [--json]
-crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、schema、追溯）
+crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、schema、追溯、队列对账）
 ```
 
 补抓默认立即执行计划中的任务；加 `--respect-backoff` 只处理退避已到的任务，其余记入 `待人工`/`退避等待`。
@@ -181,8 +181,11 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 - **附件读取中断**：流式读取超时/连接重置按 `FetchError` 记为附件 `failed` 并写失败账，不再中断整次运行；
   未尝试的附件仍记 `pending` 续传。
 - **附件大小上限**：超过声明上限（`Downloader` 默认 64 MiB）的附件按
-  `boundary_rejected:size_limit_exceeded:<bytes>` 跳过（内联下载与待处理续传一致）：不写失败账、
-  不进重试、不留待处理项；离线核对 `tests/test_attachment_coverage.py`、`tests/test_fetch.py`。
+  `boundary_rejected:size_limit_exceeded:<bytes>` 跳过（内联下载、待处理续传与补抓路径一致）：
+  不写失败账、不进重试、不留待处理项。目标获取路径直达非 HTML 原件（补抓、手动 URL、页面跳转）
+  时按同一上限边读边判，`crawl resume` 对边界拒绝按 `skip` 关闭失败记录；HTML 页面不受附件上限约束
+  （第 83 轮修复，见[第 83 轮日志](evidence/logs/stage-five-round83-recovery.txt)）。
+  离线核对 `tests/test_attachment_coverage.py`、`tests/test_fetch.py`、`tests/test_recovery.py`。
 
 ### 运行时起始日期（`--start-date`）
 
@@ -226,7 +229,7 @@ uv run --locked --no-python-downloads python tools/offline_replay.py \
 └── logs/crawler.log, metrics.json, metrics_history.jsonl   运行日志与计数
 ```
 
-`crawl check` 校验包含 logs/ 在内的六项成果是否齐全、契约字段是否合法、documents/blocks 是否 100% 可追溯到原件，并拒绝数据根内出现采集阶段禁止的派生成果（切片、向量、索引等）。
+`crawl check` 校验包含 logs/ 在内的六项成果是否齐全、契约字段是否合法、documents/blocks 是否 100% 可追溯到原件，并拒绝数据根内出现采集阶段禁止的派生成果（切片、向量、索引等）。自第 87 轮起另输出**队列对账**：待处理项状态与失败账处置一致（无歧义的矛盾是：队列 `failed` 而失败账该 URL 已按 `recovered`/`skip` 关闭，第 85 轮修复即此类）；失败账仍有未关闭记录只计数、不判失败。
 
 ## 7. 常见操作
 

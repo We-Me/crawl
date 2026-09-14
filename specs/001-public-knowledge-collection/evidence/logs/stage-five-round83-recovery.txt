@@ -1,0 +1,73 @@
+# 阶段五 第 83 轮（补抓）：消费补抓计划 4 项（IN-02 三条附件失败 + IN-05 大 PDF）
+
+## 登记（运行前写入，2026-09-14，Asia/Shanghai）
+
+- 目的：修复补抓分类缺陷后重取未关闭的网络阶段失败：IN-02 `KW13B1831.pdf`、
+  `JP11B0043.pdf`（超过 64 MiB 声明上限，按边界拒绝复核）、`YU48B1207.pdf`（读取超时）与
+  IN-05 `ReportOutput_Current_Year_PDF_2026_16022026.pdf`（162 MB 读取中断）。
+- 范围：补抓沿用原起始日 `2026-09-06`（resume 保留原运行范围）。
+- 预算：`resume --source` 两次（IN-02、IN-05），每次 ≤12 请求 / 900s；`--max-attempts 2`。
+- 规则同前（robots、0.5 req/s、并发 1、边界、Retry-After、不绕过；失败账历史不删除）。
+
+## 结果
+
+## 结果
+
+### 一、修复补抓分类缺陷（运行前）
+
+- 现象：`crawl plan` 把 4 项未关闭的 fetch 失败分成 `refetch` 2 项 + `manual` 2 项
+  （“永久 4xx，只记录不重试”）。
+- 原因：`http_status_of` 的消息正则 `\b(?:HTTP\s*)?(\d{3})\b` 会把超时消息里的端口号
+  `port=443` 当作 HTTP 443/4xx，瞬时读取失败被误判为永久 4xx。
+- 修复：改为只识别显式 HTTP 前缀 `\bHTTP\s+(\d{3})\b`；失败账新增结构化
+  `http_status` 字段（`FailureWriter.record` + 6 个 `_record_failure` 调用点），
+  分类优先用结构化状态码，不再依赖错误文案。
+- 回归测试（`tests/test_recovery.py`）：端口号不再计为状态码、结构化状态码优先、
+  消息中的其它数字忽略；`tests/test_recovery.py` 21 项、`tests/test_attachment_coverage.py`
+  6 项通过。
+- 修复后 `crawl plan`：4 项全部为 `refetch`（IN-02 三条附件 + IN-05 大 PDF）。
+
+### 二、两个补抓运行（4 个请求、4 项归档、0 失败）
+
+| 运行 | run_id | 请求 | 结果要点 | 结束方式 |
+| --- | --- | --- | --- | --- |
+| IN-02 | `IN-02_20260914T075240` | 4 | 3 项补抓成功（KW13B1831.pdf、JP11B0043.pdf、YU48B1207.pdf）；recovered=3，skipped/manual/pending/failed 全 0 | `ok`（7.5s，unprocessed=0） |
+| IN-05 | `IN-05_20260914T075240` | 2 | 1 项补抓成功（ReportOutput_Current_Year_PDF_2026_16022026.pdf）；recovered=1，skipped/manual/pending/failed 全 0 | `ok`（7.4s，unprocessed=0） |
+
+- 两次运行均沿用原起始日：`scope_start_dates=["2026-09-06"]`，预算各 ≤12 请求/900s，实际 4/2。
+- 新归档原件（manifest 行，sha256 已逐件核对一致）：
+
+| crawl_id | 原件 | 字节 | sha256 前缀 |
+| --- | --- | --- | --- |
+| `IN-02_20260914_7984` | `raw/IN-02/2026-09-14/attachment/KW13B1831.pdf` | 1,385,714 | `17fa76aeb90f` |
+| `IN-02_20260914_7985` | `raw/IN-02/2026-09-14/attachment/JP11B0043.pdf` | 72,707,279 | `aaaf9c2c1b63` |
+| `IN-02_20260914_7986` | `raw/IN-02/2026-09-14/attachment/YU48B1207.pdf` | 515,928 | `b59a925255f8` |
+| `IN-05_20260914_2150` | `raw/IN-05/2026-09-14/attachment/ReportOutput_Current_Year_PDF_2026_16022026.pdf` | 162,784,013 | `eb8287b6123b` |
+
+- 账本：4 条失败记录按 `recovered` 关闭（历史行不改写）；失败账合计 10 行，`crawl plan` 复查为 0 项。
+
+### 三、本轮发现的边界一致性问题与修复（补抓路径大小上限）
+
+- 现象：`JP11B0043.pdf`（69 MiB）与 IN-05 年报 PDF（155 MiB）均**超过 64 MiB 声明上限**，
+  附件下载路径会按 `AttachmentBoundaryRejected` 边界拒绝，但 `resume` 的补抓路径
+  （`_recover_refetch` → `_collect_target` → `http.get`）没有同样的上限，原件被直接归档。
+- 影响：同一 URL 在采集路径（下载器、待处理续传）被边界拒绝，在补抓路径被放行，
+  已声明边界在入口之间口径不一致；`JP11B0043.pdf` 的旧失败记录本身就来自上限拒绝
+  （修复前的历史行），补抓把它当作普通网络失败重取。
+- 修复：目标获取路径改为 `_fetch_target_response`——非 HTML 原件按块读取并执行
+  `Downloader.max_bytes` 的同一上限（与 `Downloader.download` 共用新增的
+  `iter_capped_chunks`），超限抛 `AttachmentBoundaryRejected`，`_collect_target` 按
+  `boundary_rejected:size_limit_exceeded:<bytes>` 记跳过（不写失败账、不进重试、
+  计入覆盖口径）；`_recover_refetch` 对边界拒绝按 `skip` 关闭失败记录。HTML 页面不受附件上限约束。
+- 回归测试：`test_resume_refetch_enforces_attachment_size_cap`（补抓超限附件 → skip 关闭、
+  不写失败账、不产出原件）、`test_resume_refetch_html_page_ignores_attachment_size_cap`、
+  `test_direct_non_html_target_enforces_size_cap`（直达非 HTML 目标同口径）。
+  全量测试 **450 passed**（修复前 447 + 新增 3 项）。
+- 已归档的两份超限原件按 raw 优先保留，不删除、不覆盖；作为修复前补抓路径的历史例外记录在案，
+  修复后同一计划复查为 0 项，不再重取。
+
+### 四、收口验证（离线）
+
+- `crawl plan`：共 0 项（无未关闭失败、无待处理）。
+- `crawl check`：交付成果齐全，manifest=12138、documents=4728、blocks=26774、failures=10、
+  raw_files=11830；契约 schema 通过；追溯 documents 4728/4728（100%）、blocks 26774/26774（100%）。

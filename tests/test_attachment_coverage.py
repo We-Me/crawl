@@ -183,3 +183,36 @@ def test_pending_attachment_size_cap_marks_skipped(
     assert states[csv_url] == "skipped" and states[pdf_url] == "failed"
     failures = read_jsonl(tmp_path / "data" / "manifests" / "failed_records.jsonl")
     assert all("size_limit_exceeded" not in row.get("message", "") for row in failures)
+
+
+def test_direct_non_html_target_enforces_size_cap(
+    site_server, registry_factory, tmp_path
+):
+    """S5-04 回归：直达非 HTML 目标（手动 URL / 补抓）与附件下载同口径执行大小上限。
+
+    上限是已声明边界，不经附件发现的目标也不能绕过；确定性拒绝不写失败账、
+    不留待处理项、不产出原件与账本行。
+    """
+    registry = registry_factory(site_server)
+    pipeline = make_pipeline(registry, tmp_path)
+    pipeline.downloader = Downloader(pipeline.http, max_bytes=10)  # notice.csv 为 22 字节
+    data = tmp_path / "data"
+    report = pipeline.collect(
+        "TESTSRC", manual_urls=[f"{site_server}/attachments/notice.csv"]
+    )
+
+    assert report.coverage["targets"]["skipped"] == 1
+    assert report.coverage["attachments"]["boundary_rejected"] == 1
+    assert report.counters.resources == 0
+    skips = [
+        item
+        for item in report.skipped
+        if item.reason.startswith("boundary_rejected:size_limit_exceeded:10")
+    ]
+    assert len(skips) == 1
+    assert read_jsonl(data / "manifests" / "crawl_manifest.jsonl") == []
+    assert read_jsonl(data / "manifests" / "failed_records.jsonl") == []
+    leftover = [
+        row for row in pending_items(data).values() if row.get("state") == "pending"
+    ]
+    assert leftover == [], "边界拒绝不留待处理项，不反复消耗预算"

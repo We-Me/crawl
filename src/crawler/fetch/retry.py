@@ -23,7 +23,7 @@ REFETCH = "refetch"
 REPARSE = "reparse"
 MANUAL = "manual"
 
-STATUS_PATTERN = re.compile(r"\b(?:HTTP\s*)?(\d{3})\b")
+STATUS_PATTERN = re.compile(r"\bHTTP\s+(\d{3})\b")
 PERMANENT_4XX_EXCEPTIONS = (408, 429)
 
 
@@ -79,7 +79,11 @@ class RecoveryTask:
 
 
 def http_status_of(failure: Mapping) -> Optional[int]:
-    """从记录或消息中取 HTTP 状态码；取不到返回 None，不猜测。"""
+    """从结构化字段或消息中取 HTTP 状态码；取不到返回 None，不猜测。
+
+    只识别带显式 HTTP 前缀的状态码（如 "HTTP 404"）；端口号（port=443）等
+    消息里的普通数字不得当作状态码，否则瞬时超时会被误判为永久 4xx。
+    """
     status = failure.get("http_status")
     if isinstance(status, int) and not isinstance(status, bool):
         return status

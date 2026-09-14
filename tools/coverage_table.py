@@ -6,7 +6,8 @@
 
 字段来源：sources.yaml（来源与发现方式）、manifests/discovery_cursors.json（遍历范围/终止原因）、
 manifests/pending_items.json（主目标与附件状态）、manifests/crawl_manifest.jsonl（raw 留存）、
-normalized/documents.jsonl 与 blocks.jsonl（已产出与近端追溯）、failed_records.jsonl（失败历史）。
+`normalized/documents.jsonl`（已产出、附件记录状态与近端追溯）、`normalized/blocks.jsonl`、
+`manifests/failed_records.jsonl`（失败历史）。
 
 只读、不联网；原件字节哈希级校验仍由 `crawl check` 完成（表内只统计原件可回指与账本哈希存在）。
 """
@@ -88,13 +89,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         if raw_path and (data_dir / raw_path).is_file():
             doc_raw_ok[row.get("source_id")] += 1
     failure_counts = Counter(row.get("source_id") for row in failures)
+    # S5-04 附件记录口径：按 documents[].attachments[].status 逐来源汇总（与文档/块同一
+    # “每次抓取身份”计数约定，不去重）；队列口径（pending_items）另列，两个口径都保留。
+    attachment_records = defaultdict(Counter)
+    for row in documents:
+        sid = row.get("source_id")
+        for item in row.get("attachments") or []:
+            attachment_records[sid][item.get("status") or "unknown"] += 1
 
     cursor_rows = defaultdict(list)
     for row in cursors.values():
         cursor_rows[row.get("source_id")].append(row)
 
-    print("| 来源 | 发现方式（主游标入口） | 遍历（游标） | 终止/续接原因 | 主目标 处理/待处理/复查/失败/跳过 | 附件 处理/待处理/失败 | raw 行（哈希/可回指） | 文档 | 块 | 失败账 |")
-    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    print(
+        "| 来源 | 发现方式（主游标入口） | 遍历（游标） | 终止/续接原因 | "
+        "主目标 处理/待处理/复查/失败/跳过 | 附件队列 处理/待处理/失败 | "
+        "附件记录 成功/边界拒绝/失败/待处理 | raw 行（哈希/可回指） | 文档 | 块 | 失败账 |"
+    )
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     totals = Counter()
     for source in registry_rows:
         if not source.get("enabled", True):
@@ -127,10 +139,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         counts = per_source[sid]
         targets = [counts[f"target:{state}"] for state in ("processed", "pending", "refresh", "failed", "skipped")]
         attachments = [counts[f"attachment:{state}"] for state in ("processed", "pending", "failed")]
+        att_rec = attachment_records[sid]
         total_row = (
             f"| {sid} | {discovery} | {traversal} | {reason} | "
             f"{targets[0]}/{targets[1]}/{targets[2]}/{targets[3]}/{targets[4]} | "
             f"{attachments[0]}/{attachments[1]}/{attachments[2]} | "
+            f"{att_rec['downloaded']}/{att_rec['boundary_rejected']}/{att_rec['failed']}/{att_rec['pending']} | "
             f"{manifest_rows[sid]}（{manifest_hashed[sid]}/{manifest_raw_ok[sid]}） | "
             f"{doc_counts[sid]}（原件可回指 {doc_raw_ok[sid]}） | {block_counts[sid]} | {failure_counts[sid]} |"
         )
@@ -138,12 +152,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         totals["targets_processed"] += targets[0]
         totals["targets_pending"] += targets[1]
         totals["att_pending"] += attachments[1]
+        totals["att_rec_downloaded"] += att_rec["downloaded"]
+        totals["att_rec_boundary"] += att_rec["boundary_rejected"]
+        totals["att_rec_failed"] += att_rec["failed"]
+        totals["att_rec_pending"] += att_rec["pending"]
         totals["documents"] += doc_counts[sid]
         totals["blocks"] += block_counts[sid]
         totals["manifest"] += manifest_rows[sid]
     print(
         f"| **合计** | | | | 处理 {totals['targets_processed']} / 待处理 {totals['targets_pending']} | "
-        f"附件待处理 {totals['att_pending']} | {totals['manifest']} | {totals['documents']} | "
+        f"附件待处理 {totals['att_pending']} | "
+        f"{totals['att_rec_downloaded']}/{totals['att_rec_boundary']}/{totals['att_rec_failed']}/{totals['att_rec_pending']} | "
+        f"{totals['manifest']} | {totals['documents']} | "
         f"{totals['blocks']} | {sum(failure_counts.values())} |"
     )
     return 0

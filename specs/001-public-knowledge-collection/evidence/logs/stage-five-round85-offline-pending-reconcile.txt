@@ -1,0 +1,49 @@
+# 阶段五 第 85 轮（离线）：补抓处置回写待处理项（对账一致性修复 + 数据订正）
+
+## 背景（第 84 轮复核发现）
+
+IN-05 的 `ReportOutput_Current_Year_PDF_2026_16022026.pdf` 在第 83 轮补抓成功（失败账
+`resolved/recovered`，`crawl_id=IN-05_20260914_2150`，原件 sha256 已核对），但
+`manifests/pending_items.json` 中同一附件仍为 `failed`（`crawl_id/raw_path/sha256` 为空）——
+补抓路径由失败账驱动，不回写队列状态，导致逐来源覆盖表长期显示“附件失败 1”，与失败账
+已关闭的处置互相矛盾（S5-06 对账要求）。
+
+## 修复
+
+- `_recover_refetch` 改为接收 `_collect_target` 的 `TargetOutcome`，新增
+  `_reconcile_pending_item`：补抓成功按 `processed`、robots/边界拒绝按 `skipped` 回写同一
+  URL 的待处理项（写入 `note` 与 `crawl_id/raw_path/sha256`），状态已一致时幂等跳过；
+  已提交文档仍不回写（追加写口径不变）。
+- 回归测试：新增 `test_resume_refetch_closes_matching_pending_item`（失败待处理项 → 补抓成功 →
+  状态 processed 且账本/原件字段对齐、`counts()` 失败 0）；`test_resume_refetch_enforces_attachment_size_cap`
+  扩展断言（边界拒绝 → 队列项 skipped）。定向 22 项通过；全量回归 **451 passed**。
+
+## 数据订正（既有滞留项）
+
+- 对象：`attachment|IN-05|2026-09-06|IN-05_20260913_0007|…ReportOutput…pdf`，
+  `failed`（attempts=2，crawl_id 空）→ `processed`（attempts=3，前状态保留 `previous_state=failed`）。
+- 依据：`data/manifests/crawl_manifest.jsonl` 的 `IN-05_20260914_2150`
+  （`raw_path=raw/IN-05/2026-09-14/attachment/ReportOutput_Current_Year_PDF_2026_16022026.pdf`，
+  `sha256=eb8287b6…4a2d`，http_status=200）与失败账 2026-09-14T07:52:40 的 `resolved` 行。
+- 订正方式：离线用 `PendingStore.mark` 写入（保留 `previous_state` 与历史 attempts，不删除记录）；
+  note 记录订正原因与来源，避免静默改数。
+
+## 验证（离线）
+
+- IN-05 附件队列：`905 处理/1 失败` → **`906 处理/0 失败/1 边界拒绝（robots）`**，与失败账 10 行
+  （全部关闭）不再矛盾。
+- `crawl check`：manifest=12151、documents=4728、blocks=26774、raw_files=11834、
+  失败账 10 行、追溯 100%（未变化；本次只改队列状态文件，六项成果计数不受影响）。
+- 逐来源覆盖表重新生成，IN-05 附件列更新为 `906/0/0`。
+
+## 同轮扩展：重解析路径同口径回写
+
+- `_recover_reparse` 成功时按 `processed`、原运行范围外按 `skipped` 回写同一 URL 的待处理项
+  （写入 `crawl_id/raw_path/sha256` 与 note），与重取路径同一实现（`_reconcile_pending_item`
+  改为接收显式身份字段）。回归测试 `test_resume_reparse_closes_matching_pending_item`。
+- 全量回归 **452 passed**（本轮新增 2 项）。
+
+## 全量对账审计（修复后）
+
+- 待处理项：5374 processed / 18 skipped / 0 pending / 0 failed / 0 refresh；失败账未关闭 **0 项**；
+  交叉核对（failed 项 vs 账本关闭、processed 项 vs 账本未关闭）**0 处矛盾**。

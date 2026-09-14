@@ -45,6 +45,7 @@ data/                              # 开发默认；CRAWL_DATA_DIR 可更换数�
 | source registry | S1/S2 来源配置建议 | config/sources.yaml 与 source-registry schema 整合配置及适配规则；不是采集正文或额外知识库 |
 | adapter.discovery | 原文未规定发现方式的表达 | 每个来源声明已实现的发现方式（`list`/`search`/`sitemap`/`api`）；未声明的方式显式记为未实现，不新增业务文档类型 |
 | failure.scope_start_date | 原文失败账未规定起始日字段 | 恢复任务/失败行保留原运行起始日（可空）；属于运行范围追溯，不改变失败核心字段 |
+| failure.http_status | 原文失败账未规定状态码字段 | 结构化 HTTP 状态码（可空）：补抓分类优先用它，消息文本只按显式 `HTTP <状态码>` 前缀兜底；修复端口号被误判为永久 4xx（第 83 轮） |
 | metrics.scope / discovery / date_decisions | 原文日志/质量统计未规定起始日与逐目标日期判定 | `logs/metrics.json` 记录起始日语义、各发现策略状态与逐目标日期判定；运行状态统计，不是新的交付成果 |
 | counters.out_of_window | 原文未规定日期下界计数 | 运行计数单列“早于起始日、只留原件不产文档”的目标数；与 skipped/failures 分开 |
 | 发现页归档位置 | 原文要求可核对原件与账本，未规定发现页目录 | 发现响应存 `raw/<source_id>/<YYYY-MM-DD>/discovery/`，账本沿用声明的 discovery_method；发现页不生成 normalized 文档 |

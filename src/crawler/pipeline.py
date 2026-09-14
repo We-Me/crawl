@@ -45,9 +45,18 @@ from crawler.discover.strategies import (
     declared_stages,
     resolve_strategy,
 )
-from crawler.fetch.downloader import AttachmentBoundaryRejected, Downloader
+from crawler.fetch.downloader import (
+    AttachmentBoundaryRejected,
+    Downloader,
+    iter_capped_chunks,
+)
 from crawler.fetch.budget import BudgetStop, RunBudget
-from crawler.fetch.http_client import FetchError, HttpClient, RobotsDisallowed
+from crawler.fetch.http_client import (
+    FetchError,
+    FetchResponse,
+    HttpClient,
+    RobotsDisallowed,
+)
 from crawler.normalize.block_schema import build_blocks
 from crawler.normalize.document_schema import build_document
 from crawler.normalize.metadata_normalizer import normalize_page
@@ -647,6 +656,7 @@ class CrawlPipeline:
                 url=exc.url,
                 stage="discover",
                 error_type="http_error" if exc.status_code else "request_error",
+                http_status=exc.status_code,
                 message=str(exc),
                 attempts=exc.attempts,
                 retryable=exc.retryable,
@@ -781,6 +791,37 @@ class CrawlPipeline:
             )
         return metrics.as_row()
 
+    def _fetch_target_response(self, source, target: DiscoveredTarget, plan) -> FetchResponse:
+        """获取目标响应；非 HTML 原件与附件下载共用同一大小上限边界。
+
+        HTML 页面不受附件上限约束；直达非 HTML 原件（补抓网络失败的附件、手动目标、
+        页面跳转后的原件）必须与附件下载同口径边读边判，否则补抓会绕过 S5-04 的
+        已声明边界与边界拒绝计数。
+        """
+        handle = self.http.open(
+            target.url,
+            source_id=source.source_id,
+            conditional=plan.headers or None,
+        )
+        try:
+            if handle.status_code != 304 and not _is_html(handle.headers, handle.final_url):
+                content = b"".join(
+                    iter_capped_chunks(handle, self.downloader.max_bytes)
+                )
+            else:
+                content = handle.read()
+            return FetchResponse(
+                requested_url=handle.requested_url,
+                final_url=handle.final_url,
+                status_code=handle.status_code,
+                headers=handle.headers,
+                content=content,
+                redirect_chain=handle.redirect_chain,
+                attempts=handle.attempts,
+            )
+        finally:
+            handle.close()
+
     def _collect_target(
         self,
         source,
@@ -798,11 +839,21 @@ class CrawlPipeline:
         try:
             state = self.state.get(target.url)
             plan = plan_incremental(source.resource_kind, state, now=self.now())
-            response = self.http.get(
-                target.url,
-                source_id=source.source_id,
-                conditional=plan.headers or None,
+            response = self._fetch_target_response(source, target, plan)
+        except AttachmentBoundaryRejected as exc:
+            # 非 HTML 原件超过附件大小上限：与附件下载同口径的确定性边界拒绝，
+            # 不写失败账、不进重试（补抓不得绕过已声明边界）。
+            report.skipped.append(
+                SkippedTarget(
+                    target.url,
+                    f"boundary_rejected:{exc.reason}",
+                    target.referrer_url,
+                )
             )
+            attachments_coverage = report.coverage.get("attachments")
+            if attachments_coverage is not None:
+                attachments_coverage["boundary_rejected"] += 1
+            return TargetOutcome(STATE_SKIPPED, f"boundary_rejected:{exc.reason}")
         except RobotsDisallowed as exc:
             report.skipped.append(
                 SkippedTarget(
@@ -819,6 +870,7 @@ class CrawlPipeline:
                 url=target.url,
                 stage="fetch",
                 error_type="http_error" if exc.status_code else "request_error",
+                http_status=exc.status_code,
                 message=str(exc),
                 attempts=exc.attempts,
                 retryable=exc.retryable,
@@ -1114,6 +1166,7 @@ class CrawlPipeline:
                     url=next_url,
                     stage="fetch",
                     error_type="http_error" if exc.status_code else "request_error",
+                    http_status=exc.status_code,
                     message=str(exc),
                     attempts=exc.attempts,
                     retryable=exc.retryable,
@@ -1251,6 +1304,7 @@ class CrawlPipeline:
                 url=api_url,
                 stage="fetch",
                 error_type="http_error" if exc.status_code else "request_error",
+                http_status=exc.status_code,
                 message=str(exc),
                 attempts=exc.attempts,
                 retryable=exc.retryable,
@@ -1412,6 +1466,7 @@ class CrawlPipeline:
                     url=target.url,
                     stage="fetch",
                     error_type="http_error" if exc.status_code else "request_error",
+                    http_status=exc.status_code,
                     message=str(exc),
                     attempts=exc.attempts,
                     retryable=exc.retryable,
@@ -1509,6 +1564,7 @@ class CrawlPipeline:
                 url=item.url,
                 stage="fetch",
                 error_type="http_error" if exc.status_code else "request_error",
+                http_status=exc.status_code,
                 message=str(exc),
                 attempts=exc.attempts,
                 retryable=exc.retryable,
@@ -1552,6 +1608,7 @@ class CrawlPipeline:
         message: str,
         attempts: int,
         retryable: bool,
+        http_status: Optional[int] = None,
         referrer_url: Optional[str] = None,
         crawl_id: Optional[str] = None,
         final_action: Optional[str] = None,
@@ -1565,6 +1622,7 @@ class CrawlPipeline:
             message=message,
             retry_count=max(0, attempts - 1),
             final_action=final_action or ("retry_later" if retryable else "record_only"),
+            http_status=http_status,
             crawl_id=crawl_id,
             referrer_url=referrer_url,
             scope_start_date=(
@@ -1749,12 +1807,22 @@ class CrawlPipeline:
             referrer_url=task.referrer_url,
         )
         crawl_date = moment.date().isoformat()
-        self._collect_target(
+        outcome = self._collect_target(
             source, None, target, crawl_date, moment.isoformat(), False, report, scope
         )
         if report.counters.documents or report.counters.resources:
+            note = "补抓成功，账本与文档已更新"
+            self._reconcile_pending_item(
+                source,
+                task,
+                state=STATE_PROCESSED,
+                note=note,
+                crawl_id=outcome.crawl_id,
+                raw_path=outcome.raw_path,
+                sha256=outcome.sha256,
+            )
             return {
-                "note": "补抓成功，账本与文档已更新",
+                "note": note,
                 "resources": report.counters.resources,
                 "documents": report.counters.documents,
                 "blocks": report.counters.blocks,
@@ -1764,11 +1832,50 @@ class CrawlPipeline:
             None,
         )
         if robots_skip is not None:
-            return {
-                "note": f"robots 规则拒绝，按 skip 关闭：{robots_skip.reason}",
-                "action": "skip",
-            }
+            note = f"robots 规则拒绝，按 skip 关闭：{robots_skip.reason}"
+            self._reconcile_pending_item(source, task, state=STATE_SKIPPED, note=note)
+            return {"note": note, "action": "skip"}
+        boundary_skip = next(
+            (item for item in report.skipped if item.reason.startswith("boundary_rejected:")),
+            None,
+        )
+        if boundary_skip is not None:
+            note = f"边界拒绝，按 skip 关闭：{boundary_skip.reason}"
+            self._reconcile_pending_item(source, task, state=STATE_SKIPPED, note=note)
+            return {"note": note, "action": "skip"}
         return None
+
+    def _reconcile_pending_item(
+        self,
+        source,
+        task: RecoveryTask,
+        *,
+        state: str,
+        note: str,
+        crawl_id: Optional[str] = None,
+        raw_path: Optional[str] = None,
+        sha256: Optional[str] = None,
+    ) -> None:
+        """补抓处置回写同对象的待处理项：队列口径与失败账处置对账一致（S5-06）。
+
+        失败账驱动的补抓不改写已提交文档（追加写口径不变），但同一 URL 的待处理项
+        必须同步关闭，否则覆盖表长期显示失败/待处理，与账本已关闭的处置互相矛盾。
+        """
+        for item in self.pending.all_items():
+            if item.source_id != source.source_id or item.url != task.url:
+                continue
+            if item.state == state:
+                continue
+            self.pending.mark(
+                item.key,
+                state=state,
+                attempted_at=self.now().isoformat(),
+                note=note,
+                crawl_id=crawl_id,
+                raw_path=raw_path,
+                sha256=sha256,
+            )
+            logger.info("补抓回写待处理项 key=%s state=%s", item.key, state)
 
     def _recover_reparse(
         self,
@@ -1802,13 +1909,14 @@ class CrawlPipeline:
             # 补抓沿用原运行范围：原范围外的原件保留，但不再产出新文档。
             decision = (scope or RunScope()).decide(document.get("publication_date"))
             if not decision.retained:
-                return {
-                    "note": (
-                        f"原运行范围外（{decision.kind}:{decision.publication_date}）："
-                        "原件保留，不产出文档"
-                    ),
-                    "action": "skip",
-                }
+                note = (
+                    f"原运行范围外（{decision.kind}:{decision.publication_date}）："
+                    "原件保留，不产出文档"
+                )
+                self._reconcile_pending_item(
+                    source, task, state=STATE_SKIPPED, note=note, raw_path=raw_path
+                )
+                return {"note": note, "action": "skip"}
             document_count, block_count = self.writer.commit([document], blocks)
         except Exception as exc:  # noqa: BLE001 - 重解析失败保留原件与失败记录
             logger.warning("重解析失败 url=%s error=%s", task.url, exc)
@@ -1820,6 +1928,15 @@ class CrawlPipeline:
             content_hash=text_hash(document["full_text"]),
             crawl_id=crawl_id,
             publication_date=document.get("publication_date"),
+        )
+        self._reconcile_pending_item(
+            source,
+            task,
+            state=STATE_PROCESSED,
+            note="重解析成功，文档与块已补全",
+            crawl_id=crawl_id,
+            raw_path=raw_path,
+            sha256=document["sha256"],
         )
         return {
             "note": "重解析成功，文档与块已补全",

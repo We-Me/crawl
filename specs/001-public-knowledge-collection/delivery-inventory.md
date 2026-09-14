@@ -161,3 +161,22 @@ uv run --locked --no-python-downloads --env-file .env crawl --help
 ## 2026-09-13 只读复核
 
 基线 e9e522c；git diff d39bdc0 HEAD -- src tests tools pyproject.toml uv.lock 无变化。当前副本无 dist/；上述产物哈希、data 大小及临时目录状态属于历史 Linux 时点，本轮未重新计算其文件哈希或重建产物。当前工作区换行符可能影响文件字节，复现锁文件应使用仓库版本及平台换行设置，不将本机字节差异直接判为依赖升级。范围与分块语义见 [当前范围与分块](scope-and-blocking.md)。
+
+## 2026-09-14 增量核验（计数与锁文件）
+
+在阶段五第 87 轮时点上只读复核 2026-09-11 基线中的计数（提交已按阶段合并整理，合并前短哈希 `4021288`），不重写上文节次、
+不重做本清单；原始输出见[第 88 轮日志](evidence/logs/stage-five-round88-offline-inventory-counts.txt)。
+
+- 锁文件未变：`uv.lock` 74526 字节、SHA-256 `f5e8fa9c…d1b4e6`，与基线登记一致
+  （仅字节校验，未重跑 `uv sync`）。
+- 计数变化（前为 2026-09-11 登记值）：仓库跟踪文件 238 → **335** 个；
+  `specs/001-public-knowledge-collection/evidence/` 已跟踪证据文件 47 → **98** 个；
+  `src/crawler/` 63 → **71** 个 `.py`、约 9510 → **13042** 行；`tests/` 24 → **33** 个 `.py`；
+  `tools/` 6 → **9** 个脚本（新增 `coverage_table.py`、`make_legacy_fixtures.py`、
+  `offline_replay.py`）。
+- 第 2 节 `src/crawler/config/sources.yaml` 行已过期：现登记全部 18 个开发来源
+  （`enabled: true` 仅表示开发范围可执行，正式启用仍待 Q12/Q13），随包 DEMO 仍禁用。
+- 第 1/2 节表内数字与源码提交 `d39bdc0` 基线保持原样，适用于 2026-09-11 时点；
+  阶段五实施状态与数据计数以 [阶段五](stage-five.md)、[续作说明](continuation.md) 为准。
+- 文档一致性复核通过（契约 6 份一致、`verify_sdd_documents` PASS）；用例状态不变：
+  T019/T026/T027 保持部分完成，不自动勾选（[验收规范](acceptance.md)）。

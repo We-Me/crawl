@@ -1,0 +1,24 @@
+# 阶段五 第 87 轮（离线）：`crawl check` 集成队列对账
+
+## 背景
+
+第 85 轮修复了“补抓处置不回写队列”的对账缺口，但校验只是临时脚本；同一类矛盾
+（队列 `failed` 与失败账 `recovered`/`skip` 并存）若再次出现不会被交付校验发现。
+
+## 修改
+
+- 新增 `src/crawler/validate/reconcile.py`：`reconcile_queue_and_failures(data_dir)`
+  逐条比对 `manifests/pending_items.json` 与 `manifests/failed_records.jsonl`（追加序取每个
+  URL 的最新处置）。无歧义的矛盾判失败：待处理项 `failed` 而账本已关闭；其余组合
+  （如后续 404 与既有成功记录并存）有合法解释，只计数。失败账仍有未关闭记录属正常待补抓
+  状态，不判失败。
+- `crawl check` 输出新增“队列对账”一行与 `--json` 的 `reconcile` 段，并计入总 `ok`；
+  帮助与 runbook 同步。
+
+## 结果（只读，不联网）
+
+- 真实数据根：`队列对账：通过（待处理项 5392：processed 5374 / skipped 18；失败账未关闭 0）`；
+  交付成果、schema、追溯三项不变（manifest=12151、documents=4728、blocks=26774、
+  raw_files=11834、失败账 10、追溯 100%）。
+- 新增用例 5 项（矛盾报出、开放失败账为一致、processed+关闭为一致、空根、CLI JSON 段）；
+  全量回归 **457 passed**。

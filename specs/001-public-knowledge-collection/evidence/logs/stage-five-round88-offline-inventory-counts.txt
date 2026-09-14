@@ -1,0 +1,51 @@
+# 阶段五 第 88 轮（离线）：交付清单计数与锁文件只读复核
+
+## 背景
+
+NEXT-09 工程交接清单（delivery-inventory.md）的计数停留在 2026-09-11 基线；阶段五推进后
+（跟踪文件、证据文件、源码/测试/工具规模、来源注册表）多处计数已过期，需要不重写基线地
+补充一个有日期的增量核验，说明哪些登记仍然有效、哪些数字已经变化。
+
+## 操作（只读，不联网，不改 src/tests/pyproject.toml/uv.lock）
+
+在 HEAD `4021288`（阶段五第 87 轮提交；该提交已随阶段五提交合并整理，为合并前短哈希）上执行并记录原始输出：
+
+- `git rev-parse --short HEAD`
+  ```
+  4021288
+  ```
+- `sha256sum uv.lock; wc -c uv.lock`
+  ```
+  f5e8fa9cc7685ba1e37ba0b097cb8815d9db398843716386b34fcdd785d1b4e6  uv.lock
+  74526 uv.lock
+  ```
+  与 2026-09-11 基线登记（74526 字节、同一 SHA-256）一致，锁文件未变；未重跑 `uv sync`。
+- `git ls-files | wc -l` → `335`（基线登记 238）
+- `git ls-files specs/001-public-knowledge-collection/evidence | wc -l` → `98`（基线登记 47）
+- `find src/crawler -name '*.py' | wc -l` → `71`（基线登记 63）
+- `find src/crawler -name '*.py' -exec cat {} + | wc -l` → `13042`（基线登记约 9510）
+- `find tests -name '*.py' | wc -l` → `33`（基线登记 24）
+- `git ls-files tools | wc -l` → `9`（基线登记 6；新增 `coverage_table.py`、
+  `make_legacy_fixtures.py`、`offline_replay.py`）
+- `rg -c "^\s+enabled: true" src/crawler/config/sources.yaml` → `18`；
+  `rg -c "^\s+enabled: false"` → `1`（第 2 节“只有默认禁用的虚构 DEMO 来源”已过期：
+  现登记全部 18 个开发来源为 `enabled: true`，DEMO 仍禁用；正式启用仍待 Q12/Q13）
+
+## 文档一致性校验（离线）
+
+- `uv run --locked --no-python-downloads python tools/sync_contracts.py --check`
+  → `契约一致：6 个文件（/home/zhou/workspaces/crawl/src/crawler/contracts）`，exit 0。
+- `uv run --locked --no-python-downloads python tools/verify_sdd_documents.py`
+  → `{"status": "PASS", "requirements": 37, "tasks": 27, "acceptance_cases": 37,
+  "open_decisions": 17, "common_requirements": 17, "markdown_files": 58,
+  "local_links_checked": 728, "source_hashes_verified": 4, "demo_manifests": 2,
+  "demo_documents": 2, "demo_blocks": 3, "demo_failures": 1,
+  "scope": "documentation and fictional fixtures only"}`，exit 0。
+
+## 处置
+
+- delivery-inventory.md 末尾新增「2026-09-14 增量核验（计数与锁文件）」一节：登记上述
+  复核结论与变化数，第 1/2 节 2026-09-11 基线表保持原样（沿用“增量不重写基线”的既有约定），
+  并指向 stage-five.md/continuation.md 作为当前实施状态。
+- 未重做 NEXT-09 交接清单，未改动业务代码、数据与用例状态；T019/T026/T027 保持部分完成，
+  不自动勾选。

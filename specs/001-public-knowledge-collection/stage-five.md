@@ -556,3 +556,111 @@
   附件待处理 0**）。
 - **仍未完成 / 后续**：受限来源外部条件（S5-02 与 Q12）；来源更新后的增量发现按轮次继续
   （入口增量核对 + 新目标入队）；T019/T026/T027 验收项未自动勾选。
+
+## 实施记录（2026-09-14 第二十四轮：补抓分类修复与补抓路径大小上限一致性，第 83 轮）
+
+第 83 轮把失败的补抓收口：修复分类缺陷后消费余下 4 项未关闭失败，并修掉补抓路径
+绕过附件大小上限的口径不一致；登记与结果见
+[第 83 轮日志](evidence/logs/stage-five-round83-recovery.txt)。
+
+- **分类缺陷修复**（运行前）：`http_status_of` 的旧正则把超时消息里的 `port=443` 当作 HTTP
+  4xx，2 项瞬时失败被误判“永久 4xx”转人工；改为只识别 `HTTP <状态码>` 前缀，并在失败账新增
+  结构化 `http_status` 字段（`FailureWriter.record` 与 6 个 `_record_failure` 调用点），
+  分类不再依赖错误文案。修复后 `crawl plan` 4 项全部为 `refetch`。
+- **补抓结果**：IN-02（`IN-02_20260914T075240`，4 请求）3 项补抓成功、
+  IN-05（`IN-05_20260914T075240`，2 请求）1 项补抓成功；两次运行 `ok`、0 失败、0 待处理，
+  沿用原窗口 `scope_start_dates=["2026-09-06"]`。新归档 4 个原件（sha256 逐件核对），
+  其中 IN-02 条约 PDF 69 MiB、IN-05 年报 PDF 155 MiB。
+- **口径一致性修复（本轮发现的根因）**：补抓路径（`_recover_refetch` → `_collect_target`）此前
+  用 `http.get` 直取响应，未执行附件的 64 MiB 声明上限，与附件下载/待处理续传路径不一致。
+  目标获取改为 `_fetch_target_response`：非 HTML 原件与 `Downloader` 共用新增的
+  `iter_capped_chunks` 边读边判，超限抛 `AttachmentBoundaryRejected`，按
+  `boundary_rejected:size_limit_exceeded:<bytes>` 跳过（不写失败账、不进重试、计入覆盖口径）；
+  `_recover_refetch` 对边界拒绝按 `skip` 关闭失败记录；HTML 页面不受附件上限约束。
+  两份已归档的超限原件按 raw 优先保留（不删除、不覆盖），作为修复前历史例外记录在案。
+- **回归测试**：新增 3 项——补抓超限附件按 skip 关闭且不写失败账、补抓 HTML 页面不受上限影响、
+  直达非 HTML 目标同口径；全量回归 **450 passed**。
+- **验证（离线）**：`crawl plan` 共 0 项（失败账 10 行全部关闭）；
+  `crawl check`：manifest=12138、documents=4728、blocks=26774、raw_files=11830、失败账 10 行、
+  追溯 100%（4728/4728、26774/26774）；[逐来源覆盖表](evidence/stage-five-coverage-table.md)
+  重新生成（处理 4446 / 待处理 0、附件待处理 0）。
+- **仍未完成 / 后续**：受限来源外部条件（S5-02 与 Q12）不变；9 个可采集来源队列保持清零，
+  后续按轮次做增量核对与周期性复查；T019/T026/T027 验收项未自动勾选。
+
+## 实施记录（2026-09-14 第二十五轮：9 来源入口增量核对，第 84 轮）
+
+第 84 轮对全部可采集来源做一次入口增量核对（第 83 轮后约 25 分钟），登记与结果见
+[第 84 轮日志](evidence/logs/stage-five-round84-online.txt)。
+
+- **结果**：10 个运行、24 个请求、0 篇、0 失败；9 个来源入口均为 `incremental_head_checked`
+  （`complete=true`，第 1 页全部为已登记目标，不重取历史覆盖页），**0 新增窗口内内容**；
+  队列保持 0 待处理。CN-02 首跑漏传 `--keyword`（按 `not_implemented` 0 请求，未发站点请求），
+  带关键词补跑 0 新增。
+- **raw 增长**：入口页复核归档 13 行（4 个新物理文件，其余为同内容再引用）。
+- **验证**：`crawl check`：manifest=12151、documents=4728、blocks=26774、raw_files=11834、
+  失败账 10 行、追溯 100%；[逐来源覆盖表](evidence/stage-five-coverage-table.md) 重新生成
+  （处理 4446 / 待处理 0、附件待处理 0）。
+- **结论**：可采集来源处于低更新强度时段，增量核对按预期工作；后续按同样登记方式周期性复核，
+  受限来源仍按 S5-02/Q12 等外部条件。
+
+## 实施记录（2026-09-14 第二十六轮：补抓处置回写待处理项，第 85 轮）
+
+第 84 轮复核发现对账矛盾：补抓成功只关失败账、不回写队列，IN-05 的一个附件在
+`pending_items.json` 中长期滞留 `failed`，覆盖表因此显示“附件失败 1”。本轮修复并订正，
+证据见[第 85 轮日志](evidence/logs/stage-five-round85-offline-pending-reconcile.txt)。
+
+- **修复**：`_recover_refetch` 接收 `TargetOutcome` 并新增 `_reconcile_pending_item`——补抓成功
+  按 `processed`、robots/边界拒绝按 `skipped` 回写同一 URL 的待处理项（含
+  `crawl_id/raw_path/sha256` 与 note，幂等）；已提交文档仍不回写。
+- **同轮扩展**：重解析路径（`_recover_reparse`）按同一实现回写 processed/skipped。
+- **回归测试**：新增 2 项（重取、重解析各 1 项：失败队列项 → 补抓成功 → 状态与账本对齐），
+  扩展边界拒绝用例断言；全量回归 **452 passed**；全量对账审计 0 处矛盾。
+- **数据订正**：既有滞留项按 manifest `IN-05_20260914_2150` 与失败账 `resolved` 行离线订正为
+  `processed`（保留 `previous_state=failed` 与 attempts，note 说明来源，不静默改数）。
+- **验证**：IN-05 附件队列 `905/1 失败` → **`906 处理/0 失败/1 边界拒绝`**；待处理项 5374 processed/
+  18 skipped/0 其它，账本未关闭 0；`crawl check`
+  manifest=12151、documents=4728、blocks=26774、raw_files=11834、失败账 10 行、追溯 100%；
+  覆盖表重新生成。
+- **仍未完成 / 后续**：受限来源外部条件（S5-02/Q12）不变；增量核对按轮次继续；
+  T019/T026/T027 未自动勾选。
+
+## 实施记录（2026-09-14 第二十七轮：覆盖表补 S5-04 附件记录列，第 86 轮）
+
+逐来源覆盖表此前只有队列口径的附件列（`pending_items.json`），S5-04 的附件覆盖
+（成功/边界拒绝/失败/待处理）没有逐来源视图。本轮补齐，证据见
+[第 86 轮日志](evidence/logs/stage-five-round86-offline-coverage-attachments.txt)。
+
+- `tools/coverage_table.py` 新增“附件记录 成功/边界拒绝/失败/待处理”列：按
+  `documents[].attachments[].status` 逐来源汇总（与文档/块同一“每次抓取身份”计数，不去重）；
+  原列改名“附件队列”（队列状态，含第 85 轮补抓回写），两列都保留并在表头说明口径差异。
+- 重算结果（只读、不联网）：附件队列 5374/0/0；附件记录 5815 成功/2 边界拒绝/3 失败/929 待处理
+  （早期文档中的 pending 为生产时点快照，后续处置见队列列与逐轮日志）。
+- 其余列与 `crawl check` 一致：处理 4446 / 待处理 0、manifest=12151、documents=4728、
+  blocks=26774、失败账 10 行；未改数据、未改采集行为。
+
+## 实施记录（2026-09-14 第二十八轮：`crawl check` 集成队列对账，第 87 轮）
+
+第 85 轮的队列/失败账一致性修复此前只有一次性审计；本轮把它变成可复跑的交付校验，
+证据见[第 87 轮日志](evidence/logs/stage-five-round87-offline-check-reconcile.txt)。
+
+- 新增 `validate/reconcile.py`：待处理项 `failed` 而失败账该 URL 已按 `recovered`/`skip`
+  关闭判为矛盾（其余组合只计数）；`crawl check` 文本输出“队列对账”一行、`--json` 增加
+  `reconcile` 段并计入总 `ok`。
+- 真实数据根结果：队列对账通过（待处理项 5392：processed 5374 / skipped 18；失败账未关闭 0）；
+  其余交付校验计数不变；新增 5 项用例，全量回归 **457 passed**。
+
+## 实施记录（2026-09-14 第二十九轮：交付清单计数与锁文件增量核验，第 88 轮）
+
+NEXT-09 工程交接清单的计数停留在 2026-09-11 基线；阶段五推进后多处数字已过期。本轮只读复核，
+按“增量不重写基线”的既有约定在清单末尾补照，证据见
+[第 88 轮日志](evidence/logs/stage-five-round88-offline-inventory-counts.txt)。
+
+- **锁文件未变**：`uv.lock` 74526 字节、SHA-256 `f5e8fa9c…` 与基线登记一致（未重跑 `uv sync`）。
+- **计数更新**：跟踪文件 238→**335**；证据文件 47→**98**；`src/crawler` 63→**71** 个 `.py`、
+  约 9510→**13042** 行；`tests` 24→**33**；`tools` 6→**9**（新增 `coverage_table.py`、
+  `make_legacy_fixtures.py`、`offline_replay.py`）；`sources.yaml` 行更新为“18 个开发来源登记、
+  DEMO 禁用”（正式启用仍待 Q12/Q13）。
+- **边界**：未重做交接口径清单、未改代码/数据/用例状态；第 1/2 节 2026-09-11 基线表保持原样，
+  当前实施状态以本文与 continuation.md 为准。
+- **验证**：`sync_contracts.py --check` 契约 6 份一致、`verify_sdd_documents.py` PASS；
+  T019/T026/T027 不自动勾选。

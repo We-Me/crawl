@@ -1,4 +1,8 @@
-"""附件下载：按块写入并由调用方计算摘要（T006/T007）。"""
+"""附件下载：按块写入并由调用方计算摘要（T006/T007）。
+
+大小上限是已声明边界：Downloader.download 与 pipeline 目标获取路径共用
+iter_capped_chunks，补抓与续传不得绕过。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterator, Optional
 from urllib.parse import unquote, urlsplit
 
 from crawler.fetch.http_client import FetchError, HttpClient, StreamHandle
@@ -44,6 +48,28 @@ class DownloadedResource:
     size: int
 
 
+def iter_capped_chunks(handle: StreamHandle, max_bytes: int) -> Iterator[bytes]:
+    """按块读取流并执行大小上限；超限抛 AttachmentBoundaryRejected（确定性拒绝）。
+
+    附件下载（Downloader.download）与目标获取路径（补抓、手动目标、页面直达非 HTML
+    原件）共用同一实现，保证同一份已声明边界在所有入口口径一致：超限即边界拒绝，
+    不写失败账、不进重试。
+    """
+    size = 0
+    for chunk in handle.iter_chunks():
+        size += len(chunk)
+        if size > max_bytes:
+            raise AttachmentBoundaryRejected(
+                url=handle.requested_url,
+                reason=f"size_limit_exceeded:{max_bytes}",
+                detail=(
+                    f"附件超过 {max_bytes} 字节上限（已读取 {size} 字节）："
+                    "确定性边界拒绝，不写失败账、不重试"
+                ),
+            )
+        yield chunk
+
+
 class Downloader:
     """下载附件；文件名优先取响应头，其次取 URL 路径。"""
 
@@ -64,17 +90,8 @@ class Downloader:
         size = 0
         chunks = []
         try:
-            for chunk in handle.iter_chunks():
+            for chunk in iter_capped_chunks(handle, self.max_bytes):
                 size += len(chunk)
-                if size > self.max_bytes:
-                    raise AttachmentBoundaryRejected(
-                        url=url,
-                        reason=f"size_limit_exceeded:{self.max_bytes}",
-                        detail=(
-                            f"附件超过 {self.max_bytes} 字节上限（已读取 {size} 字节）："
-                            "确定性边界拒绝，不写失败账、不重试"
-                        ),
-                    )
                 digest.update(chunk)
                 chunks.append(chunk)
         finally:

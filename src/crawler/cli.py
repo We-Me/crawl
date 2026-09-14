@@ -6,7 +6,7 @@
   collect   按来源执行一次采集
   plan      查看未关闭失败的补抓计划（只读，不请求网络）
   resume    对指定来源执行补抓
-  check     校验数据根的六项成果、契约 schema 与端到端追溯
+  check     校验数据根的六项成果、契约 schema、端到端追溯与队列对账
 
 来源边界、robots 规则、限速、失败账和交付检查仍由被调用模块执行；CLI 不放宽
 任何访问规则、失败处理或质量阈值。配置只经 crawler.config.settings 读取
@@ -35,6 +35,7 @@ from crawler.fetch.retry import RetryConfigError, RetryPolicy, summarize_plan
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
 from crawler.schedule.scope import ScopeConfigError, parse_start_date, RunScope
+from crawler.validate.reconcile import reconcile_queue_and_failures
 from crawler.validate.schema import SchemaConfigError, load_contract, validate_delivery, validate_instance
 from crawler.validate.traceability import trace_delivery
 
@@ -171,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     resume.set_defaults(handler=_cmd_resume)
 
-    check = subparsers.add_parser("check", parents=[common], help="校验数据根的交付成果")
+    check = subparsers.add_parser("check", parents=[common], help="校验数据根的交付成果与队列对账")
     check.add_argument(
         "--require-nonempty", action="store_true", help="账本为空时按失败处理"
     )
@@ -474,7 +475,8 @@ def _cmd_check(args) -> int:
     delivery = inspect_delivery(settings.data_dir, require_nonempty=args.require_nonempty)
     schema = validate_delivery(settings.data_dir)
     trace = trace_delivery(settings.data_dir)
-    ok = bool(delivery.ok and schema.ok and trace.ok)
+    reconcile = reconcile_queue_and_failures(settings.data_dir)
+    ok = bool(delivery.ok and schema.ok and trace.ok and reconcile.ok)
     if args.json:
         print(
             json.dumps(
@@ -484,6 +486,7 @@ def _cmd_check(args) -> int:
                     "delivery": delivery.as_row(),
                     "schema": schema.as_row(),
                     "trace": trace.as_row(),
+                    "reconcile": reconcile.as_row(),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -519,6 +522,16 @@ def _cmd_check(args) -> int:
         )
         for problem in trace.problems[:10]:
             print(f"  追溯问题：{problem}")
+        states = " / ".join(
+            f"{state} {count}" for state, count in sorted(reconcile.items_by_state.items())
+        ) or "无"
+        print(
+            "队列对账："
+            + ("通过" if reconcile.ok else f"不通过（{len(reconcile.problems)} 处矛盾）")
+            + f"（待处理项 {reconcile.items_total}：{states}；失败账未关闭 {reconcile.open_failures}）"
+        )
+        for problem in reconcile.problems[:10]:
+            print(f"  对账矛盾：{problem['message']} url={problem['url']}")
     return EXIT_OK if ok else EXIT_RUN
 
 

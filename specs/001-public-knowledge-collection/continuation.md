@@ -391,3 +391,36 @@ UV_CACHE_DIR=/tmp/crawl-uv-cache timeout 60 uv run --locked --no-python-download
 - **验证**：`crawl check`（第 82 轮后）：manifest=12134、documents=4728、blocks=26774、
   raw_files=11826、失败账 6 行、追溯 100%；逐来源覆盖表重新生成（处理 4446 / 待处理 0、
   附件待处理 0）。
+- **第 83 轮**（补抓收口：2 个运行、6 个请求）：修复补抓分类缺陷（消息里的 `port=443`
+  曾被当作 HTTP 4xx，瞬时失败误判为永久 4xx 转人工；改为只识别 `HTTP <状态码>` 前缀并写结构化
+  `http_status` 字段）后，4 项未关闭失败全部按 `refetch` 补抓成功（IN-02 三条条约 PDF、
+  IN-05 年报 PDF；沿用原窗口 `2026-09-06`，0 失败）。
+- **本轮发现并修复**：补抓路径（`resume`）直取非 HTML 原件时未执行附件的 64 MiB 声明上限，
+  与附件下载/待处理续传路径口径不一致（两份超限 PDF 被归档）；目标获取改为与
+  `Downloader` 共用同一边界读取实现，超限按 `boundary_rejected:size_limit_exceeded:<bytes>`
+  跳过、`resume` 按 `skip` 关闭；已归档的超限原件按 raw 优先保留，记为修复前历史例外。
+- **验证**：全量回归 **450 passed**（新增 3 项回归）；`crawl plan` 共 0 项（失败账未关闭 0）；
+  `crawl check`：manifest=12138、documents=4728、blocks=26774、raw_files=11830、失败账 10 行、
+  追溯 100%；逐来源覆盖表重新生成（处理 4446 / 待处理 0、附件待处理 0）。
+- **第 84 轮**（9 来源入口增量核对：10 个运行、24 个请求）：全部入口 `incremental_head_checked`
+  （第 1 页均为已登记目标），**0 新增、0 失败**；队列保持 0 待处理。入口页复核归档 13 行
+  （4 个新物理文件）。`crawl check`：manifest=12151、documents=4728、blocks=26774、raw_files=11834、
+  失败账 10 行、追溯 100%。
+- **第 85 轮**（离线：补抓处置回写待处理项）：修复补抓成功/按 skip 关闭时不回写队列状态的
+  对账缺口（IN-05 一个附件滞留 failed 与失败账 recovered 矛盾），重取与重解析两条路径同口径回写；
+  新增 2 项回归用例，全量 452 passed；对账审计 0 处矛盾；
+  既有滞留项按 manifest + 失败账离线订正为 processed（保留 previous_state）。IN-05 附件列
+  `905/1 失败` → `906/0 失败/1 边界拒绝`；`crawl check` 计数不变（12151/4728/26774/11834、失败账 10）。
+- **第 86 轮**（离线：覆盖表补 S5-04 附件记录列）：逐来源覆盖表新增“附件记录
+  成功/边界拒绝/失败/待处理”列（`documents[].attachments[].status`，每次抓取身份计数），原列改名
+  “附件队列”；重算合计附件记录 5815/2/3/929、队列 5374/0/0，其余列与 `crawl check` 一致。
+- **第 87 轮**（离线：`crawl check` 集成队列对账）：把第 85 轮的一次性审计变成可复跑校验
+  （`validate/reconcile.py`，矛盾=队列 failed 而账本已 recovered/skip 关闭），check 输出
+  “队列对账”行与 `--json.reconcile` 段并计入 `ok`；新增 5 项用例，全量 457 passed；
+  真实数据根对账通过（待处理项 5392：5374 processed / 18 skipped；失败账未关闭 0）。
+- **第 88 轮**（离线：交付清单计数与锁文件增量核验）：NEXT-09 清单计数停在 2026-09-11 基线，
+  只读复核后按“增量不重写基线”在清单末尾补照——`uv.lock` 74526 字节/SHA-256 `f5e8fa9c…`
+  未变；跟踪文件 238→335、证据文件 47→98、`src/crawler` 63→71 个 `.py`（约 9510→13042 行）、
+  `tests` 24→33、`tools` 6→9、`sources.yaml` 为 18 来源登记（DEMO 禁用）。
+  `sync_contracts.py --check` 与 `verify_sdd_documents.py` 通过；未改代码/数据/用例状态，
+  T019/T026/T027 不自动勾选。

@@ -248,6 +248,19 @@ def test_cli_check_fails_on_empty_root(cli_env, capsys):
     assert "不通过" in out and "缺失" in out
 
 
+def test_cli_check_reports_queue_reconciliation(cli_env, capsys):
+    """check 输出队列对账口径；空数据根没有待处理项，对账本身通过。"""
+    assert main(["check", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reconcile"] == {
+        "ok": True,
+        "items_total": 0,
+        "items_by_state": {},
+        "open_failures": 0,
+        "problems": [],
+    }
+
+
 # ---------- plan / resume ----------
 
 

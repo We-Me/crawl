@@ -30,6 +30,7 @@ class FailureWriter:
         message: str,
         retry_count: int = 0,
         final_action: str = "record_only",
+        http_status: Optional[int] = None,
         crawl_id: Optional[str] = None,
         referrer_url: Optional[str] = None,
         scope_start_date: Optional[str] = None,
@@ -48,6 +49,9 @@ class FailureWriter:
             "retry_count": int(retry_count),
             "final_action": final_action,
         }
+        if http_status is not None:
+            # 结构化状态码优先于消息文本解析（补抓分类不依赖错误文案）。
+            row["http_status"] = int(http_status)
         if crawl_id is not None:
             row["crawl_id"] = crawl_id
         if referrer_url is not None:
