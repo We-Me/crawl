@@ -92,10 +92,20 @@ HTTP 4xx，瞬时失败误判为永久 4xx 转人工）后，失败账余下 4 �
 待处理项（此前后者滞留 failed，与失败账 recovered 矛盾）；既有滞留项按 manifest 与失败账离线订正。
 IN-05 附件列更新为 `906 处理/0 失败/1 边界拒绝`，见
 [第 85 轮日志](logs/stage-five-round85-offline-pending-reconcile.txt)。
+第 86 轮（离线）覆盖表新增“附件记录 成功/边界拒绝/失败/待处理”列
+（`documents[].attachments[].status` 生产时点快照，与“附件队列”列口径分开），合计
+5815/2/3/929，见 [第 86 轮日志](logs/stage-five-round86-offline-coverage-attachments.txt)。
+第 87 轮（离线）把队列与失败账的对账并入 `crawl check`（“队列对账”行与 `--json.reconcile`），
+真实数据根通过，见 [第 87 轮日志](logs/stage-five-round87-offline-check-reconcile.txt)。
+第 88 轮（离线）对交付清单计数与锁文件补 2026-09-14 增量核验（锁文件未变；跟踪文件、证据文件、
+源码/测试/工具计数更新），见 [第 88 轮日志](logs/stage-five-round88-offline-inventory-counts.txt)。
+第 89 轮入口增量核对（9 个运行、26 个请求）：9 个可采集来源全部 `incremental_head_checked`，
+0 新增、0 失败；manifest 12151→12164、raw_files 11834→11838，见
+[第 89 轮日志](logs/stage-five-round89-online.txt)。
 逐来源报告口径（入口/发现、遍历与终止原因、主目标与附件计数、raw 留存、失败与待处理）由只读工具
-`tools/coverage_table.py` 从账本汇总，2026-09-13 第 67 轮后的结果见
+`tools/coverage_table.py` 从账本汇总，2026-09-14 第 89 轮后的最新结果见
 [逐来源覆盖表](stage-five-coverage-table.md)（合计与 `crawl check` 一致；`DEMO` 占位来源不列入）。
-下表“上次真实核验”列更新为 2026-09-13，
+下表“上次真实核验”列为 2026-09-13 时点，2026-09-14 的入口增量复核（第 84/89 轮）见上；
 逐站状态仍是**开发窗口**结论，不等于正式验收。
 
 ## 逐站状态

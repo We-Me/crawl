@@ -424,3 +424,8 @@ UV_CACHE_DIR=/tmp/crawl-uv-cache timeout 60 uv run --locked --no-python-download
   `tests` 24→33、`tools` 6→9、`sources.yaml` 为 18 来源登记（DEMO 禁用）。
   `sync_contracts.py --check` 与 `verify_sdd_documents.py` 通过；未改代码/数据/用例状态，
   T019/T026/T027 不自动勾选。
+- **第 89 轮**（9 来源入口增量复核：9 个运行、26 个请求）：全部入口 `incremental_head_checked`
+  （第 1 页均为已登记目标），**0 新增、0 失败、0 新失败账**；raw 增长 manifest 12151→12164
+  （+13 行、4 个新物理文件；CN-01 游标页 11→12）、raw_files 11834→11838；
+  `crawl check` documents=4728、blocks=26774、失败账 10、追溯 100%、队列对账通过；
+  覆盖表重新生成（合计不变）。受限来源不探测（S5-02/Q12），增量核对按登记周期性继续。
