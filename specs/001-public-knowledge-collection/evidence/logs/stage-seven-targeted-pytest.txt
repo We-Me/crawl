@@ -1,6 +1,6 @@
-# 阶段七定向用例：S7-01 A-D 与 S7-02 增量用例（实现提交 62d3648）
+# 阶段七定向用例：S7-01 A-D、S7-02 增量用例与规划对齐用例（实现提交 cc7a380/51b66dc 与规划对齐）
 $ uv run --no-cache pytest -q tests/test_body_continuation.py tests/test_recovery.py tests/test_validate_reconcile.py tests/test_cli.py
 
-........................................................................ [ 90%]
-........                                                                 [100%]
-80 passed in 8.47s
+........................................................................ [ 82%]
+...............                                                          [100%]
+87 passed in 8.84s

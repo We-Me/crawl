@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 NETWORK_STAGES = ("discover", "fetch")
 LOCAL_STAGES = ("parse", "normalize", "validate")
 
+# 已知不支持自动恢复的失败类型：原件与账本已留存，但重取/重解析无法自动续作
+# （例：续接母页不再返回 HTML，正文无法按原规则继续），按人工处置暴露，不做无效重试。
+UNSUPPORTED_ERROR_TYPES = frozenset({"continuation_not_html"})
+
 REFETCH = "refetch"
 REPARSE = "reparse"
 MANUAL = "manual"
@@ -135,6 +139,9 @@ def plan_retry(
         return RecoveryTask(
             **common, action=MANUAL, reason="已转人工处置（manual_review），不自动补抓"
         )
+    if str(failure.get("error_type") or "") in UNSUPPORTED_ERROR_TYPES:
+        # 类型变化等不受支持的续接：原件已留存，等待人工决定处置，不自动重取或重解析。
+        return RecoveryTask(**common, action=MANUAL, reason="不支持的续接类型变化，转人工处置")
     if stage in NETWORK_STAGES:
         if is_permanent(failure):
             return RecoveryTask(**common, action=MANUAL, reason="永久 4xx，只记录不重试")

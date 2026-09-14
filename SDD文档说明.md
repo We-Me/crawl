@@ -1,6 +1,6 @@
 # 公开知识采集项目 SDD 文档说明
 
-更新：2026-09-14。当前开发阶段：**阶段七，计划已建立，尚未实施验收**。本文说明当前使用方式；前面阶段的原说明和调度记录已保存在 [SDD 历史说明](SDD历史说明.md)，各阶段文件与原始证据继续保留。
+更新：2026-09-14。当前开发阶段：**阶段七，已实施并验证，四项退出条件满足**（状态、提交与证据见 [阶段七](specs/001-public-knowledge-collection/stage-seven.md) 执行状态；阶段七计划提交 `1714184` 为本分支基线）。本文说明当前使用方式；前面阶段的原说明和调度记录已保存在 [SDD 历史说明](SDD历史说明.md)，各阶段文件与原始证据继续保留。
 
 ## 当前开发入口
 
@@ -13,7 +13,7 @@
 - 范围：登记的全部 18 来源、运行时起始时间、按站发现、采集归档、标准化、独立结构块/div 空行的最小分块和追溯。RAG、高级后处理质量及最终发布部署暂缓。
 - 已有代码、正式 crawl CLI、uv 锁定环境、来源适配、分页/队列、增量与恢复能力；18 来源都有登记不等于全部来源已通过数据完整性验收。
 - 环境沿用 tech-stack 中的 CPython 3.9.25 与现有依赖，使用登记镜像和 uv；不重新选框架或复制空模板覆盖锁文件。目标 Linux/WSL 的 LibreOffice 已完成组件及真实转换验证，T012 不再等待安装。
-- 阶段六的定向 103 passed、完整回归 492 passed 是对应提交的历史证据；阶段七四项问题尚待处理，不能引用旧测试数宣布本阶段通过。
+- 阶段六的定向 103 passed、完整回归 492 passed 是对应提交的历史证据；阶段七已按自身证据（复现 23 failed → 定向 87 passed、全量 514 passed）验收软件成品，业务数据验收状态仍按 T019/T026/T027 分别记录。
 
 ## 阶段记录及职责
 
@@ -25,7 +25,7 @@
 | 阶段四 | 交接清单与决策记录；旧格式转换在后续完成 | 保留阶段事实；原“等安装/等全部决定”不再适用 |
 | 阶段五 | 发现归档、游标、队列、附件推进等实现 | stage-five 保存摘要，stage-five-history 保存运行过程 |
 | 阶段六 | R1—R6 修复、故障验证及历史数据只读评估 | stage-six 保存已提交成果；后审查发现转入阶段七 |
-| **阶段七** | **四项问题、错误账闭环、基础成品交付** | **唯一当前执行与退出条件入口，尚未验收** |
+| **阶段七** | **四项问题、错误账闭环、基础成品交付** | **唯一当前执行与退出条件入口；已实施并验证，四项退出条件满足** |
 
 不因阶段编号推进修改历史测试日志，不将旧“工程完成/队列清空”解释为全站完整。T019/T026/T027 的业务数据验收与本轮基础软件交付分别记录，范围外任务不阻塞基础成品。
 
@@ -42,7 +42,7 @@
 | [验收规范](specs/001-public-knowledge-collection/acceptance.md) / [证据索引](specs/001-public-knowledge-collection/evidence/README.md) | 区分验收定义、历史测试与本轮实际结果 |
 | [当前决定](specs/001-public-knowledge-collection/decision-requests.md) / [原 Q 编号](specs/001-public-knowledge-collection/clarifications.md) | 已确认决定和真正需要外部输入的局部事项 |
 | [运行说明](specs/001-public-knowledge-collection/runbook.md) / [交接指南](specs/001-public-knowledge-collection/quickstart.md) | 实际命令、环境与继续开发方法 |
-| [交付清单](specs/001-public-knowledge-collection/delivery-inventory.md) / [限制报告](specs/001-public-knowledge-collection/limitations-report.md) | 已交付资产及有范围的限制；阶段七结束时更新 |
+| [交付清单](specs/001-public-knowledge-collection/delivery-inventory.md) / [限制报告](specs/001-public-knowledge-collection/limitations-report.md) | 已交付资产及有范围的限制；已按阶段七交付结果更新 |
 | [来源依据](specs/001-public-knowledge-collection/sources.md) / [追踪矩阵](specs/001-public-knowledge-collection/traceability.md) | 四份输入指纹和需求关联 |
 | [阶段六](specs/001-public-knowledge-collection/stage-six.md) / [阶段五](specs/001-public-knowledge-collection/stage-five.md) / [阶段四](specs/001-public-knowledge-collection/stage-four.md) / [阶段三](specs/001-public-knowledge-collection/stage-three.md) / [早期续作](specs/001-public-knowledge-collection/continuation.md) | 按需追溯，不作当前调度 |
 | [SDD 历史说明](SDD历史说明.md) | 原根说明、交接指南和分散阶段追加记录 |

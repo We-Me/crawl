@@ -15,6 +15,10 @@ FAILURE_STAGES = ("discover", "fetch", "parse", "normalize", "validate")
 FINAL_ACTIONS = ("record_only", "retry_later", "skip", "recovered", "manual_review")
 
 
+class FailureLedgerWriteError(RuntimeError):
+    """失败账写入失败：必须显式失败，不能让受影响流程继续按成功报告。"""
+
+
 class FailureWriter:
     def __init__(self, data_dir: Path) -> None:
         self.path = DeliveryLayout(data_dir).failures_path
@@ -64,7 +68,12 @@ class FailureWriter:
             # 母文档身份（R5）：附件/分页等从属对象的失败必须能回到具体母文档，
             # 恢复关联不能只按 URL 关闭同一来源的其它对象。
             row["doc_id"] = doc_id
-        append_jsonl(self.path, [row])
+        try:
+            append_jsonl(self.path, [row])
+        except OSError as exc:
+            # 失败账本身就是错误事实来源：写不进去时必须可见并停止受影响流程，
+            # 不能吞掉异常后继续报告成功（也就无法声称“失败已登记”）。
+            raise FailureLedgerWriteError(f"失败账追加失败：{self.path}：{exc}") from exc
         logger.warning(
             "失败记录 stage=%s url=%s type=%s message=%s", stage, url, error_type, message
         )

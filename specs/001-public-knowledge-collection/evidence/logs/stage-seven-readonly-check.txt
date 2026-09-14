@@ -1,5 +1,5 @@
 # 阶段七只读评估：正式数据根 data/（17GB，只读；不批量改写历史数据）
-# 目的：确认新增身份口径下交付校验、失败可见性与补抓计划仍与实际数据一致
+# 目的：确认新增身份口径（含 stage）下交付校验、失败可见性、有界摘要与补抓计划仍与实际数据一致
 $ uv run --no-cache python -m crawler.cli check --json
 {
   "ok": true,
@@ -85,6 +85,9 @@ $ uv run --no-cache python -m crawler.cli check --json
       "skipped": 18
     },
     "open_failures": 4,
+    "open_failures_by_stage": {
+      "fetch": 4
+    },
     "problems": []
   }
 }
@@ -93,7 +96,11 @@ $ uv run --no-cache python -m crawler.cli failures --json
 {
   "data_dir": "/home/zhou/workspaces/crawl/data",
   "open": 4,
+  "manual": 0,
   "shown": 4,
+  "events": 10,
+  "identities": 9,
+  "objects": 9,
   "by_action": {
     "record_only": 4,
     "recovered": 5
@@ -150,6 +157,49 @@ $ uv run --no-cache python -m crawler.cli failures --json
   ]
 }
 
+$ uv run --no-cache python -m crawler.cli failures --summary --json
+{
+  "data_dir": "/home/zhou/workspaces/crawl/data",
+  "summary": {
+    "events": 10,
+    "identities": 9,
+    "objects": 9,
+    "open": 4,
+    "manual": 0,
+    "open_by_action": {
+      "record_only": 4
+    },
+    "pending_items": {
+      "pending": 0,
+      "refresh": 0,
+      "failed": 0,
+      "skipped": 18,
+      "processed": 5374
+    },
+    "restricted_skips": 4,
+    "partial_documents": 39
+  },
+  "samples": {
+    "open": [
+      "IN-05 fetch https://www.mha.gov.in/sites/default/files/2026-02/ReportOutput_Current_Year_PDF_2026_16022026.pdf scope=2026-09-06",
+      "IN-02 fetch https://www.mea.gov.in/Portal/LegalTreatiesDoc/KW13B1831.pdf scope=2026-09-06",
+      "IN-02 fetch https://www.mea.gov.in/Portal/LegalTreatiesDoc/JP11B0043.pdf scope=2026-09-06"
+    ],
+    "manual": [],
+    "restricted_skips": [
+      "https://cors.surveyofindia.gov.in/gndb",
+      "https://mha.gov.in/en/commoncontent/new-criminal-laws",
+      "https://mha.gov.in/sites/default/files/HMkheloIndia_08062022.pdf"
+    ],
+    "partial_documents": [
+      "IN-10_20260911_0001",
+      "IN-06_20260913_0001",
+      "IN-01_20260913_0001"
+    ]
+  },
+  "caliber": "事件=失败账行数；身份=来源+URL+阶段+范围+母文档；对象=身份去掉阶段；待处理=manifests/pending_items.json 状态计数；受限跳过=待处理项中 robots_disallowed 记录；partial=normalized/documents.jsonl 的 parse_status；从属对象（附件/分页）以 doc_id/referrer_url 归属其母文档"
+}
+
 $ uv run --no-cache python -m crawler.cli plan --json
 {
   "data_dir": "/home/zhou/workspaces/crawl/data",
@@ -164,7 +214,7 @@ $ uv run --no-cache python -m crawler.cli plan --json
       "source_id": "IN-05",
       "attempt": 1,
       "retry_count": 0,
-      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "not_before": "2026-09-14T15:47:06.901306+08:00",
       "referrer_url": "https://www.mha.gov.in/en/division_of_mha/AGMUT_Cadre_Management",
       "scope_start_date": "2026-09-06",
       "reason": "网络阶段失败，重新获取"
@@ -176,7 +226,7 @@ $ uv run --no-cache python -m crawler.cli plan --json
       "source_id": "IN-02",
       "attempt": 1,
       "retry_count": 0,
-      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "not_before": "2026-09-14T15:47:06.901306+08:00",
       "referrer_url": "https://www.mea.gov.in/TreatyDetail?1831",
       "scope_start_date": "2026-09-06",
       "reason": "网络阶段失败，重新获取"
@@ -188,7 +238,7 @@ $ uv run --no-cache python -m crawler.cli plan --json
       "source_id": "IN-02",
       "attempt": 1,
       "retry_count": 0,
-      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "not_before": "2026-09-14T15:47:06.901306+08:00",
       "referrer_url": "https://www.mea.gov.in/TreatyDetail?618",
       "scope_start_date": "2026-09-06",
       "reason": "网络阶段失败，重新获取"
@@ -200,7 +250,7 @@ $ uv run --no-cache python -m crawler.cli plan --json
       "source_id": "IN-02",
       "attempt": 1,
       "retry_count": 0,
-      "not_before": "2026-09-14T15:11:44.374938+08:00",
+      "not_before": "2026-09-14T15:47:06.901306+08:00",
       "referrer_url": "https://www.mea.gov.in/TreatyDetail?1207",
       "scope_start_date": "2026-09-06",
       "reason": "网络阶段失败，重新获取"

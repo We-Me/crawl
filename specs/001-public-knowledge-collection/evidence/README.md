@@ -108,11 +108,16 @@ T019/T026/T027 与 18 来源状态不因本记录改变。
 
 ## 阶段七记录（2026-09-14）
 
-按 [阶段七](../stage-seven.md) 完成 S7-01 四项审查问题修复（`b779562`：待续位置与增量状态同一原子写入、
+阶段七规划提交：`1714184`（本分支基线）。实现与证据提交：`cc7a380`（S7-01）、`51b66dc`（S7-02）、
+`9ba6733`（S7-03 闭环、证据与文档同步）与收口提交（规划对齐与交付收口：阶段身份对账、不支持续接
+转人工、错误定位与有界摘要、失败账写入失败可见；提交号以 `git log` 为准）。
+
+按 [阶段七](../stage-seven.md) 完成 S7-01 四项审查问题修复（`cc7a380`：待续位置与增量状态同一原子写入、
 非 HTML 母页先归档再判定、失败/恢复/对账统一对象身份、正文顺序固定为母页→分页→接口）、
-S7-02 错误处置能力补齐（`62d3648`：`crawl failures`、`crawl resolve`、`manual_review` 保持未关闭）
+S7-02 错误处置能力补齐（`51b66dc`：`crawl failures`、`crawl resolve`、`manual_review` 保持未关闭）
 与 S7-03 有界闭环。证据见 [阶段七交付证据](stage-seven-delivery.md)：
-[复现 16 failed](logs/stage-seven-baseline-repro.txt)、[定向 80 passed](logs/stage-seven-targeted-pytest.txt)、
-[全量 507 passed](logs/stage-seven-full-pytest.txt)、[本机闭环](logs/stage-seven-closed-loop.txt)、
-[正式数据根只读评估](logs/stage-seven-readonly-check.txt)。未新增真实站点请求，已有 data/ 只读；
-契约未改动。T019/T026/T027 与 18 来源状态（9 个有限窗口验证、9 个访问受限）不因本记录改变。
+[复现 23 failed](logs/stage-seven-baseline-repro.txt)、[定向 87 passed](logs/stage-seven-targeted-pytest.txt)、
+[全量 514 passed](logs/stage-seven-full-pytest.txt)、[本机闭环](logs/stage-seven-closed-loop.txt)、
+[正式数据根只读评估](logs/stage-seven-readonly-check.txt)（含 `failures --summary` 与
+`open_failures_by_stage`）。未新增真实站点请求，已有 data/ 只读；契约未改动。
+T019/T026/T027 与 18 来源状态（9 个有限窗口验证、9 个访问受限）不因本记录改变。

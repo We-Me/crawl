@@ -96,6 +96,7 @@ def test_missing_files_report_empty(tmp_path):
         "items_total": 0,
         "items_by_state": {},
         "open_failures": 0,
+        "open_failures_by_stage": {},
         "problems": [],
     }
 
@@ -339,3 +340,43 @@ def test_cross_source_doc_id_identity_does_not_close_item(tmp_path):
 
     assert report.ok is True and report.problems == []
     assert report.open_failures == 1, "来源 A 的失败仍未关闭"
+
+
+def test_cross_stage_rows_do_not_close_each_other(tmp_path):
+    """C：同一对象不同阶段各自计数；已关闭的 fetch 行不得掩盖未关闭的 parse 行。"""
+    data = tmp_path / "data"
+    url = "https://example.invalid/page.html"
+    _write_pending(data, {"k1": {"key": "k1", "url": url, "state": "failed"}})
+    _write_failures(
+        data,
+        [
+            {**_failure(url, "skip"), "stage": "fetch"},
+            {**_failure(url, "retry_later"), "stage": "parse", "error_type": "parse_error"},
+        ],
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.open_failures == 1, "parse 阶段仍未关闭"
+    assert report.open_failures_by_stage == {"parse": 1}
+    assert report.ok is True and report.problems == [], "对象仍有未关闭失败，不产生矛盾"
+
+
+def test_item_failed_with_all_stages_closed_is_a_contradiction(tmp_path):
+    """C：对象的所有阶段都按 recovered/skip 关闭后，队列 failed 仍是矛盾（带阶段清单）。"""
+    data = tmp_path / "data"
+    url = "https://example.invalid/page.html"
+    _write_pending(data, {"k1": {"key": "k1", "url": url, "state": "failed"}})
+    _write_failures(
+        data,
+        [
+            {**_failure(url, "recovered"), "stage": "fetch"},
+            {**_failure(url, "skip"), "stage": "parse", "error_type": "parse_error"},
+        ],
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    assert report.open_failures == 0 and report.open_failures_by_stage == {}
+    assert report.problems[0]["ledger_stages"] == ["fetch", "parse"]

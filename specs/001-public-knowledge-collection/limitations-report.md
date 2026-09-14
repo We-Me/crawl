@@ -89,10 +89,11 @@
 
 ## 2026-09-14 阶段七：错误可处置性与有界闭环
 
-- 已交付：失败账查询 `crawl failures`（默认未关闭，`--all` 历史与处置行）、人工处置 `crawl resolve`
-  （按显式身份追加，身份没写全拒绝）、`manual_review` 保持未关闭可见、预算耗尽退出（3）与续作、
-  离线重解析（`crawl resume`）；有界闭环（9 步）与候选回归（507 passed）见
-  [阶段七交付证据](evidence/stage-seven-delivery.md)。
+- 已交付：失败账查询 `crawl failures`（默认未关闭，`--all` 历史与处置行，`--summary` 有界摘要，
+  `--scope-start-date`/`--doc-id` 身份定位，行内 `next=`/`raw=`）、人工处置 `crawl resolve`
+  （按显式身份追加，身份没写全拒绝）、`manual_review` 保持未关闭可见、不支持续接转人工（不重复拉取/
+  重解析）、失败账写入失败以退出码 2 明确停止、预算耗尽退出（3）与续作、离线重解析（`crawl resume`）；
+  有界闭环（9 步）与候选回归（514 passed）见 [阶段七交付证据](evidence/stage-seven-delivery.md)。
 - 可接受的开放错误：正式数据根 4 项未关闭失败（IN-05 约 162 MiB PDF 与 IN-02 三份条约 PDF 的读取中断，
   `record_only`，`crawl plan` 为 refetch）；39 篇 `parse_status=partial`（其中 3 篇正文为空）属来源窗口内的
   数据完整性，不影响软件交付结论。

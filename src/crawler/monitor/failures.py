@@ -138,6 +138,16 @@ class FailureLedger:
                 return row.get("raw_path")
         return None
 
+    def raw_path_map(self) -> Dict[str, str]:
+        """一次读出账本里的 crawl_id -> raw_path（错误查询/摘要批量解析用，只读）。"""
+        mapping: Dict[str, str] = {}
+        for row in read_jsonl(self.layout.manifest_path):
+            crawl_id = row.get("crawl_id")
+            raw_path = row.get("raw_path")
+            if crawl_id and raw_path:
+                mapping[crawl_id] = raw_path
+        return mapping
+
     def record_resolution(
         self,
         failure: Mapping,

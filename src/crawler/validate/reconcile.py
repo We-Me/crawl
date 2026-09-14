@@ -39,6 +39,7 @@ class ReconcileReport:
     items_total: int = 0
     items_by_state: Dict[str, int] = field(default_factory=dict)
     open_failures: int = 0
+    open_failures_by_stage: Dict[str, int] = field(default_factory=dict)
     problems: List[dict] = field(default_factory=list)
 
     @property
@@ -51,6 +52,7 @@ class ReconcileReport:
             "items_total": self.items_total,
             "items_by_state": dict(self.items_by_state),
             "open_failures": self.open_failures,
+            "open_failures_by_stage": dict(self.open_failures_by_stage),
             "problems": list(self.problems),
         }
 
@@ -73,12 +75,15 @@ def reconcile_queue_and_failures(data_dir: Path) -> ReconcileReport:
     for _, row in failures:
         url = row.get("url")
         if url:
-            # 文件为追加式：同一身份的最后一行即最新处置。身份与恢复关联一致
-            # （来源 + URL + 原运行范围 + 母文档）：不能只按 URL 推断“全部任务已恢复”（R5/C）。
+            # 文件为追加式：同一“对象 + 阶段”的最后一行即最新处置。身份与恢复关联一致
+            # （来源 + URL + 阶段 + 原运行范围 + 母文档）：不能只按 URL 推断“全部任务已恢复”，
+            # 也不能用无关阶段的最后一行关闭其他失败（R5/C）。
             latest[_ledger_identity(row)] = row
-    report.open_failures = sum(
-        1 for row in latest.values() if row.get("final_action") not in CLOSED_ACTIONS
-    )
+    open_rows = [row for row in latest.values() if row.get("final_action") not in CLOSED_ACTIONS]
+    report.open_failures = len(open_rows)
+    for row in open_rows:
+        stage = str(row.get("stage") or "unknown")
+        report.open_failures_by_stage[stage] = report.open_failures_by_stage.get(stage, 0) + 1
     report.items_total = len(items)
     for item in items:
         state = item.get("state") or "unknown"
@@ -89,37 +94,50 @@ def reconcile_queue_and_failures(data_dir: Path) -> ReconcileReport:
     for item in items:
         if (item.get("state") or "") != "failed":
             continue
-        row = latest.get(_item_identity(item))
-        if row is not None and row.get("final_action") in CLOSED_ACTIONS:
-            report.problems.append(
-                {
-                    "key": item.get("key"),
-                    "url": item.get("url"),
-                    "item_state": "failed",
-                    "ledger_action": row.get("final_action"),
-                    "message": "待处理项为 failed，但失败账该 URL 已按 recovered/skip 关闭",
-                }
-            )
+        object_identity = _item_identity(item)
+        rows = [row for row in latest.values() if _object_identity(row) == object_identity]
+        if not rows:
+            # 对象没有账本记录：无可对账内容，不推断（保持既有行为）。
+            continue
+        if any(row.get("final_action") not in CLOSED_ACTIONS for row in rows):
+            # 该对象仍有未关闭失败（任意阶段）：队列 failed 与账本一致。
+            continue
+        report.problems.append(
+            {
+                "key": item.get("key"),
+                "url": item.get("url"),
+                "item_state": "failed",
+                "ledger_action": rows[-1].get("final_action"),
+                "ledger_stages": sorted({str(row.get("stage") or "unknown") for row in rows}),
+                "message": "待处理项为 failed，但失败账该 URL 已按 recovered/skip 关闭",
+            }
+        )
     return report
 
 
 def _ledger_identity(row) -> tuple:
-    """失败账行的恢复身份：来源 + URL + 原运行范围 + 母文档（缺失按 None）。"""
+    """失败账行的恢复身份：来源 + URL + 阶段 + 原运行范围 + 母文档（缺失按 None）。"""
     return (
         row.get("source_id") or None,
         row.get("url"),
+        row.get("stage") or None,
         row.get("scope_start_date") or None,
         row.get("doc_id") or None,
     )
 
 
 def _item_identity(item) -> tuple:
-    """待处理项的对账身份：与失败账同一口径。"""
+    """待处理项的对账身份：对象身份（来源 + URL + 原运行范围 + 母文档，不含阶段）。"""
+    return _object_identity(item)
+
+
+def _object_identity(row) -> tuple:
+    """对象身份（不含阶段）：来源 + URL + 原运行范围 + 母文档（缺失按 None）。"""
     return (
-        item.get("source_id") or None,
-        item.get("url"),
-        item.get("scope_start_date") or None,
-        item.get("doc_id") or None,
+        row.get("source_id") or None,
+        row.get("url"),
+        row.get("scope_start_date") or None,
+        row.get("doc_id") or None,
     )
 
 

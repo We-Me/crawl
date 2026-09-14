@@ -149,6 +149,19 @@ def test_plan_retry_routes_stages():
     assert unknown.action == MANUAL
 
 
+def test_unsupported_continuation_goes_manual_not_reparse():
+    """S7-01 B：续接母页类型变化（如 HTML→PDF）不支持自动续作，转人工而不是反复重解析。
+
+    原件已按真实类型归档，因此不能靠重取/重解析把未完成正文“修好”；plan 必须给 manual，
+    避免对同一 PDF 反复发起无意义的恢复尝试。
+    """
+    failure = _failure(stage="parse", error_type="continuation_not_html")
+    task = plan_retry(failure, policy=RetryPolicy(), now=NOW, raw_path="raw/x.pdf")
+    assert task.action == MANUAL
+    assert "不支持" in task.reason
+    assert task.raw_path is None, "不自动重解析时不携带原件路径"
+
+
 def test_permanent_4xx_is_not_retried():
     assert is_permanent(_failure(message="HTTP 404")) is True
     assert is_permanent(_failure(message="HTTP 429")) is False

@@ -2,7 +2,7 @@
 
 ## 阶段七计划与运行边界（2026-09-14）
 
-当前开发按 [阶段七](stage-seven.md) 收尾；其中四项修复和错误账补齐尚未验收，不能将计划当成已支持的操作。基础成品允许可控异常留账，软件可交付不表示所有来源/窗口均已采集完整。阶段七交付时需在本文补入经过实际验证的错误查询、有限补抓、离线重解析及人工处置步骤；现有历史运行证据保持原适用范围。
+阶段七（关键缺陷收尾、错误账闭环与基础成品交付）已实施并验证，状态与提交见 [阶段七](stage-seven.md)；本文第 5 节已按实际验证过的错误查询、有界摘要、身份定位、有限补抓、离线重解析与人工处置步骤更新（证据见 [阶段七交付证据](evidence/stage-seven-delivery.md)）。基础成品允许可控异常留账，软件可交付不表示所有来源/窗口均已采集完整；现有历史运行证据保持原适用范围。
 
 ## 最新环境状态
 
@@ -120,7 +120,8 @@ crawl resume --source ID [--config PATH] [--max-tasks N]            # 执行补�
     [--respect-backoff] [--max-attempts N] [--base-delay-seconds S] [--max-delay-seconds S]
     [--max-requests N] [--deadline-seconds S] [--json]
 crawl failures [--source ID] [--url URL] [--stage STAGE]            # 失败账查询（只读）
-    [--all] [--limit N] [--json]
+    [--scope-start-date YYYY-MM-DD] [--doc-id ID]
+    [--all] [--summary] [--limit N] [--json]
 crawl resolve --url URL --action ACTION [--source ID]               # 人工处置（追加处置行）
     [--stage STAGE] [--scope-start-date YYYY-MM-DD] [--doc-id ID]
     [--crawl-id ID] [--note TEXT] [--json]
@@ -130,13 +131,22 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
 失败账查询与人工处置（阶段七，S7-02）：
 
 - `crawl failures` 默认只列**未关闭**失败（`record_only`/`retry_later`/`manual_review`），`--all` 输出全部
-  历史与处置行；每行带身份（来源 / 原运行范围 / 母文档 / `crawl_id`）与阶段、错误类型、动作、说明，
-  并统计未关闭数与动作分布。处置结果用 `crawl failures --url URL --all` 按 URL 查询。
+  历史与处置行；每行带身份（来源 / 原运行范围 / 母文档 / `crawl_id`）与阶段、错误类型、动作、说明、
+  `next=`（下一动作）与 `raw=`（已归档原件，若有），并统计未关闭数与动作分布。处置结果用
+  `crawl failures --url URL --all` 按 URL 查询；同一 URL 存在多条身份时，用
+  `--scope-start-date`/`--doc-id` 定位到单条身份（这两项也可用于 `crawl resolve`）。
 - `crawl resolve` 按**显式身份**追加一行处置：`recovered`（已恢复）、`skip`（确认跳过）、
   `manual_review`（保持未关闭、等待人工）。记录里带值的身份维度必须显式给出；写不全时以退出码 2
   拒绝并列出该 URL 的现有身份（宁可不动，不按 URL 全局关闭）。处置只追加，不删除或改写历史失败行。
+- `crawl failures --summary` 输出一次**有界错误摘要**：开放失败、人工处理、受限跳过、待处理队列与
+  partial 文档的数量和样例身份；摘要注明聚合口径（事件 = 失败账行数；身份 = 来源 + URL + 阶段 + 范围 +
+  母文档；对象 = 身份去掉阶段），并区分事件数与对象数。只读、按需运行，无常驻监控。
 - `manual_review` 不等于 `recovered`：它保持未关闭并在 `failures`/`plan`/`check` 与失败计数中可见，
   `plan` 把它标为人工任务且不自动补抓，直到按同一身份再次处置。
+- 不支持的续接（如母页返回非 HTML）按人工处置路径处理：先归档原件并记录失败，`plan` 给出人工任务，
+  不重复拉取或重解析同一响应，也不伪造正文完成。
+- `crawl check` 的对账块除未关闭失败数外给出 `open_failures_by_stage`（按阶段区分），用于确认分阶段
+  身份没有被跨阶段行误关闭。
 
 补抓默认立即执行计划中的任务；加 `--respect-backoff` 只处理退避已到的任务，其余记入 `待人工`/`退避等待`。
 
@@ -295,6 +305,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 | 现象 | 含义与处理 |
 | --- | --- |
 | 退出码 2，`配置错误` | 环境变量、来源配置或域名/路径不合法；按提示修正，不要绕过校验 |
+| 退出码 2，`失败账写入失败` | 失败账追加写入出错（磁盘/权限等）：命令明确失败并停止受影响流程，不吞异常继续报告成功；恢复写入条件后重跑同一命令 |
 | 退出码 2，`来源未启用` | 该来源 `enabled: false`；启用属业务决定（Q12/Q13） |
 | 命令输出 `跳过 robots_disallowed` | robots.txt 拒绝，按策略跳过并记原因；不绕过、不换代理 |
 | 失败账 `error_type=http_error` | 网络阶段失败；`crawl plan` 给 `refetch`，`crawl resume` 重新获取 |
@@ -332,7 +343,7 @@ CRAWL_ENV=production CRAWL_DATA_DIR=/var/lib/crawl-data \
 - 运行预算与停止报告：[NEXT-06 证据](evidence/next06-budget.md)、阶段三完整回归 [stage-three-full-pytest.txt](evidence/logs/stage-three-full-pytest.txt)（345 passed）
 - raw 完整性（发现响应归档、分页终止原因与游标、附件闭环、多轮续接）：[阶段五证据](evidence/stage-five-raw-completeness.md)、完整回归 [stage-five-full-pytest.txt](evidence/logs/stage-five-full-pytest.txt)（419 passed）
 - 一致性修复（阶段六 R1—R6：复查覆盖、正文待续、归档事务锁、发现提交顺序、损坏状态失败）：[R1—R6 证据](evidence/stage-six-r1-r6.md)、完整回归 [stage-six-full-pytest.txt](evidence/logs/stage-six-full-pytest.txt)（492 passed）、[历史数据只读评估](evidence/stage-six-historical-impact.md)
-- 错误可处置性与有界闭环（阶段七）：[交付证据](evidence/stage-seven-delivery.md)、复现 [16 failed](evidence/logs/stage-seven-baseline-repro.txt)、定向 [80 passed](evidence/logs/stage-seven-targeted-pytest.txt)、全量 [507 passed](evidence/logs/stage-seven-full-pytest.txt)、本机闭环 [逐步输出](evidence/logs/stage-seven-closed-loop.txt)（`uv run --locked --no-python-downloads python tools/closed_loop_fixture.py --clean`，只连 127.0.0.1 夹具站点）
+- 错误可处置性与有界闭环（阶段七）：[交付证据](evidence/stage-seven-delivery.md)、复现 [23 failed](evidence/logs/stage-seven-baseline-repro.txt)、定向 [87 passed](evidence/logs/stage-seven-targeted-pytest.txt)、全量 [514 passed](evidence/logs/stage-seven-full-pytest.txt)、本机闭环 [逐步输出](evidence/logs/stage-seven-closed-loop.txt)（`uv run --locked --no-python-downloads python tools/closed_loop_fixture.py --clean`，只连 127.0.0.1 夹具站点）、正式数据根 [只读评估](evidence/logs/stage-seven-readonly-check.txt)
 - CN-08 正文边界修复（离线差异与重解析）：[NEXT-07 证据](evidence/next07-cn08-body.md)
 - 随包契约与源码外安装：[NEXT-08 证据](evidence/next08-packaged-contracts.md)、[next08-installed-wheel.txt](evidence/logs/next08-installed-wheel.txt)
 - 旧式 DOC/XLS 真实转换、结构保留与原件追溯：[NEXT-04 证据](evidence/next04-legacy-office.md)；夹具重建 `uv run --locked --no-python-downloads python tools/make_legacy_fixtures.py`（需系统组件）

@@ -34,8 +34,9 @@ from crawler import __version__
 from crawler.config.registry import SourceRegistry
 from crawler.config.settings import ConfigurationError, load_settings
 from crawler.fetch.budget import BudgetConfigError, RunBudget
-from crawler.fetch.retry import RetryConfigError, RetryPolicy, summarize_plan
+from crawler.fetch.retry import RetryConfigError, RetryPolicy, plan_retry, summarize_plan
 from crawler.monitor.failures import FailureLedger, FailureLedgerError, OPEN_ACTIONS
+from crawler.output.failures_writer import FailureLedgerWriteError
 from crawler.output.delivery import inspect_delivery
 from crawler.pipeline import CrawlPipeline
 from crawler.schedule.scope import ScopeConfigError, parse_start_date, RunScope
@@ -183,7 +184,16 @@ def build_parser() -> argparse.ArgumentParser:
     failures.add_argument("--url", default=None, metavar="URL", help="只看指定 URL（精确匹配）")
     failures.add_argument("--stage", default=None, metavar="STAGE", help="只看指定阶段")
     failures.add_argument(
+        "--scope-start-date", default=None, metavar="YYYY-MM-DD", help="只看指定原运行范围"
+    )
+    failures.add_argument("--doc-id", default=None, metavar="ID", help="只看指定母文档/对象身份")
+    failures.add_argument(
         "--all", action="store_true", help="显示全部历史行（含已关闭的处置行），默认只看未关闭"
+    )
+    failures.add_argument(
+        "--summary",
+        action="store_true",
+        help="输出一次有界错误摘要（开放/人工/待处理/受限跳过/partial 及样例身份）",
     )
     failures.add_argument("--limit", type=int, default=None, help="最多显示的行数")
     failures.add_argument("--json", action="store_true", help="以 JSON 输出结果")
@@ -247,6 +257,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_CONFIG
     except ScopeConfigError as exc:
         print(f"参数错误：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    except FailureLedgerWriteError as exc:
+        print(f"失败账写入失败：{exc}", file=sys.stderr)
         return EXIT_CONFIG
 
 
@@ -516,7 +529,7 @@ def _cmd_resume(args) -> int:
 
 
 def _cmd_failures(args) -> int:
-    """失败账查询（只读）：默认列出未关闭失败，--all 显示全部历史与处置行。"""
+    """失败账查询（只读）：默认列未关闭失败，--all 显示历史，--summary 输出有界错误摘要。"""
     settings = load_settings()
     ledger = FailureLedger(settings.data_dir)
     rows = ledger.load()
@@ -526,33 +539,54 @@ def _cmd_failures(args) -> int:
         rows = [row for row in rows if row.get("url") == args.url]
     if args.stage:
         rows = [row for row in rows if (row.get("stage") or "") == args.stage]
-    # 未关闭数与动作分布都按“每个身份的最后一行”统计，且受 --source/--url/--stage 过滤
-    # 约束（否则查询结果会与展示的行不一致）。
+    if args.scope_start_date:
+        rows = [
+            row for row in rows
+            if (row.get("scope_start_date") or "") == args.scope_start_date
+        ]
+    if args.doc_id:
+        rows = [row for row in rows if (row.get("doc_id") or "") == args.doc_id]
+    # 未关闭数与动作分布都按“每个身份的最后一行”统计，且受过滤条件约束
+    # （否则查询结果会与展示的行不一致）。
     latest = ledger.latest_rows(rows)
-    if not args.all:
-        rows = [row for row in latest if row.get("final_action") in OPEN_ACTIONS]
-    if args.limit is not None:
-        rows = rows[-args.limit:] if args.limit >= 0 else rows[: abs(args.limit)]
     open_rows = [row for row in latest if row.get("final_action") in OPEN_ACTIONS]
+    if args.summary:
+        return _print_failure_summary(settings.data_dir, ledger, rows, latest, open_rows, args)
+    shown = rows if args.all else open_rows
+    if args.limit is not None:
+        shown = shown[-args.limit:] if args.limit >= 0 else shown[: abs(args.limit)]
     by_action: dict = {}
     for row in latest:
         action = str(row.get("final_action") or "unknown")
         by_action[action] = by_action.get(action, 0) + 1
+    objects = {_failure_object_key(row) for row in latest}
     payload = {
         "data_dir": str(settings.data_dir),
         "open": len(open_rows),
-        "shown": len(rows),
+        "manual": sum(
+            1 for row in open_rows if row.get("final_action") == "manual_review"
+        ),
+        "shown": len(shown),
+        # 口径：事件=账本行数；身份=来源+URL+阶段+范围+母文档；对象=身份去掉阶段。
+        "events": len(rows),
+        "identities": len(latest),
+        "objects": len(objects),
         "by_action": dict(sorted(by_action.items())),
-        "rows": rows,
+        "rows": shown,
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return EXIT_OK
     print(
-        f"失败账 {settings.data_dir}：显示 {len(rows)} 行，未关闭 {len(open_rows)}"
+        f"失败账 {settings.data_dir}：显示 {len(shown)} 行，未关闭 {len(open_rows)}"
         + (f"（{'，'.join(f'{k}={v}' for k, v in sorted(by_action.items()))}）" if by_action else "")
+        + f"；口径：事件 {len(rows)} 行／身份 {len(latest)}／对象 {len(objects)}"
     )
-    for row in rows:
+    next_actions, raw_paths = _failure_next_actions(ledger, shown)
+    for row in shown:
+        raw_path = raw_paths.get(row.get("crawl_id"))
+        if raw_path:
+            row.setdefault("raw_path", raw_path)
         location = " ".join(
             part
             for part in (
@@ -567,6 +601,13 @@ def _cmd_failures(args) -> int:
             f"{row.get('error_type', '')} {row.get('final_action', '')} "
             f"retry={row.get('retry_count', 0)} {row.get('url', '')}"
             + (f"  {location}" if location else "")
+            + (
+                f"  referrer={row['referrer_url']}"
+                if row.get("referrer_url")
+                else ""
+            )
+            + (f"  raw={raw_path}" if raw_path else "")
+            + (f"  next={next_actions[id(row)]}" if id(row) in next_actions else "")
         )
         if row.get("message"):
             print(f"      {row['message']}")
@@ -576,6 +617,133 @@ def _cmd_failures(args) -> int:
             "crawl resolve --url URL --action recovered|skip|manual_review 记录人工处置"
         )
     return EXIT_OK
+
+
+def _failure_object_key(row) -> tuple:
+    """对象口径（不含阶段）：来源 + URL + 原运行范围 + 母文档。"""
+    return (
+        row.get("source_id") or None,
+        row.get("url"),
+        row.get("scope_start_date") or None,
+        row.get("doc_id") or None,
+    )
+
+
+def _failure_next_actions(ledger: FailureLedger, rows) -> dict:
+    """未关闭行的下一动作（复用补抓计划口径，只读）；返回 (下一动作, crawl_id→raw_path)。"""
+    wanted = [row for row in rows if row.get("final_action") in OPEN_ACTIONS]
+    if not wanted:
+        return {}, {}
+    raw_paths = ledger.raw_path_map() if any(row.get("crawl_id") for row in wanted) else {}
+    policy = RetryPolicy()
+    moment = datetime.now(timezone.utc).astimezone()
+    actions = {}
+    for row in wanted:
+        task = plan_retry(
+            row,
+            policy=policy,
+            now=moment,
+            raw_path=raw_paths.get(row.get("crawl_id")),
+        )
+        actions[id(row)] = task.action
+    return actions, raw_paths
+
+
+def _print_failure_summary(data_dir, ledger, rows, latest, open_rows, args) -> int:
+    """一次有界错误摘要：开放/人工/待处理/受限跳过/partial，注明聚合口径与样例身份。"""
+    from crawler.output.layout import DeliveryLayout
+    from crawler.output.jsonl import read_jsonl
+    from crawler.schedule.pending import (
+        STATE_FAILED,
+        STATE_PENDING,
+        STATE_REFRESH,
+        STATE_SKIPPED,
+        PendingStore,
+        PendingStoreError,
+    )
+
+    layout = DeliveryLayout(data_dir)
+    try:
+        items = PendingStore(data_dir).load()
+    except PendingStoreError as exc:
+        print(f"读取待处理状态失败：{exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    by_state = {STATE_PENDING: 0, STATE_REFRESH: 0, STATE_FAILED: 0, STATE_SKIPPED: 0}
+    restricted = []
+    for item in items.values():
+        by_state[item.state] = by_state.get(item.state, 0) + 1
+        if (item.note or "").startswith("robots_disallowed"):
+            restricted.append(item.url)
+    partial_docs = []
+    if layout.documents_path.is_file():
+        for row in read_jsonl(layout.documents_path):
+            if row.get("parse_status") == "partial":
+                partial_docs.append(row.get("doc_id") or row.get("source_url"))
+    manual = [row for row in open_rows if row.get("final_action") == "manual_review"]
+    by_action: dict = {}
+    for row in open_rows:
+        action = str(row.get("final_action") or "unknown")
+        by_action[action] = by_action.get(action, 0) + 1
+    summary = {
+        "events": len(rows),
+        "identities": len(latest),
+        "objects": len({_failure_object_key(row) for row in latest}),
+        "open": len(open_rows),
+        "manual": len(manual),
+        "open_by_action": dict(sorted(by_action.items())),
+        "pending_items": by_state,
+        "restricted_skips": len(restricted),
+        "partial_documents": len(partial_docs),
+    }
+    samples = {
+        "open": [_failure_sample(row) for row in open_rows[:3]],
+        "manual": [_failure_sample(row) for row in manual[:3]],
+        "restricted_skips": sorted(restricted)[:3],
+        "partial_documents": partial_docs[:3],
+    }
+    payload = {
+        "data_dir": str(data_dir),
+        "summary": summary,
+        "samples": samples,
+        "caliber": (
+            "事件=失败账行数；身份=来源+URL+阶段+范围+母文档；对象=身份去掉阶段；"
+            "待处理=manifests/pending_items.json 状态计数；受限跳过=待处理项中 "
+            "robots_disallowed 记录；partial=normalized/documents.jsonl 的 parse_status；"
+            "从属对象（附件/分页）以 doc_id/referrer_url 归属其母文档"
+        ),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return EXIT_OK
+    print(f"错误摘要 {data_dir}：")
+    print(
+        f"  失败账：事件 {summary['events']} 行／身份 {summary['identities']}／"
+        f"对象 {summary['objects']}；未关闭 {summary['open']}"
+        + (f"（{'，'.join(f'{k}={v}' for k, v in summary['open_by_action'].items())}）"
+           if summary["open_by_action"] else "")
+    )
+    print(f"  人工处理对象：{summary['manual']}")
+    print(
+        "  待处理队列："
+        + "，".join(f"{key}={value}" for key, value in summary["pending_items"].items())
+    )
+    print(f"  受限跳过（robots_disallowed）：{summary['restricted_skips']}")
+    print(f"  partial 文档：{summary['partial_documents']}")
+    for label, key in (("未关闭样例", "open"), ("人工样例", "manual")):
+        for sample in samples[key]:
+            print(f"    {label}：{sample}")
+    print(f"  口径：{payload['caliber']}")
+    return EXIT_OK
+
+
+def _failure_sample(row) -> str:
+    """样例身份：来源 + 阶段 + URL（+ 范围/母文档）。"""
+    parts = [f"{row.get('source_id')}", f"{row.get('stage')}", f"{row.get('url')}"]
+    if row.get("scope_start_date"):
+        parts.append(f"scope={row['scope_start_date']}")
+    if row.get("doc_id"):
+        parts.append(f"doc={row['doc_id']}")
+    return " ".join(str(part) for part in parts)
 
 
 def _cmd_resolve(args) -> int:

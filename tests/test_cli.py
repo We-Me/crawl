@@ -257,6 +257,7 @@ def test_cli_check_reports_queue_reconciliation(cli_env, capsys):
         "items_total": 0,
         "items_by_state": {},
         "open_failures": 0,
+        "open_failures_by_stage": {},
         "problems": [],
     }
 
@@ -551,3 +552,135 @@ def test_cli_resolve_manual_review_keeps_failure_visible(cli_env, tmp_path, caps
     plan = json.loads(capsys.readouterr().out)
     assert plan["summary"] == {"manual": 1}
     assert "manual_review" in plan["tasks"][0]["reason"]
+
+
+def test_cli_failures_locates_by_scope_and_doc_id(cli_env, capsys):
+    """S7-02：失败可按原运行范围与母文档/对象身份定位，不只按 URL。"""
+    _record_failure(cli_env, doc_id="DOC-1", scope_start_date="2026-09-06")
+    _record_failure(
+        cli_env,
+        url="https://example.invalid/b.pdf",
+        doc_id="DOC-2",
+        scope_start_date="2026-09-07",
+    )
+
+    assert main(["failures", "--doc-id", "DOC-2", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["open"] == 1 and payload["shown"] == 1
+    assert payload["rows"][0]["doc_id"] == "DOC-2"
+    assert (payload["events"], payload["identities"], payload["objects"]) == (1, 1, 1)
+
+    assert main(["failures", "--scope-start-date", "2026-09-06", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shown"] == 1 and payload["rows"][0]["doc_id"] == "DOC-1"
+
+
+def test_cli_failures_shows_next_action(cli_env, capsys):
+    """S7-02：每条未关闭失败带下一动作（补抓计划口径），不支持的续接转人工。"""
+    _record_failure(cli_env)
+    _record_failure(
+        cli_env,
+        url="https://example.invalid/b.pdf",
+        stage="parse",
+        error_type="continuation_not_html",
+        final_action="record_only",
+    )
+
+    assert main(["failures"]) == 0
+    out = capsys.readouterr().out
+    assert "next=refetch" in out
+    assert "next=manual" in out
+    assert "口径：事件 2 行／身份 2／对象 2" in out
+
+
+def test_cli_failures_summary_reports_calibers(cli_env, capsys):
+    """S7-02：有界错误摘要给出开放/人工/待处理/受限跳过/partial 与聚合口径。"""
+    from crawler.output.layout import DeliveryLayout
+
+    _record_failure(cli_env)
+    _record_failure(cli_env, url="https://example.invalid/b.pdf", final_action="manual_review")
+
+    layout = DeliveryLayout(cli_env)
+    layout.pending_path.parent.mkdir(parents=True, exist_ok=True)
+    layout.pending_path.write_text(
+        json.dumps(
+            {
+                "version": "0.1.0",
+                "items": {
+                    "k1": {
+                        "key": "k1",
+                        "source_id": "TESTSRC",
+                        "kind": "target",
+                        "url": "https://example.invalid/c.html",
+                        "state": "skipped",
+                        "note": "robots_disallowed:/",
+                    },
+                    "k2": {
+                        "key": "k2",
+                        "source_id": "TESTSRC",
+                        "kind": "target",
+                        "url": "https://example.invalid/d.html",
+                        "state": "pending",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    layout.documents_path.parent.mkdir(parents=True, exist_ok=True)
+    layout.documents_path.write_text(
+        json.dumps({"doc_id": "D1", "parse_status": "partial"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    assert main(["failures", "--summary", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    summary = payload["summary"]
+    assert summary["open"] == 2 and summary["manual"] == 1
+    assert summary["open_by_action"] == {"manual_review": 1, "retry_later": 1}
+    assert summary["pending_items"] == {
+        "pending": 1,
+        "refresh": 0,
+        "failed": 0,
+        "skipped": 1,
+    }
+    assert summary["restricted_skips"] == 1
+    assert summary["partial_documents"] == 1
+    assert "事件=失败账行数" in payload["caliber"]
+    assert payload["samples"]["open"] and payload["samples"]["partial_documents"] == ["D1"]
+
+    assert main(["failures", "--summary"]) == 0
+    out = capsys.readouterr().out
+    assert "错误摘要" in out and "受限跳过（robots_disallowed）：1" in out and "partial 文档：1" in out
+
+
+def test_cli_fails_loudly_when_failure_ledger_write_fails(
+    cli_env, site_server, tmp_path, monkeypatch, capsys
+):
+    """S7-02：失败账写不进去时必须显式失败，不能继续按成功报告。"""
+    import crawler.output.failures_writer as writer_module
+
+    config = _write_sources(tmp_path / "sources.yaml", site_server)
+
+    def boom(path, rows):
+        raise OSError("磁盘只读")
+
+    monkeypatch.setattr(writer_module, "append_jsonl", boom)
+
+    code = main(
+        [
+            "collect",
+            "--source",
+            "TESTSRC",
+            "--config",
+            str(config),
+            "--url",
+            f"{site_server}/missing-page.html",
+        ]
+    )
+
+    assert code == 2, "失败账写入失败应以环境错误退出，而不是报告采集成功"
+    captured = capsys.readouterr()
+    assert "失败账写入失败" in captured.err
+    assert "采集完成" not in captured.out
