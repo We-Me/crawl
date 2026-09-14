@@ -4,7 +4,7 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 raw-first-development.md、stage-seven.md、stage-six.md、stage-five.md、spec.md、plan.md、tasks.md、tech-stack.md、project-startup.md、uv-template.md、structure-comparison.md 和 decision-requests.md。stage-seven.md 是当前唯一任务顺序和基础成品退出条件入口；stage-six.md 保留上一阶段实现和证据；stage-five.md 是已提交功能的阶段摘要；continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md 用于按需追溯历史，clarifications.md 保留原 Q 编号，不作为重新确认全部决定的清单。四份业务输入在 docs/；保留来源，不以历史状态覆盖用户最新决定。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 raw-first-development.md、stage-seven.md、stage-six.md、stage-five.md、spec.md、plan.md、tasks.md、tech-stack.md、project-startup.md、uv-template.md、structure-comparison.md 和 decision-requests.md。stage-seven.md 是当前唯一代码收尾顺序和原型退出条件入口；stage-six.md 保留上一阶段实现和证据；stage-five.md 是已提交功能的阶段摘要；continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md 用于按需追溯历史，clarifications.md 保留原 Q 编号，不作为重新确认全部决定的清单。四份业务输入在 docs/；保留来源，不以历史状态覆盖用户最新决定。
 
 ## 开发约束
 
@@ -24,7 +24,7 @@
 
 ## 阶段续作约束
 
-- DEV-013：当前按 stage-seven.md 完成四项审查问题与错误账闭环，目标是基础采集成品交付。不得以覆盖所有异常、消灭全部 issue 或清空失败账作为完成条件。静默丢原件、错误成功、跨对象误关闭及追溯破坏必须修复或可靠隔离；其他可控异常允许有限重试、人工处置与明确披露后交付。满足阶段七退出条件即结束本阶段开发，转为实际问题驱动维护；软件交付与特定来源窗口的数据完整性分别报告，不自动开启新阶段或部署。
+- DEV-013：当前按 stage-seven.md 的 P7-01—P7-03 修复三个后审查代码缺口，目标是尽快交付采集原型；保留已有成果，不重做旧 S7-01/02/03。本轮不主动调查代理/网站许可或补抓缺失数据，外部错误按 manual-follow-up.md 交由人工处理，不阻断原型。不得以覆盖所有异常、消灭全部 issue 或清空失败账作为完成条件。静默丢原件、错误成功、跨对象误关闭及追溯破坏必须修复或可靠隔离；其他可控异常允许有限重试、人工处置与明确披露后交付。满足阶段七退出条件即结束本阶段开发，转为实际问题驱动维护；软件交付与特定来源窗口的数据完整性分别报告，不自动开启新阶段或部署。
 
 - DEV-010：每轮选择明确交付物，按 stage-seven.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
 - DEV-011：NEXT-09 工程交接清单（delivery-inventory.md）与 NEXT-05A 决策确认栏（decision-requests.md）已交付；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；NEXT-04/T012 已完成，NEXT-10 已由本轮用户决定明确；61e34d8 已实现发现抽象、时间参数和最小分块；b6041ea 已补归档/游标/队列；阶段六 R1—R6 已修复并验证（提交与证据见 stage-six.md），不等待旧确认栏中的重复决定，业务待决只阻断受影响工作，不触发泛化加固循环。
@@ -50,6 +50,6 @@
 
 旧“九来源队列全清/入口无新增”不等于窗口完整。原六项修复属于阶段六，方案与故障注入场景保留在 stage-six.md；后续四项审查问题与基础成品完成标准归入 stage-seven.md；stage-five-history.md 和 continuation.md 是历史记录，不能触发无目标的逐小时巡检。业务代码已按 stage-six.md 完成六项修复并留有证据。已有数据只做只读评估，不批量改写以制造通过。
 
-## 阶段七完成（2026-09-14）
+## 阶段七前轮完成记录（2026-09-14，历史）
 
-阶段七已按 stage-seven.md 实施并验证：规划提交 1714184 为基线，实现提交 cc7a380（S7-01 四项修复）、51b66dc（S7-02 错误处置）、9ba6733（S7-03 有界闭环、证据与文档）与收口提交（规划对齐与交付收口：阶段身份对账、不支持续接转人工、错误定位与有界摘要；提交号以 git log 为准）。四项退出条件逐条有证据（复现 23 failed → 定向 87 passed、全量 514 passed、9 步闭环、文档/契约检查 PASS，见 stage-seven.md 执行状态与 evidence/stage-seven-delivery.md）。软件成品可交付与来源窗口数据完整性分开：T019/T026/T027 仍为部分完成，18 来源中 9 个为有限窗口验证、9 个访问受限（Q12/Q13、代理豁免等待用户处理）。已满足退出条件，转入实际问题驱动的维护，不自动开启阶段八、不部署、不推送；已有 data/ 继续只读，不改写历史日志。
+阶段七已按 stage-seven.md 实施并验证：规划提交 1714184 为基线，实现提交 cc7a380（S7-01 四项修复）、51b66dc（S7-02 错误处置）、9ba6733（S7-03 有界闭环、证据与文档）与收口提交（规划对齐与交付收口：阶段身份对账、不支持续接转人工、错误定位与有界摘要；提交号以 git log 为准）。四项退出条件逐条有证据（复现 23 failed → 定向 87 passed、全量 514 passed、9 步闭环、文档/契约检查 PASS，见 stage-seven.md 执行状态与 evidence/stage-seven-delivery.md）。软件成品可交付与来源窗口数据完整性分开：T019/T026/T027 仍为部分完成，18 来源中 9 个为有限窗口验证、9 个访问受限（Q12/Q13、代理豁免等待用户处理）。上述为 c752807 时点的完成判断；后审查发现的三个代码问题仍按 stage-seven.md 待修复，当前原型退出条件尚未满足。旧条件曾满足并转入实际问题驱动的维护，不自动开启阶段八、不部署、不推送；已有 data/ 继续只读，不改写历史日志。

@@ -1,19 +1,19 @@
 # 公开知识采集项目 SDD 文档说明
 
-更新：2026-09-14。当前开发阶段：**阶段七，已实施并验证，四项退出条件满足**（状态、提交与证据见 [阶段七](specs/001-public-knowledge-collection/stage-seven.md) 执行状态；阶段七计划提交 `1714184` 为本分支基线）。本文说明当前使用方式；前面阶段的原说明和调度记录已保存在 [SDD 历史说明](SDD历史说明.md)，各阶段文件与原始证据继续保留。
+更新：2026-09-14。当前开发阶段：**阶段七原型收尾，三个已确认代码缺口待修复**。保留 c752807 及以前的实现与测试成果；前轮完成判断见 [阶段七历史记录](specs/001-public-knowledge-collection/stage-seven-history.md)，本轮以用户最新原型目标为准。
 
 ## 当前开发入口
 
 从 [AGENTS.md](AGENTS.md) 开始，阅读 [用户范围决定](specs/001-public-knowledge-collection/raw-first-development.md)，然后仅按 [阶段七](specs/001-public-knowledge-collection/stage-seven.md) 选择任务和验收。spec/plan/tasks 保存需求、设计、编号和证据，不另维护一套阶段待办。
 
-阶段七包含：四项审查问题的有限修复、现有错误账与重试/人工处置闭环、基础采集成品验收。满足阶段七退出条件即可结束本阶段开发；不以穷尽所有异常、修复全部 issue 或清空失败账作为完成条件。关键原件留存、追溯和状态真实性仍须保证，可控异常允许留账交付。软件可交付与某来源某时间窗口的数据完整性分别说明。
+阶段七当前只处理后审查三个代码问题并交付采集原型；不再执行旧 S7-01/02/03 待办。外部访问、代理、许可及缺失数据按 [人工补齐清单](specs/001-public-knowledge-collection/manual-follow-up.md) 交接，不主动联网诊断或扩站。满足阶段七退出条件即可结束本阶段开发；不以穷尽所有异常、修复全部 issue 或清空失败账作为完成条件。关键原件留存、追溯和状态真实性仍须保证，可控异常允许留账交付。软件可交付与某来源某时间窗口的数据完整性分别说明。
 
 ## 当前范围与环境
 
 - 范围：登记的全部 18 来源、运行时起始时间、按站发现、采集归档、标准化、独立结构块/div 空行的最小分块和追溯。RAG、高级后处理质量及最终发布部署暂缓。
 - 已有代码、正式 crawl CLI、uv 锁定环境、来源适配、分页/队列、增量与恢复能力；18 来源都有登记不等于全部来源已通过数据完整性验收。
 - 环境沿用 tech-stack 中的 CPython 3.9.25 与现有依赖，使用登记镜像和 uv；不重新选框架或复制空模板覆盖锁文件。目标 Linux/WSL 的 LibreOffice 已完成组件及真实转换验证，T012 不再等待安装。
-- 阶段六的定向 103 passed、完整回归 492 passed 是对应提交的历史证据；阶段七已按自身证据（复现 23 failed → 定向 87 passed、全量 514 passed）验收软件成品，业务数据验收状态仍按 T019/T026/T027 分别记录。
+- 阶段六的定向 103 passed、完整回归 492 passed 是对应提交的历史证据；阶段七前轮证据（复现 23 failed → 定向 87 passed、全量 514 passed）保留其提交范围，本轮三个缺口不得据此标为已修复，业务数据验收状态仍按 T019/T026/T027 分别记录。
 
 ## 阶段记录及职责
 
@@ -25,7 +25,7 @@
 | 阶段四 | 交接清单与决策记录；旧格式转换在后续完成 | 保留阶段事实；原“等安装/等全部决定”不再适用 |
 | 阶段五 | 发现归档、游标、队列、附件推进等实现 | stage-five 保存摘要，stage-five-history 保存运行过程 |
 | 阶段六 | R1—R6 修复、故障验证及历史数据只读评估 | stage-six 保存已提交成果；后审查发现转入阶段七 |
-| **阶段七** | **四项问题、错误账闭环、基础成品交付** | **唯一当前执行与退出条件入口；已实施并验证，四项退出条件满足** |
+| **阶段七原型收尾** | **保留已有成果，仅修三个代码缺口；外部错误转人工** | **唯一当前执行入口，三个原型退出条件待验证** |
 
 不因阶段编号推进修改历史测试日志，不将旧“工程完成/队列清空”解释为全站完整。T019/T026/T027 的业务数据验收与本轮基础软件交付分别记录，范围外任务不阻塞基础成品。
 
@@ -34,7 +34,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | [项目原则](.specify/memory/constitution.md) / [需求规格](specs/001-public-knowledge-collection/spec.md) | 需求依据、治理和当前适用边界 |
-| [阶段七](specs/001-public-knowledge-collection/stage-seven.md) | 当前任务、错误处置与成品退出条件 |
+| [阶段七](specs/001-public-knowledge-collection/stage-seven.md) | 当前代码收尾、人工补齐边界与原型退出条件 |
 | [技术设计](specs/001-public-knowledge-collection/plan.md) / [任务追踪](specs/001-public-knowledge-collection/tasks.md) | 模块职责、原 T 编号与实施证据 |
 | [技术栈](specs/001-public-knowledge-collection/tech-stack.md) | 已验证环境、依赖选择及升级约束 |
 | [起步与目录](specs/001-public-knowledge-collection/project-startup.md) / [uv 模板](specs/001-public-knowledge-collection/uv-template.md) | 环境变量、数据根和新项目模板；现有项目复用配置 |
