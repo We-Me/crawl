@@ -1,0 +1,44 @@
+[1-发现并预算停止] exit=3 collect --source TESTSRC --entry-url http://127.0.0.1:36897/index.html --start-date 2026-09-01 --max-requests 3 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 3, "resources": 2, "documents": 0, "blocks": 0, "failures": 0, "skipped": 1, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": "request_budget", "message": "运行已发出 3 个请求，达到请求上限 3", "unprocessed": 2}
+[2-续作完成归档与最小分块] exit=1 collect --source TESTSRC --entry-url http://127.0.0.1:36897/index.html --start-date 2026-09-01 --max-items 3 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 7, "resources": 5, "documents": 2, "blocks": 16, "failures": 1, "skipped": 1, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    failure={"stage": "fetch", "error_type": "http_error", "url": "http://127.0.0.1:36897/attachments/unavailable.pdf", "doc_id": "TESTSRC_20260914_0005"}
+[3a-临时失败入账] exit=1 collect --source TESTSRC --url http://127.0.0.1:36897/_flaky/1 --start-date 2026-09-01 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 2, "resources": 0, "documents": 0, "blocks": 0, "failures": 1, "skipped": 0, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    failure={"stage": "fetch", "error_type": "http_error", "url": "http://127.0.0.1:36897/_flaky/1", "doc_id": null}
+[3b-补抓计划] exit=0 plan --source TESTSRC --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"manual": 1, "refetch": 1}
+[3c-补抓恢复] exit=1 resume --source TESTSRC --config /tmp/crawl-s7-prototype-loop/sources.yaml --max-tasks 5 --json
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    recovered=1 failed=0 manual=1 pending=0
+[3d-真实失败队列对象入账] exit=1 collect --source TESTSRC --url http://127.0.0.1:36897/_flaky/3 --start-date 2026-09-01 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 2, "resources": 0, "documents": 0, "blocks": 0, "failures": 1, "skipped": 0, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    failure={"stage": "fetch", "error_type": "http_error", "url": "http://127.0.0.1:36897/_flaky/3", "doc_id": null}
+[3e-人工处置同步队列（skip）] exit=0 resolve --url http://127.0.0.1:36897/_flaky/3 --source TESTSRC --stage fetch --scope-start-date 2026-09-01 --action skip --note 闭环示例：确认该地址不再重试 --json
+    recorded={"url": "http://127.0.0.1:36897/_flaky/3", "stage": "fetch", "final_action": "skip", "message": "闭环示例：确认该地址不再重试", "doc_id": null}
+[3f-多身份入账 scope=2026-09-01] exit=1 collect --source TESTSRC --url http://127.0.0.1:36897/_flaky/2 --start-date 2026-09-01 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 2, "resources": 0, "documents": 0, "blocks": 0, "failures": 1, "skipped": 0, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    failure={"stage": "fetch", "error_type": "http_error", "url": "http://127.0.0.1:36897/_flaky/2", "doc_id": null}
+[3f-多身份入账 scope=2026-09-15] exit=1 collect --source TESTSRC --url http://127.0.0.1:36897/_flaky/2 --start-date 2026-09-15 --config /tmp/crawl-s7-prototype-loop/sources.yaml --json
+    {"requests": 2, "resources": 0, "documents": 0, "blocks": 0, "failures": 1, "skipped": 0, "not_modified": 0, "out_of_window": 0}
+    stop={"reason": null, "message": "", "unprocessed": 0}
+    failure={"stage": "fetch", "error_type": "http_error", "url": "http://127.0.0.1:36897/_flaky/2", "doc_id": null}
+[3g-未指定归属必须报错] exit=2 resolve --url http://127.0.0.1:36897/_flaky/2 --source TESTSRC --stage fetch --action skip --json
+[3h-显式空值身份选中] exit=0 resolve --url http://127.0.0.1:36897/_flaky/2 --source TESTSRC --stage fetch --scope-start-date 2026-09-01 --doc-id  --action skip --note 闭环示例：只处置该范围内该 URL 的空 doc_id 身份 --json
+    recorded={"url": "http://127.0.0.1:36897/_flaky/2", "stage": "fetch", "final_action": "skip", "message": "闭环示例：只处置该范围内该 URL 的空 doc_id 身份", "doc_id": null}
+[3i-另一身份单独处置] exit=0 resolve --url http://127.0.0.1:36897/_flaky/2 --source TESTSRC --stage fetch --scope-start-date 2026-09-15 --action skip --note 闭环示例：另一范围单独处置 --json
+    recorded={"url": "http://127.0.0.1:36897/_flaky/2", "stage": "fetch", "final_action": "skip", "message": "闭环示例：另一范围单独处置", "doc_id": null}
+[4a-失败定位] exit=0 failures --source TESTSRC --json
+    open=1 shown=1 by_action={"record_only": 1, "recovered": 1, "skip": 3}
+[4b-人工处置（skip）] exit=0 resolve --url http://127.0.0.1:36897/attachments/unavailable.pdf --source TESTSRC --stage fetch --doc-id TESTSRC_20260914_0005 --scope-start-date 2026-09-01 --action skip --note 闭环示例：确认页面缺失，跳过 --json
+    recorded={"url": "http://127.0.0.1:36897/attachments/unavailable.pdf", "stage": "fetch", "final_action": "skip", "message": "闭环示例：确认页面缺失，跳过", "doc_id": "TESTSRC_20260914_0005"}
+[4c-处置结果查询] exit=0 failures --source TESTSRC --url http://127.0.0.1:36897/attachments/unavailable.pdf --all --json
+    open=0 shown=2 by_action={"skip": 1}
+[5-对账] exit=0 check --json
+    ok=True reconcile={"ok": true, "items_total": 6, "items_by_state": {"processed": 3, "skipped": 3}, "open_failures": 0, "open_failures_by_stage": {}, "problems": []}
+逐步记录已写入 /tmp/s7-prototype-loop.json

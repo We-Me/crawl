@@ -1,6 +1,6 @@
 # 开发验证证据
 
-> 当前：阶段七原型收尾，P7-01—P7-03 尚待修复验证；下方前轮完成和 514 passed 仅适用于 c752807 及以前。当前计划见 [阶段七](../stage-seven.md)，外部问题见 [人工补齐](../manual-follow-up.md)。原日志不改写。
+> 当前：阶段七原型已交付，P7-01—P7-03 已修复并验证（实现提交 `e4e5c39`，见 [原型收尾证据](stage-seven-prototype.md)）；下方前轮完成和 514 passed 仅适用于 c752807 及以前。当前入口见 [阶段七](../stage-seven.md)，外部问题见 [人工补齐](../manual-follow-up.md)。原日志不改写。
 
 
 
@@ -36,6 +36,7 @@ NOT RUN 状态，也不表示 clarifications.md 的 Q 项业务决策已解决�
 | [阶段六 R1—R6 一致性修复](stage-six-r1-r6.md) | R1—R6 / S5-01、S5-03、S5-04、S5-06：复查覆盖、正文待续、归档事务锁、发现提交顺序、显式恢复判定、损坏状态失败（关联 T005/T006/T007/T015/T016/T019 的工程部分） | 六项修复已提交（`f53a899`、`8bbbdda`、`ec2edd3`、`9f74bd1`、`b925705`）并通过离线夹具验证：定向 103 passed、完整回归 492 passed，见 [logs/stage-six-full-pytest.txt](logs/stage-six-full-pytest.txt)；T019/T026/T027 仍为部分完成 |
 | [阶段六历史数据只读影响评估](stage-six-historical-impact.md) | R3/R5/R1/R4/R2 遗留：现有 data/ 的重复身份、旧失败账、旧游标、旧 partial 与附件状态滞后 | 只读评估（`crawl check` ok、`plan` refetch 4；检查前后非 raw 输入字节一致），列出受影响身份与选项，未执行任何迁移 |
 | [阶段七交付证据](stage-seven-delivery.md) | S7-01—S7-03：四项审查问题修复、六项错误处置能力、有界闭环与候选回归（关联 T016/T019/T027 的工程部分） | 复现 16 failed → 定向 80 passed、全量 507 passed；本机闭环 9 步、正式数据根只读 `check ok=true`；T019/T026/T027 仍为部分完成，9/18 来源受限 |
+| [阶段七原型收尾证据](stage-seven-prototype.md) | P7-01—P7-03：附件与正文恢复隔离、`resolve` 队列协调、空身份选中（关联 T006/T015/T016/T019/T027 的工程部分） | 定向 4/8/2 项、全量 523 passed、扩展闭环最终 `check ok=True`（[日志](logs/stage-seven-prototype-tests.txt)、[闭环逐步](logs/stage-seven-prototype-loop.txt)）；T019/T026/T027 仍为部分完成 |
 
 原始输出摘要在 [logs/](logs/) 目录；命令可在同一仓库状态下复跑。
 
@@ -123,3 +124,10 @@ S7-02 错误处置能力补齐（`51b66dc`：`crawl failures`、`crawl resolve`�
 [正式数据根只读评估](logs/stage-seven-readonly-check.txt)（含 `failures --summary` 与
 `open_failures_by_stage`）。未新增真实站点请求，已有 data/ 只读；契约未改动。
 T019/T026/T027 与 18 来源状态（9 个有限窗口验证、9 个访问受限）不因本记录改变。
+
+阶段七原型收尾（同日后续，实现提交 `e4e5c39`）：P7-01—P7-03 三项后审查缺口修复——
+附件与正文恢复隔离（附件恢复不再误关仍待续母页；失败账新增可选 `discovery_method`；身份不足转人工）、
+`crawl resolve` 按同一身份协调失败账与队列（其他开放阶段不误关、`manual_review` 不自动补抓、写入失败可重复恢复）、
+空身份可用显式空字符串选中。证据见 [阶段七原型收尾证据](stage-seven-prototype.md)：
+[定向与全量](logs/stage-seven-prototype-tests.txt)、[扩展闭环逐步](logs/stage-seven-prototype-loop.txt)
+（最终 `check ok=True`，`open_failures=0`）。未新增真实站点请求，已有 data/ 只读。

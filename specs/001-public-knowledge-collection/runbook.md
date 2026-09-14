@@ -2,9 +2,9 @@
 
 ## 当前原型使用与收尾边界（2026-09-14）
 
-当前仅按 [阶段七](stage-seven.md) 修复后审查三个代码缺口。原采集 CLI 与前轮 514 项验证成果保留；原型收尾尚未验收，不能据旧报告宣称这些新问题已经解决。
+阶段七原型已按 [阶段七](stage-seven.md) 完成：后审查三个代码缺口（附件与正文恢复隔离、`resolve` 队列联动、空值身份选中）修复并验证（实现提交 `e4e5c39`，见 [原型收尾证据](evidence/stage-seven-prototype.md)）；原采集 CLI 与前轮验证成果保留。已满足退出条件，本轮开发结束，转入实际问题驱动维护。
 
-修复前，附件补抓可能影响待续母页，resolve 可能关闭账本却未同步队列，空值身份可能无法选中；不要依赖这些路径自动关闭重要未完成任务，不手改 JSONL 绕过。代码收尾后更新本节和实际命令例子。`failures --summary --source` 的队列/partial 数量目前仍为全数据根口径，不作为单来源完整性证据。
+现在的行为：附件补抓只处置附件自身，仍待续母页保持 pending 与续作位置；`resolve` 按完整身份同步队列（同对象仍有其他开放阶段时保持 failed 并明确报告；`manual_review` 不自动补抓）；同 URL 多身份可用显式空字符串选中（`--doc-id ''`）。`failures --summary --source` 的队列/partial 数量仍为全数据根口径，不作为单来源完整性证据。
 
 网站/代理/许可及缺失原件、partial 数据由维护人员按 [人工补齐清单](manual-follow-up.md) 后续处理；本轮不主动线上排障或重抓，不等待外部条件恢复才交付原型。
 
@@ -141,7 +141,22 @@ crawl check [--require-nonempty] [--json]       # 交付校验（六项成果、
   `--scope-start-date`/`--doc-id` 定位到单条身份（这两项也可用于 `crawl resolve`）。
 - `crawl resolve` 按**显式身份**追加一行处置：`recovered`（已恢复）、`skip`（确认跳过）、
   `manual_review`（保持未关闭、等待人工）。记录里带值的身份维度必须显式给出；写不全时以退出码 2
-  拒绝并列出该 URL 的现有身份（宁可不动，不按 URL 全局关闭）。处置只追加，不删除或改写历史失败行。
+  拒绝并列出该 URL 的现有身份与可复制命令（宁可不动，不按 URL 全局关闭）。处置只追加，不删除或
+  改写历史失败行。
+- `crawl resolve` 追加处置行后按**同一身份**协调队列（P7-02）：`skip → skipped`、`recovered →
+  processed`；同对象仍有其他未关闭阶段时队列保持现状并报告 `kept_open` 阶段（不误关未完成对象）；
+  对象仍有正文待续（continuation）时 `recovered` 只关闭本次失败、对象保持 pending 继续续作；
+  队列回写失败以退出码 2 明确报告，处置行保留，修复后重复执行同一命令即可（幂等）。
+- 身份字段为空的记录用**显式空字符串**选中（P7-03），例如同 URL 同时有带/不带 `doc_id` 的记录时：
+
+  ```bash
+  crawl failures --url URL --doc-id ''                                  # 只看没有 doc_id 的身份
+  crawl resolve --url URL --action skip --source ID --stage fetch \
+      --scope-start-date '' --doc-id ''                                 # 只处置该空值身份
+  ```
+
+  未显式给空值时（参数缺省）表示“未指定”；存在多条身份会以退出码 2 拒绝，不会猜测。报错信息里
+  每个身份都附一条可直接复制的 `crawl resolve` 命令。
 - `crawl failures --summary` 输出一次**有界错误摘要**：开放失败、人工处理、受限跳过、待处理队列与
   partial 文档的数量和样例身份；摘要注明聚合口径（事件 = 失败账行数；身份 = 来源 + URL + 阶段 + 范围 +
   母文档；对象 = 身份去掉阶段），并区分事件数与对象数。只读、按需运行，无常驻监控。

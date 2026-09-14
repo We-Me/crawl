@@ -1,0 +1,10 @@
+# 阶段七原型收尾 SDD 文档一致性检查（2026-09-14）
+
+命令（项目根目录）：
+uv --cache-dir /tmp/uv-cache run --locked --no-python-downloads python tools/verify_sdd_documents.py
+
+输出：
+{"status": "PASS", "requirements": 37, "tasks": 27, "acceptance_cases": 37, "open_decisions": 17, "common_requirements": 17, "markdown_files": 68, "local_links_checked": 968, "source_hashes_verified": 4, "demo_manifests": 2, "demo_documents": 2, "demo_blocks": 3, "demo_failures": 1, "scope": "documentation and fictional fixtures only"}
+
+说明：该检查只验证文档结构、本地链接、任务编号、四份输入指纹与虚构样例数据一致性，不访问业务
+站点，不等同软件或数据验收。

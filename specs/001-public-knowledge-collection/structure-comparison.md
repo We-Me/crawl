@@ -137,6 +137,8 @@ manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与�
 | R4 | 发现终止原因 `commit_failed`、`cursor_save_failed`、`entry_busy` | 新增运行期取值：入队失败不推进游标、游标保存失败可重放、同入口并发运行显式拒绝；旧数据不受影响 |
 | R5 | `manifests/failed_records.jsonl`：可选 `doc_id`；恢复任务 `doc_id` | 新增可选字段；恢复/对账身份统一为 `(url, stage, scope_start_date, doc_id)`，字段缺失按 None。旧行可能因此保持未关闭（见只读评估：4 项），这是保守行为，不按 URL 批量误关 |
 | R6 | 无字段变化 | `crawl check`/`reconcile_queue_and_failures` 对损坏状态文件报错并返回非零：读取/解析/结构错误进入 `problems`，合法缺失与合法空状态仍按零记录；检查只读 |
+| P7-01 | `manifests/failed_records.jsonl`：可选 `discovery_method` | 新增可选字段，标注失败对象种类（`attachment`/`pagination`/`api` 等，与 manifest 同名词汇）；恢复关联据此与待续位置证明区分对象类型，旧行缺省时仍按 URL 恢复、不按 doc_id 猜关联。字段可选，读取兼容 |
+| P7-02/P7-03 | CLI 输出与身份参数口径 | `resolve --json` 新增 `queue` 段（身份、matched/updated/unchanged、status）并同步同身份待处理项；`--source/--stage/--scope-start-date/--doc-id` 区分未指定（缺省）与显式空字符串（选中空值身份）。失败账与队列字段本身未变，不涉及交付成果格式变更 |
 
 兼容性结论：`documents.jsonl`/`blocks.jsonl`/`crawl_manifest.jsonl` 基础字段与必填层级未变；旧运行状态文件
 可按缺省值读取，不需要为读取而迁移。历史数据的重复身份、旧失败账、旧游标、旧 partial 与附件状态滞后
