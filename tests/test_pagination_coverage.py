@@ -279,38 +279,48 @@ def test_scope_fallback_is_reported_in_discovery_note(site_server, registry_fact
     assert any(row["final_url"].endswith("double_html_list.html") for row in rows)
 
 
-def test_completed_entry_head_check_skips_covered_pages(site_server, registry_factory, tmp_path):
-    """S5-06：已完成入口不再整入口重取；只核对入口页，已覆盖页不反复消耗预算。"""
+def test_completed_entry_recheck_advances_across_runs(site_server, registry_factory, tmp_path):
+    """R1：已完成入口不再停在入口页；复查轮按页数边界推进并跨轮覆盖整入口。"""
     registry = registry_factory(site_server, adapter={"max_pages": 1, "discovery": ["list"]})
     pipeline = make_pipeline(registry, tmp_path)
     entry = f"{site_server}/index.html"
+    manifest = tmp_path / "data" / "manifests" / "crawl_manifest.jsonl"
     first = pipeline.collect(
         "TESTSRC", entry_urls=[entry], include_attachments=False, max_pages=5
     )
     assert first.counters.documents == 2
-    cursors = DiscoveryCursorStore(tmp_path / "data").load()
-    cursor = next(iter(cursors.values()))
-    assert cursor.state == "completed" and cursor.pages_fetched == 2
+    cursor = next(iter(DiscoveryCursorStore(tmp_path / "data").load().values()))
+    assert cursor.state == "completed"
+    assert cursor.coverage_rounds == 1 and cursor.pass_pages == 0
 
-    manifest = tmp_path / "data" / "manifests" / "crawl_manifest.jsonl"
+    # 第二轮：从入口开始新一轮复查，页数边界内只覆盖第 1 页；未完成是显式停止原因
     before = len(read_jsonl(manifest))
     second = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
-
     stop = list_stop(second)
-    assert stop["stop"] == "incremental_head_checked" and stop["complete"] is True
-    assert stop["pages"] == 1, "增量核对只取入口页，不重取已覆盖的第 2 页"
-    assert second.counters.documents == 0, "入口页无新增时不重复采集已处理目标"
+    assert stop["stop"] == "max_pages_reached" and stop["complete"] is False
+    assert stop["round_pages"] == 1 and stop["coverage_rounds"] == 1
+    assert stop["next_url"] == f"{site_server}/page2.html"
+    assert second.coverage["queue"]["refreshed"] == 1, "已登记目标进入复查（refresh）而非跳过"
     rows = read_jsonl(manifest)[before:]
     discovery_rows = [row for row in rows if "/discovery/" in row["raw_path"]]
     assert [row["final_url"] for row in discovery_rows] == [entry]
-    refreshed = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
-    assert refreshed.state == "completed", "增量核对不把已完成的遍历改写成截断"
-    assert refreshed.pages_fetched == 2, "增量核对不累计覆盖页数"
-    assert "增量核对" in refreshed.note and "上次终点" in refreshed.note
+    cursor = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
+    assert cursor.state == "active" and cursor.next_url == f"{site_server}/page2.html"
+    assert cursor.pass_pages == 1 and cursor.coverage_rounds == 1
+
+    # 第三轮：从续接页覆盖到终点，覆盖轮 +1；下一轮重新从入口开始
+    third = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
+    stop = list_stop(third)
+    assert stop["stop"] == "end_of_pages" and stop["complete"] is True
+    assert stop["pages"] == 1 and stop["coverage_rounds"] == 2
+    cursor = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
+    assert cursor.state == "completed" and cursor.coverage_rounds == 2 and cursor.pass_pages == 0
 
 
-def test_head_check_continues_while_new_targets_appear(mutable_site, registry_factory, tmp_path):
-    """S5-06：入口页出现新目标时继续向后核对，遇到全为已登记目标的页才停。"""
+def test_recheck_uses_new_links_and_refresh_as_separate_states(
+    mutable_site, registry_factory, tmp_path
+):
+    """R1：入口页 URL 未变不停止；新链接入队与已登记目标复查是两条独立状态。"""
     site_server, root = mutable_site
     registry = registry_factory(site_server, adapter={"max_pages": 2, "discovery": ["list"]})
     pipeline = make_pipeline(registry, tmp_path)
@@ -351,7 +361,7 @@ def test_head_check_continues_while_new_targets_appear(mutable_site, registry_fa
     cursor = next(iter(DiscoveryCursorStore(tmp_path / "data").load().values()))
     assert cursor.state == "completed" and cursor.pages_fetched == 3
 
-    # 站点在入口前插入新条目：第 1 页有新目标，第 2 页整页都是已登记目标。
+    # 站点在入口前插入新条目：第 1 页有新目标；第 2 页整体为已登记目标
     (root / "hc_p1.html").write_text(
         listing.format(
             page="第 1 页",
@@ -363,22 +373,43 @@ def test_head_check_continues_while_new_targets_appear(mutable_site, registry_fa
         ),
         encoding="utf-8",
     )
+    (root / "hc_p2.html").write_text(
+        listing.format(
+            page="第 2 页",
+            items=(
+                '<li><a href="detail_2.html">公告二</a></li>'
+                '<li><a href="detail_paged_2.html">公告二·补录（新）</a></li>'
+            ),
+            next_link='<a rel="next" href="hc_p3.html">下一页</a>',
+        ),
+        encoding="utf-8",
+    )
 
     second = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
     stop = list_stop(second)
-    assert stop["stop"] == "incremental_head_checked" and stop["complete"] is True
-    assert stop["pages"] == 2, "第 1 页有新目标时继续核对第 2 页"
-    assert second.coverage["queue"]["added"] == 1
+    assert stop["stop"] == "max_pages_reached" and stop["complete"] is False
+    assert stop["pages"] == 2, "第 1 页无新链接也要继续核对第 2 页"
+    assert second.coverage["queue"]["added"] == 2, "第 1、2 页的新链接都入队"
+    assert second.coverage["queue"]["refreshed"] == 2, "已登记目标进入复查"
     documents = read_jsonl(tmp_path / "data" / "normalized" / "documents.jsonl")
-    assert documents[-1]["source_url"] == f"{site_server}/detail_adapter.html"
-    assert second.counters.documents == 1, "新目标照常采集；已登记目标复查为 304（不产出文档）"
-    assert second.counters.not_modified == 1
+    urls = {row["source_url"] for row in documents}
+    assert f"{site_server}/detail_adapter.html" in urls
+    assert f"{site_server}/detail_paged_2.html" in urls
+    assert second.counters.not_modified == 2, "未变化的已登记目标按条件请求复查（304 复用原件）"
+    assert second.counters.documents == 2, "复查为 304 的目标不重复产出文档；只有两个新目标落文档"
+
+    third = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
+    stop = list_stop(third)
+    assert stop["stop"] == "end_of_pages" and stop["complete"] is True
+    assert stop["coverage_rounds"] == 2, "续接页覆盖到终点后完成一轮复查"
     refreshed = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
-    assert refreshed.state == "completed" and refreshed.pages_fetched == 3
+    assert refreshed.state == "completed" and refreshed.pass_pages == 0
 
 
-def test_completed_search_head_check_skips_covered_pages(site_server, registry_factory, tmp_path):
-    """S5-06：检索入口同样按增量核对续接（start_url 由搜索模板渲染，不因而是整入口重取）。"""
+def test_completed_search_recheck_advances_and_refreshes(
+    site_server, registry_factory, tmp_path
+):
+    """R1：检索入口同样按覆盖轮推进；已登记结果复查而非整入口停在第一页。"""
     registry = registry_factory(
         site_server,
         search_url_template=f"{site_server}/search_paged?q={{query}}",
@@ -388,14 +419,23 @@ def test_completed_search_head_check_skips_covered_pages(site_server, registry_f
     first = pipeline.collect("TESTSRC", search_keywords=["边界"], include_attachments=False, max_pages=5)
     assert first.counters.documents == 2
     cursor = next(iter(DiscoveryCursorStore(tmp_path / "data").load().values()))
-    assert cursor.state == "completed" and cursor.pages_fetched == 2
+    assert cursor.state == "completed" and cursor.coverage_rounds == 1
 
     second = pipeline.collect("TESTSRC", search_keywords=["边界"], include_attachments=False)
     stop = next(
         row for row in second.coverage["discovery"]["stops"] if row["stage"] == "search"
     )
-    assert stop["stop"] == "incremental_head_checked" and stop["complete"] is True
-    assert stop["pages"] == 1
-    assert second.coverage["queue"] == {"added": 0, "refreshed": 0, "unchanged": 0}
-    refreshed = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
-    assert refreshed.state == "completed" and refreshed.pages_fetched == 2
+    assert stop["stop"] == "max_pages_reached" and stop["complete"] is False
+    assert stop["round_pages"] == 1
+    assert second.coverage["queue"] == {"added": 0, "refreshed": 1, "unchanged": 0}
+    cursor = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
+    assert cursor.state == "active" and "page=2" in cursor.next_url
+
+    third = pipeline.collect("TESTSRC", search_keywords=["边界"], include_attachments=False)
+    stop = next(
+        row for row in third.coverage["discovery"]["stops"] if row["stage"] == "search"
+    )
+    assert stop["stop"] == "end_of_pages" and stop["complete"] is True
+    assert stop["coverage_rounds"] == 2
+    cursor = DiscoveryCursorStore(tmp_path / "data").load()[cursor.key]
+    assert cursor.state == "completed" and cursor.pass_pages == 0

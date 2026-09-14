@@ -165,6 +165,82 @@ def test_targets_committed_when_cursor_save_fails_then_replay_is_idempotent(
     assert finished.state == "completed" and finished.pages_fetched == 3
 
 
+def test_scrambled_page_replay_is_recognized_without_refresh_conversion(
+    mutable_site, registry_factory, tmp_path, monkeypatch
+):
+    """无序结果：同页 URL 集合换序重放按提交摘要识别，幂等且不漏目标（R1/R4）。"""
+    site_server, root = mutable_site
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path)
+
+    def write_page_1(order):
+        items = "".join(
+            f'<li><a href="scramble_{name}.html">公告 {name.upper()}</a></li>'
+            for name in order
+        )
+        (root / "scramble_p1.html").write_text(
+            LISTING.format(
+                page="第 1 页",
+                items=items,
+                next_link='<a rel="next" href="scramble_p2.html">下一页</a>',
+            ),
+            encoding="utf-8",
+        )
+
+    for name in ("a", "b", "c"):
+        (root / f"scramble_{name}.html").write_text(
+            "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+            f"<title>虚构公告 {name.upper()}</title></head><body><main><h1>公告 {name.upper()}</h1>"
+            "<p>虚构正文，用于 R1 无序结果重放用例。</p></main></body></html>",
+            encoding="utf-8",
+        )
+    (root / "scramble_p2.html").write_text(
+        LISTING.format(
+            page="第 2 页",
+            items='<li><a href="scramble_c.html">公告 C</a></li>',
+            next_link="",
+        ),
+        encoding="utf-8",
+    )
+    write_page_1(("a", "b"))
+    entry = f"{site_server}/scramble_p1.html"
+
+    store = DiscoveryCursorStore(tmp_path / "data")
+    original_save = store.save
+    calls = {"count": 0}
+
+    def flaky_save(cursor):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("注入的游标写入失败")
+        return original_save(cursor)
+
+    monkeypatch.setattr(pipeline.cursors, "save", flaky_save)
+    first = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
+    assert _stops(first)[0]["stop"] == "cursor_save_failed"
+    assert _pending_urls(pipeline) == {
+        f"{site_server}/scramble_a.html",
+        f"{site_server}/scramble_b.html",
+    }
+
+    # 目标已在别处处理；同页结果换序（站点无稳定顺序）后重放必须幂等。
+    for item in pipeline.pending.all_items():
+        pipeline.pending.mark(item.key, state="processed", attempted_at=FIXED_NOW.isoformat())
+    write_page_1(("b", "a"))
+
+    monkeypatch.setattr(pipeline.cursors, "save", original_save)
+    second = pipeline.collect("TESTSRC", entry_urls=[entry], include_attachments=False)
+
+    assert _stops(second)[0]["stop"] == "end_of_pages" and _stops(second)[0]["complete"] is True
+    assert second.coverage["queue"]["refreshed"] == 0, "重放不得把已处理目标转成 refresh"
+    states = {row.url: row.state for row in pipeline.pending.all_items()}
+    assert states[f"{site_server}/scramble_a.html"] == "processed"
+    assert states[f"{site_server}/scramble_b.html"] == "processed"
+    assert states[f"{site_server}/scramble_c.html"] == "processed", "换序重放不能漏掉后续页目标"
+    cursor = next(iter(DiscoveryCursorStore(tmp_path / "data").load().values()))
+    assert cursor.state == "completed"
+
+
 def test_cursor_saved_before_crash_resumes_at_next_page(
     mutable_site, registry_factory, tmp_path
 ):

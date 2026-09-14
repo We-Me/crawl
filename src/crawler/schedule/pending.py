@@ -126,16 +126,6 @@ class PendingStore:
         items = self.load()
         return [items[key] for key in sorted(items)]
 
-    def target_urls(self, source_id: str, scope_start_date: Optional[str] = None) -> set:
-        """已登记的主目标 URL 集合（含待处理、已处理、失败与跳过），供发现增量核对。"""
-        return {
-            item.url
-            for item in self.load().values()
-            if item.kind == KIND_TARGET
-            and item.source_id == source_id
-            and (scope_start_date is None or item.scope_start_date == scope_start_date)
-        }
-
     def enqueue_targets(
         self,
         *,

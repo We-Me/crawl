@@ -1,15 +1,18 @@
-"""发现游标（S5-06）：按入口保存分页续接位置。
+"""发现游标（S5-06；R1 覆盖口径）：按入口保存分页续接位置。
 
 列表/搜索/接口发现受每页请求预算与 --max-pages/--max-items 限制时，未翻到的页不能
 丢掉：重新 collect 若每次都从第一页开始，预算会被已看过的页反复消耗。这里按
 “来源 + 方式 + 入口 + 运行范围”保存下一页位置，使有限预算多轮运行继续向后推进：
 
-- 站点末页、适配规则终点：游标置 completed，下次仍从入口核对；当该入口已遍历的页数
-  超过一轮的页数上限（无法在一轮内整入口复核）时，改为**增量核对**：从入口向后取页，
-  遇到首个全为已登记目标的页即停（`incremental_head_checked`，不重取历史覆盖页），
-  并保留原遍历计数与终点原因；需要完整重遍历时用 `--max-pages` 显式覆盖页数上限；
+- 站点末页、适配规则终点：游标置 completed（覆盖轮 +1），下次重新从入口开始新一轮
+  复查；已登记 URL 不再触发“整页已知即完成”（`incremental_head_checked` 是已失效的
+  历史标记），已知目标按更新策略进入 refresh，新链接照常登记；
 - 页数/项目上限、预算停止、请求失败、循环：游标保持 active，指向尚未取得的页；
+  复查轮因此跨多轮推进，最终覆盖整入口，不会无限停在入口页；
 - 游标只影响从哪一页继续，不放宽访问边界、robots、限速与预算。
+
+计数口径（R1）：`pass_pages` 是本次覆盖轮已覆盖页数，`coverage_rounds` 是已完成
+的覆盖轮次；`pages_fetched`/`targets_found` 只是累计请求计数，不能当作覆盖页数。
 
 游标是抓取行为索引，不属于六项交付成果；格式变化在结构对照中登记。
 """
@@ -54,6 +57,11 @@ class DiscoveryCursor:
     note: Optional[str] = None
     last_commit_page: Optional[str] = None
     last_commit_digest: Optional[str] = None
+    # R1 覆盖口径：pass_pages 是本次覆盖轮已覆盖页数（到终点或从头开始新一轮时归零），
+    # coverage_rounds 是已完成的覆盖轮次。pages_fetched 只是累计请求页数，两者不能混用。
+    pass_pages: int = 0
+    coverage_rounds: int = 0
+    last_round_completed_at: Optional[str] = None
 
 
 class DiscoveryCursorError(ValueError):

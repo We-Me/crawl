@@ -378,13 +378,6 @@ class CrawlPipeline:
         # 只遍历发现时不处理目标：不受 --max-items 的发现上限约束（仍受页数上限、
         # 请求预算与截止时间约束），避免为了翻页先消耗正文预算。
         discovery_max_items = DISCOVERY_ONLY_MAX_ITEMS if discover_only else max_items
-        known_target = None
-        if not discover_only:
-            # 已完成入口的增量核对（S5-06）：本轮开始前已登记的主目标不再重取整入口。
-            known_target = self.pending.target_urls(
-                source_id=source_id,
-                scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
-            ).__contains__
 
         def commit_page_targets(page_targets, page_context: dict) -> dict:
             """R4 页级提交：发现目标先持久化入队，成功后才允许推进发现游标。"""
@@ -413,7 +406,6 @@ class CrawlPipeline:
             cursors=self.cursors,
             now=self.now,
             max_pages_override=max_pages,
-            known_target=known_target,
             commit_targets=commit_page_targets,
         )
         context = DiscoveryContext(

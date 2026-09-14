@@ -16,6 +16,12 @@
   下一页；队列写入失败不推进游标。入队后游标写入失败时，重启会重放本页，按游标
   中的提交标记（页 + 目标摘要）幂等入队，不把已处理目标整体转成 refresh。同一入口
   并发运行时用入口级运行锁（非阻塞）隔离，旧进度不覆盖新进度。
+
+- 复查覆盖（R1）：取消“本页全为已登记目标即遍历完成”的推断。已登记目标按更新
+  策略进入 refresh 复查（条件请求），新链接发现与旧内容更新是两条独立状态；分页
+  按游标在每轮页数/预算边界内推进，跨轮覆盖整入口（完成的轮次重新从入口开始），
+  置顶/无序/后部补录不会因入口页 URL 未变而丢失。历史
+  ``incremental_head_checked`` 只作失效来源记录，不再断言完成。
 """
 
 from __future__ import annotations
@@ -78,7 +84,9 @@ STOP_SELECTOR_MISS = "selector_miss"
 STOP_SITEMAP_INDEX = "sitemap_index_not_expanded"
 STOP_DATE_SCOPED_QUERY = "date_scoped_query"
 STOP_PARSE_ERROR = "parse_error"
-STOP_INCREMENTAL_HEAD = "incremental_head_checked"
+# 历史快检标记：S5-06 的“首个全为已知目标的页即完成”推断已按 R1 取消。
+# 该常量只用于识别既有游标来源，不再作为本轮终止原因。
+LEGACY_STOP_INCREMENTAL_HEAD = "incremental_head_checked"
 STOP_COMMIT_FAILED = "commit_failed"
 STOP_PROGRESS_SAVE_FAILED = "cursor_save_failed"
 STOP_ENTRY_BUSY = "entry_busy"
@@ -96,7 +104,7 @@ STOP_REASON_TEXT = {
     STOP_SITEMAP_INDEX: "sitemap index 的子 sitemap 未展开",
     STOP_DATE_SCOPED_QUERY: "查询本身按日期限定（覆盖以查询范围为准）",
     STOP_PARSE_ERROR: "发现响应无法解析（原件与账本保留）",
-    STOP_INCREMENTAL_HEAD: "已完成遍历的增量核对（向首个全为已知目标的页为止）",
+    LEGACY_STOP_INCREMENTAL_HEAD: "（历史标记）已完成遍历的增量核对，已按 R1 失效",
     STOP_COMMIT_FAILED: "发现目标入队失败，游标不推进（本轮已提交的页保留）",
     STOP_PROGRESS_SAVE_FAILED: "目标已入队但游标未推进，重启将重放本页（幂等）",
     STOP_ENTRY_BUSY: "同一入口已有并发运行在推进，本轮不读取也不推进游标",
@@ -158,7 +166,12 @@ class SkippedTarget:
 
 @dataclass(frozen=True)
 class DiscoveryStop:
-    """一个入口本次遍历的终止原因；complete 表示在已声明规则下遍历完成。"""
+    """一个入口本次遍历的终止原因；complete 表示本轮遍历覆盖到终点。
+
+    每行报告本轮实际范围：``pages`` 为本轮取过的页数，``round_pages`` 为本次覆盖轮
+    已累计覆盖的页数，``coverage_rounds`` 为已完成的历史覆盖轮次。未知总量保持未知：
+    complete 只说明本轮走到终点，不代替站点是否存在未声明范围。
+    """
 
     stage: str
     entry: str
@@ -170,6 +183,8 @@ class DiscoveryStop:
     next_url: Optional[str] = None
     cursor: Optional[str] = None
     error_type: Optional[str] = None
+    round_pages: int = 0
+    coverage_rounds: int = 0
 
     def as_row(self) -> dict:
         row = {
@@ -180,6 +195,9 @@ class DiscoveryStop:
             "stop": self.stop,
             "complete": bool(self.complete),
             "reason": STOP_REASON_TEXT.get(self.stop, self.stop),
+            # R1：区分“本次覆盖轮已覆盖页”与“累计请求页”，不用累计次数冒充覆盖。
+            "round_pages": int(self.round_pages),
+            "coverage_rounds": int(self.coverage_rounds),
         }
         if self.detail:
             row["detail"] = self.detail
@@ -205,7 +223,6 @@ class Discoverer:
         cursors: Optional[DiscoveryCursorStore] = None,
         now: Optional[Callable[[], datetime]] = None,
         max_pages_override: Optional[int] = None,
-        known_target: Optional[Callable[[str], bool]] = None,
         commit_targets: Optional[Callable[[Sequence[DiscoveredTarget], dict], dict]] = None,
     ) -> None:
         self.http = http
@@ -213,8 +230,6 @@ class Discoverer:
         self.source = source
         self.max_pages = max_pages
         self.max_pages_override = max_pages_override
-        # 已完成入口的增量核对：判定目标是否已登记（见 _paginate 的 head 检查）。
-        self.known_target = known_target
         # R4 页级提交回调：把本页目标入队并把计数返回；未提供时保持旧行为（不页级提交）。
         self.commit_targets = commit_targets
         self.commit_counts = {"added": 0, "refreshed": 0, "unchanged": 0}
@@ -640,17 +655,20 @@ class Discoverer:
         base = (
             (cursor.pages_fetched or 0, cursor.targets_found or 0) if cursor is not None else (0, 0)
         )
+        base_round_pages = cursor.pass_pages if cursor is not None else 0
+        base_rounds = cursor.coverage_rounds if cursor is not None else 0
         resumed = cursor is not None and cursor.state == CURSOR_ACTIVE and bool(cursor.next_url)
-        # 已完成入口的增量核对（S5-06）：历史遍历页数超过本轮页数上限时，无法在一轮内
-        # 复核整个入口；若仍从入口整入口重取，已看过的页会反复消耗预算（IN-02：433 页）。
-        # 此时只从入口向后核对到“首个全为已知目标的页”为止，不再重取历史覆盖页。
-        head_check = (
-            cursor is not None
-            and not resumed
-            and cursor.state == CURSOR_COMPLETED
-            and self.known_target is not None
-            and (cursor.pages_fetched or 0) > self.effective_max_pages
+        # R1：已登记目标不再触发“整页已知即完成”的提前结束。复查轮从入口开始，按每轮
+        # 页数/预算边界推进；未到终点时游标保持 active，下一轮从续接位置继续覆盖。
+        legacy_head_checked = cursor is not None and LEGACY_STOP_INCREMENTAL_HEAD in (
+            cursor.note or ""
         )
+        if legacy_head_checked:
+            logger.warning(
+                "游标来自历史快检完成标记，按新语义重新遍历核实 entry=%s note=%s",
+                entry,
+                cursor.note,
+            )
         page_url: Optional[str] = start_url or entry
         if resumed:
             page_url = cursor.next_url
@@ -726,20 +744,6 @@ class Discoverer:
                     cursor=key,
                 )
                 break
-            if head_check and page_targets:
-                fresh = [target for target in page_targets if not self.known_target(target.url)]
-                if not fresh:
-                    stop = DiscoveryStop(
-                        stage=stage, entry=entry, pages=pages, targets=len(targets),
-                        stop=STOP_INCREMENTAL_HEAD, complete=True,
-                        detail=(
-                            f"已完成遍历的增量核对：第 {pages} 页均为已登记目标"
-                            f"（历史覆盖 {cursor.pages_fetched} 页，本轮不再重取）"
-                        ),
-                        cursor=key,
-                    )
-                    break
-
             digest = None
             replayed_page = False
             if self.commit_targets is not None and page_targets:
@@ -792,6 +796,8 @@ class Discoverer:
                         commit_page=page_url,
                         commit_digest=digest,
                         restart_coverage=not resumed,
+                        base_round_pages=base_round_pages,
+                        base_rounds=base_rounds,
                     )
                 except Exception as exc:  # noqa: BLE001 - 目标已入队，游标未推进则重放
                     stop = DiscoveryStop(
@@ -836,6 +842,16 @@ class Discoverer:
                     stop = replace(
                         stop, detail=((stop.detail + "；") if stop.detail else "") + note
                     )
+        # R1：报告本轮范围与覆盖轮次；complete 只说明本轮走到终点。
+        stop = replace(
+            stop,
+            round_pages=(
+                max(base_round_pages, counted_pages)
+                if not resumed
+                else base_round_pages + counted_pages
+            ),
+            coverage_rounds=base_rounds + (1 if stop.stop in COMPLETE_STOPS else 0),
+        )
         self._record_stop(stop)
         self._update_cursor(
             stop,
@@ -844,6 +860,9 @@ class Discoverer:
             restart_coverage=not resumed,
             last_commit=last_commit,
             consumed=(counted_pages, counted_targets),
+            base_round_pages=base_round_pages,
+            base_rounds=base_rounds,
+            legacy_head_checked=legacy_head_checked,
         )
         return targets
 
@@ -969,6 +988,8 @@ class Discoverer:
         commit_page: Optional[str],
         commit_digest: Optional[str],
         restart_coverage: bool = False,
+        base_round_pages: int = 0,
+        base_rounds: int = 0,
     ) -> None:
         """目标已入队后推进游标（R4）：写入下一页位置与提交标记。"""
         key = self._cursor_key(stage, entry, scope)
@@ -978,6 +999,7 @@ class Discoverer:
         # 续接 active 游标才累计，不把反复遍历的请求次数累计成覆盖页数（R1）。
         pages_fetched = max(base[0], pages) if restart_coverage else base[0] + pages
         targets_found = max(base[1], targets) if restart_coverage else base[1] + targets
+        pass_pages = max(base_round_pages, pages) if restart_coverage else base_round_pages + pages
         cursor = DiscoveryCursor(
             key=key,
             source_id=self.source.source_id,
@@ -988,6 +1010,8 @@ class Discoverer:
             state=CURSOR_ACTIVE,
             pages_fetched=pages_fetched,
             targets_found=targets_found,
+            pass_pages=pass_pages,
+            coverage_rounds=base_rounds,
             updated_at=self._now().isoformat(),
             note=f"page_committed: 第 {pages} 页目标已入队，游标推进到下一页",
             last_commit_page=commit_page,
@@ -1004,6 +1028,9 @@ class Discoverer:
         restart_coverage: bool = False,
         last_commit: Optional[Tuple[str, str]] = None,
         consumed: Optional[Tuple[int, int]] = None,
+        base_round_pages: int = 0,
+        base_rounds: int = 0,
+        legacy_head_checked: bool = False,
     ) -> None:
         key = self._cursor_key(stop.stage, stop.entry, scope)
         if key is None:
@@ -1014,26 +1041,27 @@ class Discoverer:
         else:
             commit_page = previous.last_commit_page if previous is not None else None
             commit_digest = previous.last_commit_digest if previous is not None else None
-        if stop.stop == STOP_INCREMENTAL_HEAD and previous is not None:
-            # 增量核对没有扩展覆盖范围：保留上次遍历的计数与终点原因，只更新核对时间，
-            # 避免把“列表已遍历完”的记录改写成一次截断。
-            cursor = DiscoveryCursor(
-                key=key,
-                source_id=self.source.source_id,
-                stage=stop.stage,
-                entry=stop.entry,
-                scope_start_date=scope.start_date.isoformat() if scope.start_date else None,
-                next_url=None,
-                state=CURSOR_COMPLETED,
-                pages_fetched=previous.pages_fetched,
-                targets_found=previous.targets_found,
-                updated_at=self._now().isoformat(),
-                note=f"{stop.stop}: {stop.detail}；上次终点 {previous.note}",
-                last_commit_page=commit_page,
-                last_commit_digest=commit_digest,
-            )
-            self.cursors.save(cursor)
-            return
+        now_iso = self._now().isoformat()
+        # R1：覆盖轮口径。本轮走到终点则覆盖轮 +1 并把轮内页数清零（下一轮从入口开始
+        # 新一轮）；未到终点则轮内页数随续接累加，游标保持 active。
+        pass_pages = (
+            max(base_round_pages, (consumed or (stop.pages, stop.targets))[0])
+            if restart_coverage
+            else base_round_pages + (consumed or (stop.pages, stop.targets))[0]
+        )
+        completed_round = stop.stop in COMPLETE_STOPS
+        coverage_rounds = base_rounds + (1 if completed_round else 0)
+        last_round_completed_at = (
+            now_iso
+            if completed_round
+            else (previous.last_round_completed_at if previous is not None else None)
+        )
+        if completed_round:
+            pass_pages = 0
+        note = f"{stop.stop}: {stop.detail or STOP_REASON_TEXT.get(stop.stop, '')}"
+        if legacy_head_checked:
+            # 旧快检标记不再断言完成：记录来源，本轮起按新语义重新遍历核实（R1）。
+            note = f"历史快检标记已按 R1 失效并重新核实；{note}"
         # 本入口本次遍历的起点计数（base）由调用方给出：页级推进已按绝对计数落盘，
         # 再次相加 previous 会重复计数（R4）。从入口重新遍历时覆盖数取较大值。
         if restart_coverage:
@@ -1054,10 +1082,13 @@ class Discoverer:
                 state=CURSOR_COMPLETED,
                 pages_fetched=cumulative_pages,
                 targets_found=cumulative_targets,
-                updated_at=self._now().isoformat(),
-                note=f"{stop.stop}: {stop.detail or STOP_REASON_TEXT.get(stop.stop, '')}",
+                updated_at=now_iso,
+                note=note,
                 last_commit_page=commit_page,
                 last_commit_digest=commit_digest,
+                pass_pages=pass_pages,
+                coverage_rounds=coverage_rounds,
+                last_round_completed_at=last_round_completed_at,
             )
         else:
             cursor = DiscoveryCursor(
@@ -1070,10 +1101,13 @@ class Discoverer:
                 state=CURSOR_ACTIVE,
                 pages_fetched=cumulative_pages,
                 targets_found=cumulative_targets,
-                updated_at=self._now().isoformat(),
-                note=f"{stop.stop}: {stop.detail or STOP_REASON_TEXT.get(stop.stop, '')}",
+                updated_at=now_iso,
+                note=note,
                 last_commit_page=commit_page,
                 last_commit_digest=commit_digest,
+                pass_pages=pass_pages,
+                coverage_rounds=coverage_rounds,
+                last_round_completed_at=last_round_completed_at,
             )
         self.cursors.save(cursor)
 
