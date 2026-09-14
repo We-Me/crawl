@@ -261,6 +261,25 @@ def test_cli_check_reports_queue_reconciliation(cli_env, capsys):
     }
 
 
+def test_cli_check_fails_on_corrupt_pending_state(cli_env, capsys):
+    """R6：待处理状态损坏时 check 非零退出，并把文件与原因打到输出。"""
+    manifests = cli_env / "manifests"
+    manifests.mkdir(parents=True, exist_ok=True)
+    (manifests / "pending_items.json").write_text('{"items": {"k1"', encoding="utf-8")
+
+    assert main(["check"]) == 1
+    out = capsys.readouterr().out
+    assert "队列对账：不通过" in out
+    assert "manifests/pending_items.json" in out
+    assert "JSON 语法错误" in out
+
+    assert main(["check", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["reconcile"]["ok"] is False
+    assert payload["reconcile"]["problems"][0]["file"] == "manifests/pending_items.json"
+
+
 # ---------- plan / resume ----------
 
 

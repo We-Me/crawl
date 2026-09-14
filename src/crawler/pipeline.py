@@ -1001,7 +1001,7 @@ class CrawlPipeline:
             )
 
         expansion = self._expand_body(
-            source, parsed, response.final_url, crawl_date, crawl_time, report
+            source, parsed, response.final_url, crawl_date, crawl_time, report, doc_id=crawl_id
         )
         parsed = expansion.page
 
@@ -1094,6 +1094,16 @@ class CrawlPipeline:
                 raw_path=raw.relative_path,
                 sha256=raw.sha256,
             )
+        if expansion.incomplete:
+            # R5：正文分页/接口仍不完整时不得报告 ok。文档已按 parse_status=partial 提交，
+            # 原件与已取部分保留；目标状态由调用方按待续处理，不冒充完整成功。
+            return TargetOutcome(
+                STATE_PROCESSED,
+                f"partial:{expansion.incomplete}",
+                crawl_id=crawl_id,
+                raw_path=raw.relative_path,
+                sha256=raw.sha256,
+            )
         return TargetOutcome(
             STATE_PROCESSED,
             "ok",
@@ -1110,6 +1120,7 @@ class CrawlPipeline:
         crawl_date: str,
         crawl_time: str,
         report: RunReport,
+        doc_id: Optional[str] = None,
     ) -> BodyExpansion:
         """还原正文分页与接口加载正文（FR-005）。
 
@@ -1117,8 +1128,10 @@ class CrawlPipeline:
         每个附加部分独立归档并记账（discovery_method=pagination），块按部分顺序合并到
         同一文档、页码取部分序号。接口正文按页面声明的 JSON 端点获取（discovery_method=api），
         正文为 HTML 时按同一 HTML 解析器抽取，纯文本按单一文本块保留。
-        任一部分失败不静默：写入失败账并保持文档 parse_status=partial。
+        任一部分失败不静默：写入失败账并保持文档 parse_status=partial。失败行带母文档
+        doc_id，供恢复关联回到具体母目标（R5），不按 URL 关闭其它窗口。
         """
+
         first_blocks = list(parsed.blocks)
         extra_blocks: List[ParsedBlock] = []
         extra_crawl_ids: List[str] = []
@@ -1171,6 +1184,7 @@ class CrawlPipeline:
                     attempts=exc.attempts,
                     retryable=exc.retryable,
                     referrer_url=referrer,
+                    doc_id=doc_id,
                 )
                 incomplete = f"pagination_fetch_failed:{next_url}"
                 break
@@ -1210,6 +1224,7 @@ class CrawlPipeline:
                     retryable=False,
                     referrer_url=referrer,
                     crawl_id=part_crawl_id,
+                    doc_id=doc_id,
                 )
                 incomplete = f"pagination_parse_failed:{next_url}"
                 break
@@ -1225,6 +1240,7 @@ class CrawlPipeline:
                     retryable=False,
                     referrer_url=referrer,
                     crawl_id=part_crawl_id,
+                    doc_id=doc_id,
                 )
                 incomplete = f"pagination_selector_miss:{next_url}"
                 break
@@ -1238,7 +1254,13 @@ class CrawlPipeline:
         if parsed.body_api_url:
             try:
                 api_result = self._fetch_body_api(
-                    source, parsed.body_api_url, referrer, crawl_date, crawl_time, report
+                    source,
+                    parsed.body_api_url,
+                    referrer,
+                    crawl_date,
+                    crawl_time,
+                    report,
+                    doc_id=doc_id,
                 )
             except BudgetStop as stop:
                 api_result = None
@@ -1284,6 +1306,7 @@ class CrawlPipeline:
         crawl_date: str,
         crawl_time: str,
         report: RunReport,
+        doc_id: Optional[str] = None,
     ):
         """获取接口正文档：归档、记账后按候选字段取正文；失败返回 None 并留痕。"""
         decision = self.registry.check_access(api_url, source.source_id)
@@ -1309,6 +1332,7 @@ class CrawlPipeline:
                 attempts=exc.attempts,
                 retryable=exc.retryable,
                 referrer_url=referrer,
+                doc_id=doc_id,
             )
             return None
         archived = self.archiver.archive(
@@ -1336,6 +1360,7 @@ class CrawlPipeline:
                 retryable=False,
                 referrer_url=referrer,
                 crawl_id=crawl_id,
+                doc_id=doc_id,
             )
             return None
         body = _body_text_from_payload(payload)
@@ -1351,6 +1376,7 @@ class CrawlPipeline:
                 retryable=False,
                 referrer_url=referrer,
                 crawl_id=crawl_id,
+                doc_id=doc_id,
             )
             return None
         if "<" in body:
@@ -1471,6 +1497,7 @@ class CrawlPipeline:
                     attempts=exc.attempts,
                     retryable=exc.retryable,
                     referrer_url=target.referrer_url,
+                    doc_id=doc_id,
                 )
                 record["status"] = "failed"
                 record["note"] = str(exc)
@@ -1569,6 +1596,7 @@ class CrawlPipeline:
                 attempts=exc.attempts,
                 retryable=exc.retryable,
                 referrer_url=target.referrer_url,
+                doc_id=item.doc_id,
             )
             coverage["failed"] += 1
             return TargetOutcome(STATE_FAILED, str(exc))
@@ -1612,6 +1640,7 @@ class CrawlPipeline:
         referrer_url: Optional[str] = None,
         crawl_id: Optional[str] = None,
         final_action: Optional[str] = None,
+        doc_id: Optional[str] = None,
     ) -> None:
         row = self.failures.record(
             source_id=source_id,
@@ -1630,17 +1659,10 @@ class CrawlPipeline:
                 if self._run_scope and self._run_scope.start_date
                 else None
             ),
+            doc_id=doc_id,
         )
         report.failures.append(row)
         report.counters.failures += 1
-
-    def _next_crawl_id(self, source_id: str, crawl_date: str) -> str:
-        """按账本已落盘序号继续编号；实现见 output.archive.ResponseArchiver。
-
-        补抓按 crawl_id 定位原件；若不同运行的编号重复，失败记录会指向错误的
-        原始文件。序号取自账本而不是实例内计数，跨进程运行也保持唯一。
-        """
-        return self.archiver.next_crawl_id(source_id, crawl_date)
 
     def recovery_plan(
         self, *, policy: Optional[RetryPolicy] = None, now: Optional[datetime] = None
@@ -1789,9 +1811,20 @@ class CrawlPipeline:
 
     def _failure_for(self, task: RecoveryTask) -> dict:
         for row in self.failures_ledger.load():
-            if row.get("url") == task.url and row.get("stage") == task.stage:
+            if (
+                row.get("url") == task.url
+                and row.get("stage") == task.stage
+                and (row.get("scope_start_date") or None) == (task.scope_start_date or None)
+                and (row.get("doc_id") or None) == (task.doc_id or None)
+            ):
                 return row
-        return {"source_id": task.source_id, "url": task.url, "stage": task.stage}
+        return {
+            "source_id": task.source_id,
+            "url": task.url,
+            "stage": task.stage,
+            "scope_start_date": task.scope_start_date,
+            "doc_id": task.doc_id,
+        }
 
     def _recover_refetch(
         self,
@@ -1800,6 +1833,18 @@ class CrawlPipeline:
         moment: datetime,
         scope: Optional[RunScope] = None,
     ) -> Optional[dict]:
+        """补抓网络阶段失败：以 _collect_target 的显式结果判定，不用资源计数代替状态。
+
+        R5：取得原件（resources 非零）不等于目标已恢复。分支：
+
+        - 完整成功（processed 且非 partial）→ 关闭失败，待处理项按同一身份标 processed；
+        - 304：仅当既有实体完整（有 crawl_id 且对应文档已落盘）才算合法未变化；
+        - partial（正文/附件仍待续）→ 原件已取得，fetch 阶段可关闭，但待处理项保持
+          pending 并记录待续原因，不把主目标当作整体完成；预算停止时保持失败开放；
+        - 解析/规范化等派生阶段失败 → 保持 failed 且失败账不追加 recovered 行
+          （新增处置行会按同一身份成为“最新处置”，掩盖仍未关闭的派生失败）；
+        - 合法跳过（robots/边界/范围外）→ 按 skip 关闭。
+        """
         report = RunReport(source_id=source.source_id)
         target = DiscoveredTarget(
             url=task.url,
@@ -1810,16 +1855,25 @@ class CrawlPipeline:
         outcome = self._collect_target(
             source, None, target, crawl_date, moment.isoformat(), False, report, scope
         )
-        if report.counters.documents or report.counters.resources:
+        attempt = {
+            "crawl_id": outcome.crawl_id,
+            "raw_path": outcome.raw_path,
+            "sha256": outcome.sha256,
+        }
+        if outcome.state == STATE_PROCESSED and outcome.note.startswith("not_modified"):
+            if not self._previous_entity_complete(task.url):
+                logger.warning(
+                    "补抓 304 但既有实体不完整，保持失败开放 url=%s", task.url
+                )
+                return None
+        if outcome.state == STATE_PROCESSED and not outcome.note.startswith("partial:"):
             note = "补抓成功，账本与文档已更新"
             self._reconcile_pending_item(
                 source,
                 task,
                 state=STATE_PROCESSED,
                 note=note,
-                crawl_id=outcome.crawl_id,
-                raw_path=outcome.raw_path,
-                sha256=outcome.sha256,
+                **attempt,
             )
             return {
                 "note": note,
@@ -1827,6 +1881,28 @@ class CrawlPipeline:
                 "documents": report.counters.documents,
                 "blocks": report.counters.blocks,
             }
+        if outcome.state == STATE_PROCESSED:
+            note = f"原件已取得，内容仍待续（{outcome.note}）；目标保持待处理"
+            self._reconcile_pending_item(
+                source, task, state=STATE_PENDING, note=note, **attempt
+            )
+            if outcome.stop is not None:
+                # 预算停止：待续状态已保存，本次补抓在这里停下来。
+                raise outcome.stop
+            return {
+                "note": note,
+                "resources": report.counters.resources,
+                "documents": report.counters.documents,
+                "blocks": report.counters.blocks,
+            }
+        if outcome.state == STATE_FAILED:
+            # 派生阶段失败：目标整体仍未恢复，保持失败开放并保留原件定位。
+            note = f"补抓取得原件但后续阶段失败：{outcome.note}"
+            self._reconcile_pending_item(
+                source, task, state=STATE_FAILED, note=note, **attempt
+            )
+            logger.warning("补抓未完成 url=%s note=%s", task.url, note)
+            return None
         robots_skip = next(
             (item for item in report.skipped if item.reason.startswith("robots_disallowed:")),
             None,
@@ -1843,7 +1919,32 @@ class CrawlPipeline:
             note = f"边界拒绝，按 skip 关闭：{boundary_skip.reason}"
             self._reconcile_pending_item(source, task, state=STATE_SKIPPED, note=note)
             return {"note": note, "action": "skip"}
+        out_of_window = next(
+            (item for item in report.skipped if item.reason.startswith("before_start_date:")),
+            None,
+        )
+        if out_of_window is not None:
+            note = f"原运行范围外，按 skip 关闭：{out_of_window.reason}"
+            self._reconcile_pending_item(
+                source, task, state=STATE_SKIPPED, note=note, **attempt
+            )
+            return {"note": note, "action": "skip"}
         return None
+
+    def _previous_entity_complete(self, url: str) -> bool:
+        """304 的关闭前提：既有成功实体完整（有 crawl_id 且对应文档已落盘）。
+
+        只有“未变化 + 既有实体可用”才能复用历史原件；缺少文档时 304 不能证明
+        目标已恢复，保持失败开放。
+        """
+        state = self.state.get(url)
+        if state is None or not state.crawl_id:
+            return False
+        crawl_id = state.crawl_id
+        for row in read_jsonl(self.layout.documents_path):
+            if row.get("doc_id") == crawl_id or crawl_id in (row.get("crawl_ids") or []):
+                return True
+        return False
 
     def _reconcile_pending_item(
         self,
@@ -1855,16 +1956,33 @@ class CrawlPipeline:
         crawl_id: Optional[str] = None,
         raw_path: Optional[str] = None,
         sha256: Optional[str] = None,
-    ) -> None:
+    ) -> List[str]:
         """补抓处置回写同对象的待处理项：队列口径与失败账处置对账一致（S5-06）。
 
         失败账驱动的补抓不改写已提交文档（追加写口径不变），但同一 URL 的待处理项
         必须同步关闭，否则覆盖表长期显示失败/待处理，与账本已关闭的处置互相矛盾。
+
+        R5 身份口径：来源 + URL + 原运行范围 + 必要的母文档关系。同 URL 但不同
+        scope 或不同母文档（doc_id/母页）的待处理项不互相关闭；身份无法判定时
+        宁可不动，也不按 URL 批量关闭。返回实际回写的 key 列表。
         """
+        matched: List[str] = []
         for item in self.pending.all_items():
             if item.source_id != source.source_id or item.url != task.url:
                 continue
-            if item.state == state:
+            if (item.scope_start_date or None) != (task.scope_start_date or None):
+                continue
+            if not _same_recovery_object(item, task):
+                logger.info(
+                    "补抓身份不一致，跳过待处理项 key=%s（task doc_id=%s referrer=%s）",
+                    item.key,
+                    task.doc_id,
+                    task.referrer_url,
+                )
+                continue
+            if item.state == state and (item.note or "") == (note or ""):
+                # 已按同一身份、同一处置登记过：幂等，不重复写。
+                matched.append(item.key)
                 continue
             self.pending.mark(
                 item.key,
@@ -1876,6 +1994,15 @@ class CrawlPipeline:
                 sha256=sha256,
             )
             logger.info("补抓回写待处理项 key=%s state=%s", item.key, state)
+            matched.append(item.key)
+        if not matched:
+            logger.warning(
+                "补抓未匹配到同身份待处理项 url=%s scope=%s doc_id=%s（不按 URL 关闭其它对象）",
+                task.url,
+                task.scope_start_date,
+                task.doc_id,
+            )
+        return matched
 
     def _recover_reparse(
         self,
@@ -2003,6 +2130,26 @@ class CrawlPipeline:
             extraction_method=parsed.extraction_method,
         )
         return document, blocks
+
+
+def _same_recovery_object(item: PendingItem, task: RecoveryTask) -> bool:
+    """恢复身份（R5）：任务与待处理项指向同一对象时才允许回写。
+
+    - 任务带母文档 doc_id 时，待处理项必须指向同一母文档；待处理项没有母文档
+      身份说明对象类型不同（如目标是页面、任务是附件），不匹配；
+    - 任务带 referrer_url 时，待处理项的 referrer/parent 必须有一个与之一致
+      （同一附件挂在不同母页下不算同一对象）；
+    - 来源、URL、原运行范围由调用方先行匹配；任一侧缺字段时按可判定部分判断，
+      不凭缺失推断为同一对象。
+    """
+    if task.doc_id:
+        if not item.doc_id or item.doc_id != task.doc_id:
+            return False
+    if task.referrer_url:
+        candidates = {value for value in (item.referrer_url, item.parent_url) if value}
+        if candidates and task.referrer_url not in candidates:
+            return False
+    return True
 
 
 def _as_run_report(report: RecoveryReport, scope: Optional[RunScope] = None) -> RunReport:

@@ -34,6 +34,7 @@ class FailureWriter:
         crawl_id: Optional[str] = None,
         referrer_url: Optional[str] = None,
         scope_start_date: Optional[str] = None,
+        doc_id: Optional[str] = None,
     ) -> dict:
         if stage not in FAILURE_STAGES:
             raise ValueError(f"未知失败阶段：{stage!r}")
@@ -59,6 +60,10 @@ class FailureWriter:
         if scope_start_date is not None:
             # 运行范围（--start-date）随失败一起保存：补抓沿用原范围，不混入新窗口。
             row["scope_start_date"] = scope_start_date
+        if doc_id is not None:
+            # 母文档身份（R5）：附件/分页等从属对象的失败必须能回到具体母文档，
+            # 恢复关联不能只按 URL 关闭同一来源的其它对象。
+            row["doc_id"] = doc_id
         append_jsonl(self.path, [row])
         logger.warning(
             "失败记录 stage=%s url=%s type=%s message=%s", stage, url, error_type, message

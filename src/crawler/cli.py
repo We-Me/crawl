@@ -531,7 +531,10 @@ def _cmd_check(args) -> int:
             + f"（待处理项 {reconcile.items_total}：{states}；失败账未关闭 {reconcile.open_failures}）"
         )
         for problem in reconcile.problems[:10]:
-            print(f"  对账矛盾：{problem['message']} url={problem['url']}")
+            location = problem.get("file") or ""
+            if problem.get("url"):
+                location = f"{location} url={problem['url']}".strip()
+            print(f"  对账矛盾：{problem['message']}" + (f"（{location}）" if location else ""))
     return EXIT_OK if ok else EXIT_RUN
 
 

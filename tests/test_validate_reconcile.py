@@ -9,7 +9,14 @@ from crawler.validate.reconcile import reconcile_queue_and_failures
 def _write_pending(data_dir, items):
     path = DeliveryLayout(data_dir).pending_path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"items": items}, ensure_ascii=False), encoding="utf-8")
+    rows = {}
+    for key, item in items.items():
+        row = {"key": key, "source_id": "S", "kind": "target", "state": "pending"}
+        row.update(item)
+        rows[key] = row
+    path.write_text(
+        json.dumps({"version": "0.1.0", "items": rows}, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _write_failures(data_dir, rows):
@@ -91,3 +98,157 @@ def test_missing_files_report_empty(tmp_path):
         "open_failures": 0,
         "problems": [],
     }
+
+
+# ---------- R6：损坏状态必须使对账失败 ----------
+
+
+def _pending_path(data_dir):
+    return DeliveryLayout(data_dir).pending_path
+
+
+def test_truncated_pending_json_is_a_problem_and_file_is_untouched(tmp_path):
+    """R6：截断的 pending_items.json 不能被当作空队列；检查不得改写输入。"""
+    data = tmp_path / "data"
+    path = _pending_path(data)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = '{"version": "0.1.0", "items": {"k1": {"key": "k1"'
+    path.write_text(original, encoding="utf-8")
+    before = path.read_bytes()
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    assert report.items_total == 0
+    assert len(report.problems) == 1
+    problem = report.problems[0]
+    assert problem["file"] == "manifests/pending_items.json"
+    assert "JSON 语法错误" in problem["message"]
+    assert path.read_bytes() == before, "只读检查不得覆盖或重建损坏文件"
+    assert report.as_row()["ok"] is False
+
+
+def test_pending_items_wrong_type_is_a_problem(tmp_path):
+    """R6：items 不是映射时报结构错误，不静默转成空队列。"""
+    data = tmp_path / "data"
+    _pending_path(data).parent.mkdir(parents=True, exist_ok=True)
+    _pending_path(data).write_text(
+        json.dumps({"version": "0.1.0", "items": ["k1"]}), encoding="utf-8"
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    assert any("items 应为 JSON 对象" in problem["message"] for problem in report.problems)
+    assert report.items_total == 0
+
+
+def test_pending_entry_must_be_object_with_valid_identity(tmp_path):
+    """R6：非法条目（非对象、缺身份、非法状态/种类、身份键不一致）逐条报错。"""
+    data = tmp_path / "data"
+    _pending_path(data).parent.mkdir(parents=True, exist_ok=True)
+    _pending_path(data).write_text(
+        json.dumps(
+            {
+                "version": "0.1.0",
+                "items": {
+                    "k1": "not-an-object",
+                    "k2": {"key": "k2", "source_id": "S", "kind": "target"},
+                    "k3": {
+                        "key": "k3",
+                        "source_id": "S",
+                        "kind": "target",
+                        "url": "https://example.invalid/a",
+                        "state": "done",
+                    },
+                    "k4": {
+                        "key": "k4",
+                        "source_id": "S",
+                        "kind": "attachment",
+                        "url": "https://example.invalid/b",
+                        "state": None,
+                    },
+                    "k5": {
+                        "key": "other-key",
+                        "source_id": "S",
+                        "kind": "target",
+                        "url": "https://example.invalid/c",
+                        "state": "pending",
+                    },
+                    "k6": {
+                        "key": "k6",
+                        "source_id": "S",
+                        "kind": "widget",
+                        "url": "https://example.invalid/d",
+                        "state": "pending",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    messages = " | ".join(problem["message"] for problem in report.problems)
+    assert "条目 'k1' 应为 JSON 对象" in messages
+    assert "缺少合法身份字段" in messages
+    assert "状态非法" in messages
+    assert "种类非法" in messages
+    assert "身份不一致" in messages
+    assert report.items_total == 0, "没有条目通过结构校验"
+
+
+def test_corrupted_failure_ledger_is_a_problem(tmp_path):
+    """R6：失败账的截断行与非对象行都要报错，不能按零条记录通过。"""
+    data = tmp_path / "data"
+    _write_pending(data, {"k1": {"key": "k1", "url": "https://example.invalid/a", "state": "failed"}})
+    path = DeliveryLayout(data).failures_path
+    path.write_text(
+        json.dumps(_failure("https://example.invalid/a", "retry_later"), ensure_ascii=False)
+        + "\n"
+        + '{"source_id": "S", "url": "https://example.invalid/b"\n'
+        + '["not-an-object"]\n',
+        encoding="utf-8",
+    )
+    before = path.read_bytes()
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    assert report.open_failures == 1, "已解析行仍参与计数"
+    assert len(report.problems) == 2
+    assert all(problem["file"] == "manifests/failed_records.jsonl" for problem in report.problems)
+    assert any("JSON 语法错误" in problem["message"] for problem in report.problems)
+    assert any("必须是 JSON 对象" in problem["message"] for problem in report.problems)
+    assert path.read_bytes() == before
+
+
+def test_legal_empty_states_still_pass(tmp_path):
+    """R6：缺失文件、items 为空映射、空失败账都是合法零记录状态。"""
+    data = tmp_path / "data"
+    _pending_path(data).parent.mkdir(parents=True, exist_ok=True)
+    _pending_path(data).write_text(
+        json.dumps({"version": "0.1.0", "items": {}}), encoding="utf-8"
+    )
+    DeliveryLayout(data).failures_path.write_text("", encoding="utf-8")
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is True and report.problems == []
+    assert report.items_total == 0 and report.open_failures == 0
+
+
+def test_read_error_prevents_cascading_contradiction(tmp_path):
+    """R6：状态不可信时不再做“某任务已恢复”的推断，只报告读取问题。"""
+    data = tmp_path / "data"
+    _write_failures(data, [_failure("https://example.invalid/a", "recovered")])
+    _pending_path(data).parent.mkdir(parents=True, exist_ok=True)
+    _pending_path(data).write_text("{broken", encoding="utf-8")
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is False
+    assert len(report.problems) == 1
+    assert "JSON 语法错误" in report.problems[0]["message"]

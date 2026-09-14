@@ -179,7 +179,8 @@ def test_resume_failures_closes_robots_disallowed_as_skip(
 
     assert [row["url"] for row in report.skipped] == [blocked_url]
     assert report.recovered == []
-    resolution = pipeline.failures_ledger.latest_by_key()[(blocked_url, "fetch")]
+    # R5 身份键：URL + stage + 原运行范围 + 母文档（此处均无）。
+    resolution = pipeline.failures_ledger.latest_by_key()[(blocked_url, "fetch", None, None)]
     assert resolution["final_action"] == "skip"
     assert resolution["error_type"] == "resolved"
     assert pipeline.recovery_plan() == []  # 已关闭，不再请求

@@ -1,9 +1,10 @@
 """失败账查询、补抓关闭与运行恢复（T016）。
 
 失败账保持只追加：补抓成功或转为人工处理时追加一条处置行，不删除、不改写历史
-失败；原件与既有成功下载不回退。`open_failures` 取同一 (url, stage) 的最后一条
-记录判断是否仍未关闭。运行恢复额外从账本中找出“已下载但还没有文档”的条目，
-供重解析补全，不必重新下载。
+失败；原件与既有成功下载不回退。`open_failures` 取同一身份的最后一条记录判断是否
+仍未关闭；身份为 (url, stage, scope_start_date, doc_id)——同一 URL 在不同运行范围或
+不同母文档下的失败互不覆盖（R5）。运行恢复额外从账本中找出“已下载但还没有文档”的
+条目，供重解析补全，不必重新下载。
 """
 
 from __future__ import annotations
@@ -41,7 +42,14 @@ class FailureLedger:
     def latest_by_key(self) -> Dict[tuple, dict]:
         latest: Dict[tuple, dict] = {}
         for row in self.load():
-            latest[(row.get("url"), row.get("stage"))] = row
+            latest[
+                (
+                    row.get("url"),
+                    row.get("stage"),
+                    row.get("scope_start_date") or None,
+                    row.get("doc_id") or None,
+                )
+            ] = row
         return latest
 
     def open_failures(self) -> List[dict]:
@@ -70,7 +78,7 @@ class FailureLedger:
         crawl_id: Optional[str] = None,
         action: str = "recovered",
     ) -> dict:
-        """追加处置行；保留原失败行，用同一 (url, stage) 关闭该失败。"""
+        """追加处置行；保留原失败行，用同一身份关闭该失败。"""
         if action not in CLOSED_ACTIONS + (MANUAL_ACTION,):
             raise FailureLedgerError(f"未知处置动作：{action!r}")
         stage = str(failure.get("stage") or "fetch")
@@ -93,6 +101,11 @@ class FailureLedger:
             row["crawl_id"] = recovered_crawl_id
         if failure.get("referrer_url"):
             row["referrer_url"] = failure["referrer_url"]
+        if failure.get("scope_start_date"):
+            # 范围与母文档身份随处置行保留：对账/补抓按身份匹配，不按 URL 全局关闭（R5）。
+            row["scope_start_date"] = failure["scope_start_date"]
+        if failure.get("doc_id"):
+            row["doc_id"] = failure["doc_id"]
         append_jsonl(self.path, [row])
         logger.info("失败处置 url=%s stage=%s action=%s", row["url"], stage, action)
         return row

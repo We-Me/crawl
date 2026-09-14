@@ -572,3 +572,289 @@ def test_resume_reports_manual_and_pending(site_server, registry_factory, tmp_pa
     )
     waited = pipeline2.resume_failures("TESTSRC", respect_backoff=True)
     assert len(waited.pending) == 1 and waited.recovered == []
+
+
+# ---------- R5：恢复按显式结果与对象身份判定 ----------
+
+
+def _enqueue_failed_target(pipeline, url, *, scope=None, note="HTTP 500", referrer=None, doc_id=None):
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+        scope_start_date=scope,
+        enqueued_at=NOW.isoformat(),
+    )
+    item = next(
+        row
+        for row in pipeline.pending.all_items()
+        if row.url == url and (row.scope_start_date or None) == (scope or None)
+    )
+    item = pipeline.pending.mark(
+        item.key, state="failed", attempted_at=NOW.isoformat(), note=note
+    )
+    row = pipeline.failures.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="http_error",
+        message=note,
+        retry_count=0,
+        final_action="retry_later",
+        scope_start_date=scope,
+        referrer_url=referrer,
+        doc_id=doc_id,
+    )
+    return item, row
+
+
+def test_refetch_parse_failure_stays_open_despite_archived_raw(
+    site_server, registry_factory, tmp_path
+):
+    """R5：HTTP 200 且原件已留存、正文选择器未命中时，不得按资源计数报“恢复成功”。"""
+    registry = registry_factory(
+        site_server,
+        adapter={"list_link_selector": "ul li a", "content_selector": "div.not-here"},
+    )
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/detail_1.html"
+    item, _ = _enqueue_failed_target(pipeline, url)
+    assert [task.action for task in pipeline.recovery_plan()] == [REFETCH]
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert report.recovered == [] and len(report.failures) == 1
+    history = pipeline.failures_ledger.history_of(url)
+    assert all(row["final_action"] != "recovered" for row in history), (
+        "派生 parse 失败仍开放时不得追加 recovered 行掩盖"
+    )
+    assert history[-1]["stage"] == "parse"
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "failed" and "后续阶段失败" in updated.note
+    manifest_rows = read_jsonl(tmp_path / "data" / "manifests" / "crawl_manifest.jsonl")
+    assert any(row["requested_url"] == url for row in manifest_rows), "原件已留存"
+    assert sorted(task.action for task in pipeline.recovery_plan()) == ["refetch", "reparse"], (
+        "fetch 阶段保持开放，派生 parse 阶段另成一条补抓任务"
+    )
+
+
+def test_refetch_normalization_failure_stays_open(
+    site_server, registry_factory, tmp_path, monkeypatch
+):
+    """R5：规范化失败与解析失败不同阶段，但同样不得关闭整个目标。"""
+    from crawler.normalize.document_schema import NormalizationError
+
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/detail_1.html"
+    item, _ = _enqueue_failed_target(pipeline, url)
+
+    def boom(**_kwargs):
+        raise NormalizationError("注入的规范化失败")
+
+    monkeypatch.setattr("crawler.pipeline.build_document", boom)
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert report.recovered == [] and len(report.failures) == 1
+    history = pipeline.failures_ledger.history_of(url)
+    assert [row["stage"] for row in history] == ["fetch", "normalize"]
+    assert all(row["final_action"] != "recovered" for row in history)
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "failed" and "normalization_error" in updated.note
+    assert sorted(task.action for task in pipeline.recovery_plan()) == ["refetch", "reparse"]
+
+
+def test_refetch_partial_keeps_target_pending_not_complete(
+    site_server, registry_factory, tmp_path
+):
+    """R5：正文分页仍待续时，fetch 阶段可关闭，但主目标保持待处理、不标 processed。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/loop_a.html"
+    item, _ = _enqueue_failed_target(pipeline, url)
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.recovered) == 1 and report.failures == []
+    assert "待续" in report.recovered[0]["note"]
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "pending" and "待续" in updated.note
+    documents = read_jsonl(tmp_path / "data" / "normalized" / "documents.jsonl")
+    assert documents and documents[0]["parse_status"] == "partial"
+    history = pipeline.failures_ledger.history_of(url)
+    assert history[-1]["final_action"] == "recovered", "网络阶段失败确已解决，可关闭该阶段"
+
+
+def test_refetch_304_closes_only_with_complete_existing_entity(
+    site_server, registry_factory, tmp_path
+):
+    """R5：304 只在既有实体完整时算恢复；否则保持失败开放。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/_etag/detail_1.html"
+    first = pipeline.collect("TESTSRC", manual_urls=[url], include_attachments=False)
+    assert first.counters.documents == 1
+    item, _ = _enqueue_failed_target(pipeline, url)
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.recovered) == 1 and report.failures == []
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "processed"
+    documents = read_jsonl(tmp_path / "data" / "normalized" / "documents.jsonl")
+    assert len(documents) == 1, "304 不产生新文档"
+
+
+def test_refetch_304_without_document_keeps_failure_open(
+    site_server, registry_factory, tmp_path
+):
+    """R5：304 只说响应未变；没有既有文档时不能据此宣布目标已恢复。"""
+    import hashlib
+    import json as jsonlib
+
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/_etag/detail_1.html"
+    etag = '"' + hashlib.sha256((FIXTURES / "site" / "detail_1.html").read_bytes()).hexdigest()[:16] + '"'
+    state_path = tmp_path / "data" / "manifests" / "incremental_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        jsonlib.dumps(
+            {
+                "version": "0.1.0",
+                "resources": {
+                    url: {"url": url, "etag": etag, "crawl_id": "TESTSRC_20260910_9999"},
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    item, _ = _enqueue_failed_target(pipeline, url)
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert report.recovered == [] and len(report.failures) == 1
+    history = pipeline.failures_ledger.history_of(url)
+    assert all(row["final_action"] != "recovered" for row in history)
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "failed"
+
+
+def test_refetch_robots_disallowed_closes_as_skip(site_server, registry_factory, tmp_path):
+    """R5：合法访问拒绝（robots）按 skip 关闭，不冒充 recovered、不标 processed。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/private/secret.html"
+    item, _ = _enqueue_failed_target(pipeline, url)
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.skipped) == 1 and report.recovered == [] and report.failures == []
+    history = pipeline.failures_ledger.history_of(url)
+    assert history[-1]["final_action"] == "skip"
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "skipped"
+
+
+def test_refetch_out_of_scope_closes_as_skip(site_server, registry_factory, tmp_path):
+    """R5：原运行范围外属合法跳过，保留原件但不产出文档，且按同一范围身份关闭。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/detail_1.html"
+    item, _ = _enqueue_failed_target(pipeline, url, scope="2026-09-20")
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.skipped) == 1 and report.recovered == []
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "skipped" and "before_start_date" in updated.note
+    assert read_jsonl(tmp_path / "data" / "normalized" / "documents.jsonl") == []
+
+
+def test_recovery_closes_only_same_scope_identity(site_server, registry_factory, tmp_path):
+    """R5：同一 URL 不同运行范围的两个任务不互相关闭。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/attachments/notice.csv"
+    for scope in (None, "2026-09-01"):
+        pipeline.pending.enqueue_targets(
+            source_id="TESTSRC",
+            targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+            scope_start_date=scope,
+            enqueued_at=NOW.isoformat(),
+        )
+    for item in pipeline.pending.all_items():
+        pipeline.pending.mark(item.key, state="failed", attempted_at=NOW.isoformat(), note="HTTP 500")
+    pipeline.failures.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="http_error",
+        message="HTTP 500",
+        retry_count=0,
+        final_action="retry_later",
+        scope_start_date="2026-09-01",
+    )
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.recovered) == 1
+    states = {
+        (item.scope_start_date or None): item.state
+        for item in pipeline.pending.all_items()
+        if item.url == url
+    }
+    assert states == {None: "failed", "2026-09-01": "processed"}
+    history = pipeline.failures_ledger.history_of(url)
+    assert [row["final_action"] for row in history] == ["retry_later", "recovered"]
+    assert history[-1]["scope_start_date"] == "2026-09-01"
+
+
+def test_recovery_closes_only_same_parent_document(site_server, registry_factory, tmp_path):
+    """R5：同一附件 URL 挂在不同母文档下（或作为主目标）时不按 URL 批量关闭。"""
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/attachments/notice.csv"
+    parents = {
+        "DOC-1": f"{site_server}/detail_1.html",
+        "DOC-2": f"{site_server}/detail_2.html",
+    }
+    for doc_id, parent in parents.items():
+        pipeline.pending.enqueue_attachments(
+            source_id="TESTSRC",
+            scope_start_date=None,
+            doc_id=doc_id,
+            parent_url=parent,
+            records=[{"url": url, "filename": "notice.csv", "referrer_url": parent}],
+            enqueued_at=NOW.isoformat(),
+        )
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+        scope_start_date=None,
+        enqueued_at=NOW.isoformat(),
+    )
+    for item in pipeline.pending.all_items():
+        pipeline.pending.mark(item.key, state="failed", attempted_at=NOW.isoformat(), note="HTTP 500")
+    pipeline.failures.record(
+        source_id="TESTSRC",
+        url=url,
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="http_error",
+        message="HTTP 500",
+        retry_count=0,
+        final_action="retry_later",
+        referrer_url=parents["DOC-1"],
+        doc_id="DOC-1",
+    )
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert len(report.recovered) == 1
+    states = {
+        (item.doc_id or item.kind): item.state for item in pipeline.pending.all_items()
+    }
+    assert states == {"DOC-1": "processed", "DOC-2": "failed", "target": "failed"}
