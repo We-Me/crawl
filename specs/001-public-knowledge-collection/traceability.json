@@ -839,7 +839,9 @@
     "quality": "raw integrity and traceability first; advanced processing deferred",
     "delivery": "Git development only; publishing remains deferred",
     "format": "original base requirements retained; extensions compared separately",
-    "implementation_baseline": "61e34d8",
-    "current_plan": "stage-five.md: raw archiving, pagination, attachments, continuation and development verification"
+    "implementation_baseline": "b6041ea",
+    "current_plan": "stage-six.md: stage-five review fixes R6/R5 -> R3/R4 -> R2/R1; stage-five implementation retained, completeness not accepted",
+    "review_findings": "6 open static-review findings; not fixed by documentation; historical empty queues do not prove coverage",
+    "current_stage": "6: defect correction and consistency verification; no new business scope"
   }
 }

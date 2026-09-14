@@ -2,9 +2,9 @@
 
 ## 当前使用方式（复核 61e34d8 后）
 
-从根目录 AGENTS.md 开始。先读 [已确认范围](specs/001-public-knowledge-collection/raw-first-development.md)，再按 [阶段五开发说明](specs/001-public-knowledge-collection/stage-five.md) 执行。当前目标是补齐 raw 归档、列表/附件覆盖与有限预算下的继续执行；不再等待分块或 18 来源选择，不进入发布部署。
+从根目录 AGENTS.md 开始。先读 [已确认范围](specs/001-public-knowledge-collection/raw-first-development.md)，再按 [阶段六修复说明](specs/001-public-knowledge-collection/stage-six.md) 执行。当前实现已到 b6041ea，下一步是修复状态/恢复判定、归档与游标提交一致性、正文续接和增量覆盖六项缺陷；不再等待分块或 18 来源选择，不进入发布部署。
 
-文档职责：spec/constitution 管需求原则；raw-first-development 管用户决定；stage-five 管唯一当前工作顺序；tasks 管 T 编号与证据状态；decision-requests 管真正需要外部输入的事项；continuation 与阶段三/四保存历史。不要在每个文件复制最新统计和待办表；只更新实际受影响的契约、代码说明与证据。下方早期复制/初始化说明用于空项目，现有项目不重新初始化。
+文档职责：spec/constitution 管需求原则；raw-first-development 管用户决定；stage-six 管唯一当前修复顺序，stage-five 管上一阶段交付摘要；tasks 管 T 编号与证据状态；decision-requests 管真正需要外部输入的事项；continuation、stage-five-history 与阶段三/四保存历史。不要在每个文件复制最新统计和待办表；只更新实际受影响的契约、代码说明与证据。下方早期复制/初始化说明用于空项目，现有项目不重新初始化。
 
 版本：0.1.0｜日期：2026-09-11｜状态：评审草案，尚未批准为实施基线
 

@@ -4,7 +4,7 @@
 
 ## 开始工作
 
-先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 raw-first-development.md、stage-five.md、spec.md、plan.md、tasks.md、tech-stack.md、project-startup.md、uv-template.md、structure-comparison.md 和 decision-requests.md。stage-five.md 是当前唯一任务顺序入口；continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md 用于按需追溯历史，clarifications.md 保留原 Q 编号，不作为重新确认全部决定的清单。四份业务输入在 docs/；保留来源，不以历史状态覆盖用户最新决定。
+先阅读 SDD文档说明.md、.specify/memory/constitution.md，以及 specs/001-public-knowledge-collection/ 中的 raw-first-development.md、stage-six.md、stage-five.md、spec.md、plan.md、tasks.md、tech-stack.md、project-startup.md、uv-template.md、structure-comparison.md 和 decision-requests.md。stage-six.md 是当前唯一任务顺序入口；stage-five.md 是已提交功能的阶段摘要；continuation.md、stage-three.md、stage-four.md、scope-and-blocking.md 用于按需追溯历史，clarifications.md 保留原 Q 编号，不作为重新确认全部决定的清单。四份业务输入在 docs/；保留来源，不以历史状态覆盖用户最新决定。
 
 ## 开发约束
 
@@ -24,8 +24,8 @@
 
 ## 阶段续作约束
 
-- DEV-010：每轮选择明确交付物，按 stage-five.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
-- DEV-011：NEXT-09 工程交接清单（delivery-inventory.md）与 NEXT-05A 决策确认栏（decision-requests.md）已交付；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；NEXT-04/T012 已完成，NEXT-10 已由本轮用户决定明确；61e34d8 已实现发现抽象、时间参数和最小分块；当前按 stage-five.md 补 raw 归档、分页/附件覆盖及继续执行，不等待旧确认栏中的重复决定，业务待决只阻断受影响工作，不触发泛化加固循环。
+- DEV-010：每轮选择明确交付物，按 stage-six.md 选择最小必要验证。相关检查通过后推进交付；已有适用证据直接复用。只有相关变更、明确缺陷、未解释失败或必要阶段检查才扩大/重跑测试；禁止以测试数量、无边界夹具补强或反复全量回归替代功能推进。不能为停止测试删用例、降阈值或忽略失败。
+- DEV-011：NEXT-09 工程交接清单（delivery-inventory.md）与 NEXT-05A 决策确认栏（decision-requests.md）已交付；NEXT-01/02/03（工程部分）及 NEXT-06/07/08 已完成，不重新开发，部分完成和正式验收分开记录；NEXT-04/T012 已完成，NEXT-10 已由本轮用户决定明确；61e34d8 已实现发现抽象、时间参数和最小分块；b6041ea 已补归档/游标/队列，当前按 stage-six.md 修复 R1—R6 一致性缺陷，不等待旧确认栏中的重复决定，业务待决只阻断受影响工作，不触发泛化加固循环。
 - DEV-012：用户已授权遵守网站规则的真实站点测试，无需逐轮重复请求该授权。每次测试先登记目的、来源和有限请求预算，遵守 robots、站点条款、访问边界、限速及 Retry-After；遇登录、验证码、明确拒绝或访问限制停止，不绕过。优先已有原件离线验证；遵循 continuation.md 的线上测试停止条件，授权不等于启用全站持续采集或冻结业务范围。工具权限要求仍按实际规则处理。
 
 ## 当前交付范围补充（2026-09-13）
@@ -42,4 +42,8 @@
 
 ## 61e34d8 后的执行入口
 
-阶段五为 raw 完整性补齐与开发验收，不是发布准备。六项用户决定已确认；Q11 后处理与 Q14 发布暂缓，不能成为当前前置。9 来源有限样本通过不等于 9 站分页/附件完整。先做 S5-01 成功业务响应归档，再做 S5-03/04 覆盖与 S5-06 继续执行；S5-02 分因诊断。基础抽象/分块/LibreOffice 不重做；历史日志不改写。任务细节仅在 stage-five.md 维护，其他入口引用它，避免追加互相冲突的待办表。
+阶段五为 raw 完整性补齐与开发验收，不是发布准备。六项用户决定已确认；Q11 后处理与 Q14 发布暂缓，不能成为当前前置。9 来源有限样本通过不等于 9 站分页/附件完整。当前实现基线 b6041ea；先按 stage-six.md 的 R6/R5 → R3/R4 → R2/R1 顺序修复状态校验、恢复判定、归档事务、游标提交、正文续接和增量覆盖；S5-02 只在外部条件变化后有限核对。基础抽象/分块/LibreOffice 不重做；历史日志不改写。当前任务细节仅在 stage-six.md 维护，其他入口引用它，避免追加互相冲突的待办表。
+
+## 2026-09-14 审查后的完成条件
+
+旧“九来源队列全清/入口无新增”不等于窗口完整。当前六项修复属于阶段六，方案与故障注入场景只维护在 stage-six.md；stage-five-history.md 和 continuation.md 是历史记录，不能触发无目标的逐小时巡检。业务代码尚未因本次文档审查修复。历史数据先只读评估，不批量改写以制造通过。

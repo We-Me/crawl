@@ -113,3 +113,7 @@ manifest.discovery_method 的机器枚举已加入 pagination/retry，规格与�
   不改写成截断），`next_url=null`、`state=completed`。
 - `manifests/pending_items.json` 与 `crawl_manifest.jsonl` 基础格式未变；增量核对不产出 documents/blocks，
   也不把已登记目标再标 refresh（仅当入口页出现新目标时，该页目标照常入队/复查）。
+
+## 审查后兼容性要求（2026-09-14）
+
+本轮只更新修复说明；原件目录、业务 JSONL 与现有队列/游标数据没有改写。后续 R1—R6 若增加正文待续、关联键或提交版本，需补具体字段对照与可预览迁移方案，保留旧 partial/失败历史；不能靠删除或整体重置 pending/cursor 使检查通过。

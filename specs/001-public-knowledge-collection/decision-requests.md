@@ -32,7 +32,7 @@
 
 | 对象 | 已完成的核实 | 需要提供/等待 | 复核方式（≤2 请求、只取 robots） |
 | --- | --- | --- | --- |
-| Windows 侧代理分流（影响 IN-04/07/08/09） | 第 50 轮：WSL 无显式代理、CA 244 项与时钟正常；目标域解析到 fake-IP `198.18.0.0/15`，TLS 在 CONNECTED 后被切断（`www.gov.cn` 对照链路完整） | 在代理客户端把 `egazette.gov.in`、`censusindia.gov.in`、`ladakh.gov.in`、`culture.sikkim.gov.in`（含 `www.`）设为直连/豁免，保留证书校验；企业代理则提供组织 CA 说明 | `collect --source <ID> --max-requests 2 --deadline-seconds 30` |
+| Windows 侧代理分流（影响 IN-04/07/08/09） | 第 50 轮：WSL 无显式代理、CA 244 项与时钟正常；目标域解析到 fake-IP `198.18.0.0/15`，TLS 在 CONNECTED 后被切断（`www.gov.cn` 对照链路完整） | 先由用户或管理员核实实际代理配置；证据提示本地代理链路，但 fake-IP/TLS 中断本身不能唯一确定根因。可在可回退的单域对照中把 `egazette.gov.in`、`censusindia.gov.in`、`ladakh.gov.in`、`culture.sikkim.gov.in`（含 `www.`）设为直连/豁免，保留证书校验；企业代理则提供组织 CA 说明 | `collect --source <ID> --max-requests 2 --deadline-seconds 30` |
 | IN-03 `indiacode.gov.in` | 第 49/51 轮：旧域是官方迁移公告（`www.indiacode.nic.in` → 新域）；新域 robots.txt 返回 **502**（nginx）、根页为 Angular SPA 壳 | 站点侧 robots.txt 可用，或站点公开接口/许可（用户批准不能替代站点许可） | 单次 `curl https://indiacode.gov.in/robots.txt` 确认状态 |
 | CN-05/06/07 `*.xizang.gov.cn` | 第 37 轮稳定复现 robots **508** | 站点/网络侧说明或允许的访问方式 | 同上（只取 robots） |
 | CN-03 `flk.npc.gov.cn` | robots 命中 `Disallow /`（明确规则拒绝） | 站点许可或公开接口 | 不重复探测 |
@@ -41,4 +41,4 @@
 
 ## 当前结论
 
-无需再次确认六项决定。S5-01/03/04/06 工程实施完成并继续按轮次推进真实来源；S5-02 本轮可核实部分已完成（见上表与 [S5-02 证据](evidence/stage-five-s5-02-restricted.md)），剩余为代理分流与站点侧条件；S5-05/07 暂缓。历史 NEXT-05A 确认材料已交付，不再生成新的确认包。正式 T019/T026/T027 的未完成状态按真实缺口维护，不能以文档更新代替验收。
+无需再次确认六项决定。S5-01/03/04/06 已有实现但当前需完成 stage-six.md 的 R1—R6 修复；暂停无目标的按轮次巡检；S5-02 本轮可核实部分已完成（见上表与 [S5-02 证据](evidence/stage-five-s5-02-restricted.md)），剩余为代理分流与站点侧条件；S5-05/07 暂缓。历史 NEXT-05A 确认材料已交付，不再生成新的确认包。正式 T019/T026/T027 的未完成状态按真实缺口维护，不能以文档更新代替验收。
