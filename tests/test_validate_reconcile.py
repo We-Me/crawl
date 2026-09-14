@@ -252,3 +252,90 @@ def test_read_error_prevents_cascading_contradiction(tmp_path):
     assert report.ok is False
     assert len(report.problems) == 1
     assert "JSON 语法错误" in report.problems[0]["message"]
+
+
+# ---------- C：身份统一（来源 + URL + 范围 + 母文档） ----------
+
+
+def test_cross_source_closed_row_does_not_close_other_source_item(tmp_path):
+    """C：同一 URL 在别的来源已关闭时，本来源仍未关闭的失败不得被掩盖。"""
+    data = tmp_path / "data"
+    url = "https://example.invalid/shared.pdf"
+    _write_pending(data, {"k1": {"key": "k1", "source_id": "A", "url": url, "state": "failed"}})
+    _write_failures(
+        data,
+        [
+            {**_failure(url, "retry_later"), "source_id": "A"},
+            {**_failure(url, "recovered"), "source_id": "B"},
+        ],
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is True, "来源 B 的 closed 行不是同一对象的处置"
+    assert report.open_failures == 1, "来源 A 的失败仍未关闭"
+
+    # 同一来源的 closed 行仍然按同一身份判为矛盾
+    _write_failures(
+        data,
+        [
+            {**_failure(url, "retry_later"), "source_id": "A"},
+            {**_failure(url, "recovered"), "source_id": "A"},
+        ],
+    )
+    report = reconcile_queue_and_failures(data)
+    assert report.ok is False and report.problems[0]["ledger_action"] == "recovered"
+
+
+def test_cross_source_open_failures_are_counted_separately(tmp_path):
+    data = tmp_path / "data"
+    url = "https://example.invalid/shared.pdf"
+    _write_failures(
+        data,
+        [
+            {**_failure(url, "retry_later"), "source_id": "A"},
+            {**_failure(url, "retry_later", "另一来源"), "source_id": "B"},
+        ],
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is True and report.open_failures == 2, "身份含来源，两个来源各自未关闭"
+
+
+def test_cross_source_doc_id_identity_does_not_close_item(tmp_path):
+    """C：来源不同、doc_id 相同时，本来源待处理项不因别的来源处置而被关闭。"""
+    data = tmp_path / "data"
+    url = "https://example.invalid/shared.pdf"
+    _write_pending(
+        data,
+        {
+            "k1": {
+                "key": "k1",
+                "source_id": "A",
+                "url": url,
+                "state": "failed",
+                "doc_id": "DOC-1",
+            }
+        },
+    )
+    _write_failures(
+        data,
+        [
+            {
+                **_failure(url, "retry_later"),
+                "source_id": "A",
+                "doc_id": "DOC-1",
+            },
+            {
+                **_failure(url, "skip"),
+                "source_id": "B",
+                "doc_id": "DOC-1",
+            },
+        ],
+    )
+
+    report = reconcile_queue_and_failures(data)
+
+    assert report.ok is True and report.problems == []
+    assert report.open_failures == 1, "来源 A 的失败仍未关闭"

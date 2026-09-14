@@ -2,9 +2,9 @@
 
 失败账保持只追加：补抓成功或转为人工处理时追加一条处置行，不删除、不改写历史
 失败；原件与既有成功下载不回退。`open_failures` 取同一身份的最后一条记录判断是否
-仍未关闭；身份为 (url, stage, scope_start_date, doc_id)——同一 URL 在不同运行范围或
-不同母文档下的失败互不覆盖（R5）。运行恢复额外从账本中找出“已下载但还没有文档”的
-条目，供重解析补全，不必重新下载。
+仍未关闭；身份为 (source_id, url, stage, scope_start_date, doc_id)——同一 URL 在不同
+来源、运行范围或不同母文档下的失败互不覆盖（R5/C）。运行恢复额外从账本中找出
+“已下载但还没有文档”的条目，供重解析补全，不必重新下载。
 """
 
 from __future__ import annotations
@@ -20,9 +20,11 @@ from crawler.output.layout import DeliveryLayout
 
 logger = logging.getLogger(__name__)
 
-OPEN_ACTIONS = ("record_only", "retry_later")
-CLOSED_ACTIONS = ("recovered", "skip")
 MANUAL_ACTION = "manual_review"
+# 未关闭 = 仍需处置：record_only/retry_later 等待补抓，manual_review 等待人工处置。
+# manual_review 不等于 recovered：它保持可见（plan/check/失败数），直到人工按同一身份关闭。
+OPEN_ACTIONS = ("record_only", "retry_later", MANUAL_ACTION)
+CLOSED_ACTIONS = ("recovered", "skip")
 
 
 class FailureLedgerError(ValueError):
@@ -44,6 +46,7 @@ class FailureLedger:
         for row in self.load():
             latest[
                 (
+                    row.get("source_id") or None,
                     row.get("url"),
                     row.get("stage"),
                     row.get("scope_start_date") or None,
@@ -119,7 +122,11 @@ class FailureLedger:
         manifest_rows = read_jsonl(self.layout.manifest_path)
         document_rows = read_jsonl(self.layout.documents_path)
         documented = {doc_id for row in document_rows for doc_id in row.get("crawl_ids") or []}
-        open_keys = {(row.get("url"), row.get("stage")) for row in self.open_failures()}
+        # 身份含来源：别的来源的未关闭失败不得把本来源的原件排除在重解析候选之外。
+        open_keys = {
+            (row.get("source_id") or None, row.get("url"), row.get("stage"))
+            for row in self.open_failures()
+        }
         pending = []
         for row in manifest_rows:
             crawl_id = row.get("crawl_id")
@@ -127,7 +134,11 @@ class FailureLedger:
                 continue
             if row.get("discovery_method") == "attachment":
                 continue
-            if any(key[0] == row.get("final_url") for key in open_keys):
+            urls = {row.get("final_url"), row.get("requested_url")}
+            if any(
+                key[0] == (row.get("source_id") or None) and key[1] in urls
+                for key in open_keys
+            ):
                 continue
             pending.append(row)
         if limit is not None:

@@ -74,7 +74,7 @@ def reconcile_queue_and_failures(data_dir: Path) -> ReconcileReport:
         url = row.get("url")
         if url:
             # 文件为追加式：同一身份的最后一行即最新处置。身份与恢复关联一致
-            # （URL + 原运行范围 + 母文档）：不能只按 URL 推断“全部任务已恢复”（R5）。
+            # （来源 + URL + 原运行范围 + 母文档）：不能只按 URL 推断“全部任务已恢复”（R5/C）。
             latest[_ledger_identity(row)] = row
     report.open_failures = sum(
         1 for row in latest.values() if row.get("final_action") not in CLOSED_ACTIONS
@@ -104,13 +104,23 @@ def reconcile_queue_and_failures(data_dir: Path) -> ReconcileReport:
 
 
 def _ledger_identity(row) -> tuple:
-    """失败账行的恢复身份：URL + 原运行范围 + 母文档（缺失按 None）。"""
-    return (row.get("url"), row.get("scope_start_date") or None, row.get("doc_id") or None)
+    """失败账行的恢复身份：来源 + URL + 原运行范围 + 母文档（缺失按 None）。"""
+    return (
+        row.get("source_id") or None,
+        row.get("url"),
+        row.get("scope_start_date") or None,
+        row.get("doc_id") or None,
+    )
 
 
 def _item_identity(item) -> tuple:
     """待处理项的对账身份：与失败账同一口径。"""
-    return (item.get("url"), item.get("scope_start_date") or None, item.get("doc_id") or None)
+    return (
+        item.get("source_id") or None,
+        item.get("url"),
+        item.get("scope_start_date") or None,
+        item.get("doc_id") or None,
+    )
 
 
 def _pending_items(path: Path) -> Tuple[List[dict], List[dict]]:

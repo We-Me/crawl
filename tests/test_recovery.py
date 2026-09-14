@@ -1,10 +1,12 @@
 """T016：分阶段失败账、补抓与运行恢复。"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import requests
 from crawler.discover.discoverer import DiscoveredTarget
+from crawler.fetch.budget import RunBudget
 from crawler.fetch.downloader import Downloader
 from crawler.fetch.http_client import FetchLimits, HttpClient
 from crawler.fetch.retry import (
@@ -24,6 +26,7 @@ from crawler.fetch.retry import (
 from crawler.monitor.failures import FailureLedger, FailureLedgerError
 from crawler.output.jsonl import read_jsonl
 from crawler.pipeline import CrawlPipeline
+from crawler.schedule.scope import RunScope
 
 NOW = datetime(2026, 9, 11, 10, 0, 0, tzinfo=timezone(timedelta(hours=8)))
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
@@ -51,6 +54,64 @@ def _pipeline(registry, data_dir):
         http=HttpClient(registry, limits=FetchLimits(request_rate_per_second=1000)),
         now=lambda: NOW,
     )
+
+
+def _page(title, body, head=""):
+    return (
+        '<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
+        f"<title>{title}</title>{head}</head><body><main>{body}</main></body></html>"
+    )
+
+
+def _write_paged_body_site(root):
+    """两页正文站点：第二页可删除后再恢复，用于片段失败 → 母文档续作场景。"""
+    (root / "r7_index.html").write_text(
+        _page("R7 列表", '<ul><li><a href="r7_paged_1.html">两页正文</a></li></ul>'),
+        encoding="utf-8",
+    )
+    (root / "r7_paged_1.html").write_text(
+        _page(
+            "两页正文（第一部分）",
+            "<h1>两页正文样本（第一部分）</h1><p>正文第一部分：背景。</p>"
+            '<p class="pager"><a rel="next" href="r7_paged_2.html">下一页</a></p>',
+        ),
+        encoding="utf-8",
+    )
+    (root / "r7_paged_2.html").write_text(
+        _page(
+            "两页正文（第二部分）",
+            "<h1>两页正文样本（第二部分）</h1><p>正文第二部分：结尾。</p>",
+        ),
+        encoding="utf-8",
+    )
+
+
+def _budget_pipeline(registry, data_dir, max_requests):
+    budget = RunBudget(max_requests=max_requests)
+    http = HttpClient(
+        registry,
+        limits=FetchLimits(request_rate_per_second=1000),
+        robots=False,
+        budget=budget,
+    )
+    return CrawlPipeline(registry, data_dir, http=http, now=lambda: NOW), budget
+
+
+class _FailingCallSession:
+    """在第 n 次请求抛指定 requests 异常，之后委托真实 Session（确定性瞬时失败）。"""
+
+    def __init__(self, inner, fail_calls, exc):
+        self.inner = inner
+        self.fail_calls = set(fail_calls)
+        self.exc = exc
+        self.calls = 0
+        self.headers = inner.headers
+
+    def get(self, url, **kwargs):
+        self.calls += 1
+        if self.calls in self.fail_calls:
+            raise self.exc
+        return self.inner.get(url, **kwargs)
 
 
 # ---------- 补抓策略 ----------
@@ -858,3 +919,236 @@ def test_recovery_closes_only_same_parent_document(site_server, registry_factory
         (item.doc_id or item.kind): item.state for item in pipeline.pending.all_items()
     }
     assert states == {"DOC-1": "processed", "DOC-2": "failed", "target": "failed"}
+
+
+# ---------- C：身份统一（来源 + URL + 范围 + 母文档） ----------
+
+
+def test_open_failures_are_kept_per_source(tmp_path):
+    """C：同一 URL/stage/范围/母文档的失败行按来源分开，不互相覆盖。"""
+    from crawler.monitor.failures import FailureLedger
+
+    ledger = FailureLedger(tmp_path)
+    common = {
+        "url": "https://example.invalid/a.pdf",
+        "time": NOW.isoformat(),
+        "stage": "fetch",
+        "error_type": "request_error",
+        "message": "HTTP 500",
+        "retry_count": 0,
+    }
+    ledger.writer.record(source_id="A", final_action="retry_later", **common)
+    ledger.writer.record(source_id="B", final_action="retry_later", **common)
+
+    keys = set(ledger.latest_by_key())
+    assert ("A", *[common["url"], "fetch", None, None]) in keys
+    assert len(ledger.open_failures()) == 2, "两个来源各自保持未关闭"
+
+
+def test_pending_documents_ignores_other_source_open_failure(tmp_path):
+    """C：别的来源的未关闭失败不得把本来源已下载原件排除在重解析候选之外。"""
+    from crawler.monitor.failures import FailureLedger
+    from crawler.output.jsonl import write_jsonl
+
+    ledger = FailureLedger(tmp_path)
+    (tmp_path / "manifests").mkdir(parents=True, exist_ok=True)
+    write_jsonl(
+        tmp_path / "manifests" / "crawl_manifest.jsonl",
+        [
+            {
+                "crawl_id": "C1",
+                "source_id": "A",
+                "requested_url": "https://example.invalid/a.pdf",
+                "final_url": "https://example.invalid/a.pdf",
+                "raw_path": "raw/a.pdf",
+            }
+        ],
+    )
+    ledger.writer.record(
+        source_id="B",
+        url="https://example.invalid/a.pdf",
+        time=NOW.isoformat(),
+        stage="fetch",
+        error_type="request_error",
+        message="HTTP 500",
+        retry_count=0,
+        final_action="retry_later",
+    )
+
+    pending = ledger.pending_documents()
+
+    assert [row["crawl_id"] for row in pending] == ["C1"]
+
+
+def test_failure_records_pending_item_scope_not_run_scope(
+    site_server, registry_factory, tmp_path
+):
+    """C：处理待处理项时，失败记录使用该对象入队范围（不是本次运行窗口）。
+
+    否则补抓计划与对账会按不同范围找不到同一对象，队列与账本无法互相关闭。
+    """
+    registry = registry_factory(site_server)
+    pipeline = _pipeline(registry, tmp_path / "data")
+    url = f"{site_server}/missing-page.html"
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=url, discovery_method="manual")],
+        scope_start_date="2026-09-01",
+        enqueued_at=NOW.isoformat(),
+    )
+
+    report = pipeline.collect(
+        "TESTSRC",
+        manual_urls=[url],
+        scope=RunScope(start_date=date(2026, 9, 10)),
+        max_items=1,
+    )
+
+    assert report.counters.failures == 1
+    row = report.failures[0]
+    assert row["scope_start_date"] == "2026-09-01", "对象范围优先于本次运行窗口"
+    item = next(row for row in pipeline.pending.all_items() if row.url == url)
+    assert item.scope_start_date == "2026-09-01"
+    tasks = pipeline.recovery_plan()
+    assert [task.scope_start_date for task in tasks] == ["2026-09-01"]
+
+
+def test_part_failure_recovery_resumes_mother_document(
+    mutable_site, registry_factory, tmp_path
+):
+    """C：正文片段失败在补抓时回到母文档续作，不产出片段文档、不误关其它对象。"""
+    base_url, root = mutable_site
+    _write_paged_body_site(root)
+    registry = registry_factory(base_url)
+    data = tmp_path / "data"
+
+    # 第二轮正文请求瞬时失败（第 3 个请求：列表、母页之后的分页部分）
+    budget = RunBudget(max_requests=3)
+    session = requests.Session()
+    session.headers.setdefault("User-Agent", "test-agent")
+    inner = _FailingCallSession(
+        session, fail_calls={3}, exc=requests.exceptions.ReadTimeout("瞬时读取超时")
+    )
+    http = HttpClient(
+        registry,
+        limits=FetchLimits(request_rate_per_second=1000, max_retries=0),
+        robots=False,
+        session=inner,
+        budget=budget,
+    )
+    pipeline = CrawlPipeline(registry, data, http=http, now=lambda: NOW)
+    pipeline.collect("TESTSRC", entry_urls=[f"{base_url}/r7_index.html"], budget=budget)
+    item = next(
+        row for row in pipeline.pending.all_items() if row.url.endswith("r7_paged_1.html")
+    )
+    assert item.state == "pending" and item.continuation is not None
+    part_failure = next(
+        row
+        for row in pipeline.failures_ledger.open_failures()
+        if row["url"].endswith("r7_paged_2.html")
+    )
+    assert part_failure["doc_id"] == item.continuation["doc_id"]
+    assert pipeline.recovery_plan()[0].action == REFETCH
+
+    (root / "r7_paged_2.html").write_text(
+        _page(
+            "两页正文（第二部分）",
+            "<h1>两页正文样本（第二部分）</h1><p>正文第二部分：结尾。</p>",
+        ),
+        encoding="utf-8",
+    )
+    report = pipeline.resume_failures("TESTSRC")
+
+    assert [row["note"] for row in report.recovered] == ["补抓成功，账本与文档已更新"]
+    documents = read_jsonl(data / "normalized" / "documents.jsonl")
+    assert all(
+        doc["source_url"].endswith(("r7_paged_1.html", "r7_index.html")) for doc in documents
+    ), "分页片段不得独立成文"
+    final_doc = documents[-1]
+    assert "正文第二部分" in final_doc["full_text"]
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "processed" and updated.continuation is None
+    assert pipeline.failures_ledger.open_failures() == []
+
+
+def test_part_reparse_failure_does_not_create_fragment_document(
+    site_server, registry_factory, tmp_path
+):
+    """C：正文片段的本地重解析任务不得产出片段文档；对象有未完成正文时回到母页续作。"""
+    registry = registry_factory(site_server)
+    data = tmp_path / "data"
+    pipeline = _pipeline(registry, data)
+    mother_url = f"{site_server}/detail_1.html"
+    part_url = f"{site_server}/detail_paged_2.html"
+    mother_doc_id = "MOTHER1"
+
+    pipeline.pending.enqueue_targets(
+        source_id="TESTSRC",
+        targets=[DiscoveredTarget(url=mother_url, discovery_method="manual")],
+        scope_start_date=None,
+        enqueued_at=NOW.isoformat(),
+    )
+    item = next(row for row in pipeline.pending.all_items() if row.url == mother_url)
+    pipeline.pending.mark(
+        item.key,
+        state="pending",
+        doc_id=mother_doc_id,
+        continuation={
+            "kind": "body_pagination",
+            "doc_id": mother_doc_id,
+            "mother_url": mother_url,
+            "mother_final_url": mother_url,
+            "mother_raw_path": "raw/TESTSRC/2026-09-11/html/detail_1.html",
+            "mother_sha256": "0" * 64,
+            "mother_content_type": "text/html; charset=utf-8",
+            "next_url": part_url,
+            "body_api_url": None,
+            "parts": [],
+            "stop_reason": "resume_part_failed",
+            "attempts": 1,
+            "updated_at": NOW.isoformat(),
+        },
+    )
+    raw = pipeline.store.write_bytes(
+        source_id="TESTSRC",
+        crawl_date="2026-09-11",
+        kind="html",
+        filename="detail_paged_2.html",
+        content=(FIXTURES / "site" / "detail_paged_2.html").read_bytes(),
+    )
+    pipeline.manifest.record(
+        crawl_id="PART1",
+        source_id="TESTSRC",
+        requested_url=part_url,
+        final_url=part_url,
+        crawl_time=NOW.isoformat(),
+        http_status=200,
+        content_type="text/html; charset=utf-8",
+        raw=raw,
+        discovery_method="pagination",
+        referrer_url=mother_url,
+    )
+    pipeline.failures.record(
+        source_id="TESTSRC",
+        url=part_url,
+        time=NOW.isoformat(),
+        stage="parse",
+        error_type="continuation_part_unreadable",
+        message="已取得正文部分无法重建",
+        retry_count=0,
+        final_action="record_only",
+        crawl_id="PART1",
+        doc_id=mother_doc_id,
+        referrer_url=mother_url,
+    )
+    assert pipeline.recovery_plan()[0].action == REPARSE
+
+    report = pipeline.resume_failures("TESTSRC")
+
+    documents = read_jsonl(data / "normalized" / "documents.jsonl")
+    assert all(doc["source_url"] != part_url for doc in documents), "片段不得独立成文"
+    assert [doc["source_url"] for doc in documents] == [mother_url]
+    assert [row["note"] for row in report.recovered] == ["补抓成功，账本与文档已更新"]
+    updated = next(row for row in pipeline.pending.all_items() if row.key == item.key)
+    assert updated.state == "processed" and updated.continuation is None
+    assert pipeline.failures_ledger.open_failures() == []

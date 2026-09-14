@@ -3,6 +3,10 @@
 按 URL 保存此前成功抓取的校验信息（ETag/Last-Modified/哈希/crawl_id）与最近一次
 304 关联，供条件请求与增量判断使用。JSON 文件原子写入；刷新失败不影响历史状态。
 状态文件只记录抓取行为，不复制文档内容，也不作为交付内容。
+
+R2/A（阶段七）：正文分页/接口正文未完成时的待续状态也在这里登记，与 ETag/哈希在
+同一次原子写入中落盘。这样“正文续抓进度”和“增量状态”不会出现一个已写、另一个未写的
+窗口：重启后即使待处理项尚未回写，母页 304 也不会把未完成正文当作完整实体复用。
 """
 
 from __future__ import annotations
@@ -25,6 +29,16 @@ NOT_MODIFIED = "not_modified"
 UPDATED = "updated"
 
 
+class _Unset:
+    """record_success() 的缺省标记：区分“清空待续”和“不改变待续”。"""
+
+    def __repr__(self) -> str:  # pragma: no cover - 仅用于调试输出
+        return "UNSET"
+
+
+UNSET = _Unset()
+
+
 @dataclass(frozen=True)
 class ResourceState:
     url: str
@@ -39,6 +53,8 @@ class ResourceState:
     last_version: Optional[str] = None
     last_result: Optional[str] = None
     not_modified_crawl_id: Optional[str] = None
+    # 未完成正文位置的待续状态（BodyContinuation.as_dict()）；None 表示该 URL 当前无待续。
+    continuation: Optional[dict] = None
 
 
 class IncrementalStateStore:
@@ -70,7 +86,15 @@ class IncrementalStateStore:
         crawl_id: Optional[str] = None,
         publication_date: Optional[str] = None,
         version: Optional[str] = None,
+        continuation: object = UNSET,
     ) -> ResourceState:
+        """记录一次成功获取；continuation 显式传 None 表示待续关闭，缺省保持原值。"""
+        existing_continuation: Optional[dict]
+        if continuation is UNSET:
+            previous = self.get(url)
+            existing_continuation = previous.continuation if previous else None
+        else:
+            existing_continuation = continuation
         state = ResourceState(
             url=url,
             etag=etag,
@@ -83,6 +107,7 @@ class IncrementalStateStore:
             last_publication_date=publication_date,
             last_version=version,
             last_result=UPDATED,
+            continuation=existing_continuation,
         )
         return self._update(url, lambda existing: state)
 

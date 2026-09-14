@@ -4,6 +4,10 @@
 成组提交。失败按操作记录，不静默丢弃，也不以失败掩盖已成功获取的原件。
 collect/resume 可挂统一的 RunBudget：请求上限或截止时间到达时停止后续请求，
 保留已成功归档的原件、账本、文档与块，并以 stop_reason 报告未完成部分。
+
+失败身份（C）：来源 + URL + 原运行范围 + 母文档。处理具体待处理项时，失败记录的
+``scope_start_date`` 取该对象入队时的范围（而不是本次运行的窗口），使失败账、补抓
+计划与 ``check`` 对账使用同一对象身份，不跨来源、范围或母文档互相关闭。
 """
 
 from __future__ import annotations
@@ -102,7 +106,7 @@ from crawler.schedule.pending import (
     PendingStore,
 )
 from crawler.schedule.scope import RunScope, ScopeConfigError, parse_start_date
-from crawler.schedule.state import IncrementalStateStore
+from crawler.schedule.state import IncrementalStateStore, ResourceState
 from crawler.util.paths import PathSafetyError, sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -321,6 +325,16 @@ class CrawlPipeline:
         self.cursors = DiscoveryCursorStore(self.data_dir)
         # 本次运行范围：失败记录与补抓计划据此保留原窗口（恢复不混入新窗口）。
         self._run_scope: RunScope = RunScope()
+        # 当前正在处理的对象范围（C）：处理待处理项时临时覆盖失败记录范围；未设置时
+        # 回落到本次运行范围（如发现阶段失败）。
+        self._object_scope_set = False
+        self._object_scope_start: Optional[date] = None
+
+    def _object_scope(self) -> RunScope:
+        """失败记录使用的对象范围（C）：处理对象期间取该对象自己的窗口。"""
+        if self._object_scope_set:
+            return RunScope(start_date=self._object_scope_start)
+        return self._run_scope
 
     @property
     def store(self):
@@ -490,6 +504,11 @@ class CrawlPipeline:
             )
             for item in candidates:
                 try:
+                    # C：处理对象期间，失败记录使用该对象入队时的运行范围（不是本次运行窗口），
+                    # 否则失败账、补抓计划与对账会因范围不同而无法按同一身份匹配。
+                    item_scope = self._scope_for_item(item)
+                    self._object_scope_set = True
+                    self._object_scope_start = item_scope.start_date
                     if item.kind == KIND_ATTACHMENT:
                         outcome = self._collect_pending_attachment(
                             source, item, report, crawl_date, crawl_time
@@ -523,7 +542,7 @@ class CrawlPipeline:
                             crawl_time,
                             include_attachments,
                             report,
-                            self._scope_for_item(item),
+                            item_scope,
                             parent_url=item.url,
                             continuation=continuation,
                             ignore_conditional=damaged_continuation,
@@ -549,6 +568,9 @@ class CrawlPipeline:
                         SkippedTarget(item.url, f"scope_unparsable:{exc}", item.referrer_url)
                     )
                     continue
+                finally:
+                    self._object_scope_set = False
+                    self._object_scope_start = None
                 self.pending.mark(
                     item.key,
                     state=outcome.state,
@@ -978,6 +1000,35 @@ class CrawlPipeline:
         ignore_conditional: bool = False,
     ) -> TargetOutcome:
         scope = scope or RunScope()
+        state = self.state.get(target.url)
+        if continuation is None and state is not None and state.continuation is not None:
+            # A：待处理项尚未回写（进程中断）或已丢失时，以增量状态里的待续位置为准；
+            # 两者是同一原子写入，续作进度不会因队列回写失败而消失。
+            state_continuation = BodyContinuation.from_dict(state.continuation)
+            if state_continuation is not None and state_continuation.mother_url == target.url:
+                logger.warning(
+                    "按增量状态续作未完成正文 url=%s（待处理项无待续状态）parts=%d",
+                    target.url,
+                    len(state_continuation.parts),
+                )
+                continuation = state_continuation
+            else:
+                # 待续位置不可用（结构损坏或指向别的母页）：不猜进度，也不让 304 冒充完成，
+                # 按完整重取处理并留下可见的工程失败记录。
+                logger.warning("增量状态中的待续位置不可用，按完整重取处理 url=%s", target.url)
+                self._record_failure(
+                    report,
+                    source_id=source.source_id,
+                    url=target.url,
+                    stage="validate",
+                    error_type="continuation_state_damaged",
+                    message="增量状态中的待续位置不可用：按完整重取处理",
+                    attempts=1,
+                    retryable=False,
+                    referrer_url=target.referrer_url,
+                    doc_id=state.crawl_id,
+                )
+                ignore_conditional = True
         if continuation is not None:
             # R2：主目标带正文待续状态时优先续取未完成部分，不从头重取整篇。
             return self._collect_target_continuation(
@@ -991,9 +1042,9 @@ class CrawlPipeline:
                 report,
                 scope,
                 parent_url=parent_url,
+                state=state,
             )
         try:
-            state = self.state.get(target.url)
             plan = plan_incremental(
                 source.resource_kind, None if ignore_conditional else state, now=self.now()
             )
@@ -1193,6 +1244,7 @@ class CrawlPipeline:
         scope: RunScope,
         *,
         parent_url: Optional[str] = None,
+        state: Optional[ResourceState] = None,
     ) -> TargetOutcome:
         """R2 续作：先续取未完成正文，母页只做必要校验，304 不取消未完成部分。
 
@@ -1200,8 +1252,12 @@ class CrawlPipeline:
         - 200 且字节与上一版相同（站点无 304 支持时）：同样续取已保存部分；
         - 200 且内容变化：旧 raw 与旧 partial 文档保留，按新版本重新展开正文，
           不把旧版本部分拼进新版；文档身份用「母身份 + 续作序号」，不与 partial 行冲突。
+
+        B：母页返回成功但不再是 HTML 时，响应字节先按原件与账本留存，再决定后续处置，
+        不丢原件；正文待续状态保持打开，等待恢复或人工处置。
         """
-        state = self.state.get(target.url)
+        if state is None:
+            state = self.state.get(target.url)
         try:
             plan = plan_incremental(source.resource_kind, state, now=self.now())
             response = self._fetch_target_response(source, target, plan)
@@ -1266,30 +1322,17 @@ class CrawlPipeline:
                     f"continuation_raw_missing:{continuation.mother_raw_path}",
                     doc_id=continuation.doc_id,
                 )
-            try:
-                parsed = self._parse_html_page(
-                    source,
-                    mother_bytes,
-                    continuation.mother_final_url,
-                    continuation.mother_content_type,
-                )
-            except Exception as exc:
-                self._record_failure(
-                    report,
-                    source_id=source.source_id,
-                    url=target.url,
-                    stage="parse",
-                    error_type="parse_error",
-                    message=str(exc),
-                    attempts=1,
-                    retryable=False,
-                    referrer_url=target.referrer_url,
-                    crawl_id=continuation.doc_id,
-                    doc_id=continuation.doc_id,
-                )
-                return TargetOutcome(
-                    STATE_FAILED, f"parse_error: {exc}", doc_id=continuation.doc_id
-                )
+            parsed, parsed_failure = self._parse_continuation_mother(
+                source,
+                target,
+                report,
+                mother_bytes,
+                continuation.mother_final_url,
+                continuation.mother_content_type,
+                continuation,
+            )
+            if parsed_failure is not None:
+                return parsed_failure
             logger.info(
                 "正文续作：母页 304，沿用既有原件与已取部分 url=%s parts=%d",
                 target.url,
@@ -1319,8 +1362,20 @@ class CrawlPipeline:
                 previous=continuation,
             )
 
-        if not _is_html(response.headers, response.final_url):
-            # 母页不再是 HTML：无法继续正文分页；保留待续状态等待人工/恢复处理。
+        # B：成功响应先留存原件与账本，再判断能不能继续按 HTML 续作正文。
+        is_html = _is_html(response.headers, response.final_url)
+        archived = self.archiver.archive(
+            response,
+            source_id=source.source_id,
+            kind="html" if is_html else "attachment",
+            discovery_method=target.discovery_method,
+            keyword=target.keyword,
+            referrer_url=target.referrer_url,
+            crawl_time=crawl_time,
+        )
+        report.counters.resources += 1
+        if not is_html:
+            # 母页不再是 HTML：无法继续正文分页；原件已留存，保留待续状态等待恢复或人工处置。
             content_type = response.headers.get("Content-Type", "")
             self._record_failure(
                 report,
@@ -1328,39 +1383,7 @@ class CrawlPipeline:
                 url=target.url,
                 stage="parse",
                 error_type="continuation_not_html",
-                message=f"续接母页不再是 HTML：{content_type}",
-                attempts=1,
-                retryable=False,
-                referrer_url=target.referrer_url,
-                doc_id=continuation.doc_id,
-            )
-            return TargetOutcome(
-                STATE_FAILED, f"continuation_not_html:{content_type}", doc_id=continuation.doc_id
-            )
-
-        archived = self.archiver.archive(
-            response,
-            source_id=source.source_id,
-            kind="html",
-            discovery_method=target.discovery_method,
-            keyword=target.keyword,
-            referrer_url=target.referrer_url,
-            crawl_time=crawl_time,
-        )
-        report.counters.resources += 1
-        same_version = archived.raw.sha256 == continuation.mother_sha256
-        try:
-            parsed = self._parse_html_page(
-                source, response.content, response.final_url, response.headers.get("Content-Type", "")
-            )
-        except Exception as exc:
-            self._record_failure(
-                report,
-                source_id=source.source_id,
-                url=target.url,
-                stage="parse",
-                error_type="parse_error",
-                message=str(exc),
+                message=f"续接母页返回成功响应但不再是 HTML：{content_type}",
                 attempts=1,
                 retryable=False,
                 referrer_url=target.referrer_url,
@@ -1368,8 +1391,27 @@ class CrawlPipeline:
                 doc_id=continuation.doc_id,
             )
             return TargetOutcome(
-                STATE_FAILED, f"parse_error: {exc}", doc_id=continuation.doc_id
+                STATE_FAILED,
+                f"continuation_not_html:{content_type}",
+                crawl_id=archived.crawl_id,
+                raw_path=archived.raw.relative_path,
+                sha256=archived.raw.sha256,
+                doc_id=continuation.doc_id,
             )
+
+        same_version = archived.raw.sha256 == continuation.mother_sha256
+        parsed, parsed_failure = self._parse_continuation_mother(
+            source,
+            target,
+            report,
+            response.content,
+            response.final_url,
+            response.headers.get("Content-Type", ""),
+            continuation,
+            crawl_id=archived.crawl_id,
+        )
+        if parsed_failure is not None:
+            return parsed_failure
         if same_version:
             previous: Optional[BodyContinuation] = continuation
             logger.info("正文续作：母页字节与上一版相同，按续接处理 url=%s", target.url)
@@ -1512,6 +1554,18 @@ class CrawlPipeline:
         report.counters.documents += document_count
         report.counters.blocks += block_count
         report.documents.append(doc_id)
+        continuation = self._next_continuation(
+            target=target,
+            expansion=expansion,
+            mother_crawl_id=mother_crawl_id,
+            mother_final_url=mother_final_url,
+            mother_raw_path=mother_raw_path,
+            mother_sha256=mother_sha256,
+            mother_content_type=mother_content_type,
+            previous=previous,
+        )
+        # A：待续位置与增量状态在同一次原子写入中落盘。进程若在回写待处理项之前中断，
+        # 重启后母页 304 仍按这里记录的位置续作，不把未完成正文当作完整实体复用。
         self.state.record_success(
             target.url,
             now=self.now(),
@@ -1522,16 +1576,7 @@ class CrawlPipeline:
             crawl_id=doc_id,
             publication_date=document.get("publication_date"),
             version=document.get("version"),
-        )
-        continuation = self._next_continuation(
-            target=target,
-            expansion=expansion,
-            mother_crawl_id=mother_crawl_id,
-            mother_final_url=mother_final_url,
-            mother_raw_path=mother_raw_path,
-            mother_sha256=mother_sha256,
-            mother_content_type=mother_content_type,
-            previous=previous,
+            continuation=continuation.as_dict() if continuation is not None else None,
         )
         if continuation is not None:
             # R2：正文仍有未取部分时保持待续，不写成请求失败、也不冒充整体完成。
@@ -1632,6 +1677,67 @@ class CrawlPipeline:
             base_url=final_url,
         )
 
+    def _parse_continuation_mother(
+        self,
+        source,
+        target: DiscoveredTarget,
+        report: RunReport,
+        content: bytes,
+        final_url: str,
+        content_type: str,
+        continuation: BodyContinuation,
+        *,
+        crawl_id: Optional[str] = None,
+    ) -> Tuple[Optional[ParsedPage], Optional[TargetOutcome]]:
+        """解析续作母页；失败返回 (None, 明确失败结果) 并留痕，不静默继续续作。
+
+        与正常采集路径同一判定：解析异常与适配正文选择器未命中都按失败处理，
+        避免母页结构变化后用回退正文冒充“已完成”；待续状态保持打开待恢复或人工处置。
+        """
+        try:
+            parsed = self._parse_html_page(source, content, final_url, content_type)
+        except Exception as exc:  # noqa: BLE001 - 解析失败保留原件与失败记录
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=target.url,
+                stage="parse",
+                error_type="parse_error",
+                message=str(exc),
+                attempts=1,
+                retryable=False,
+                referrer_url=target.referrer_url,
+                crawl_id=crawl_id or continuation.doc_id,
+                doc_id=continuation.doc_id,
+            )
+            return None, TargetOutcome(
+                STATE_FAILED,
+                f"parse_error: {exc}",
+                crawl_id=crawl_id,
+                doc_id=continuation.doc_id,
+            )
+        if parsed.content_selector_missed:
+            self._record_failure(
+                report,
+                source_id=source.source_id,
+                url=target.url,
+                stage="parse",
+                error_type="adapter_selector_miss",
+                message=f"续接母页适配正文选择器未命中：{source.adapter.content_selector}",
+                attempts=1,
+                retryable=False,
+                referrer_url=target.referrer_url,
+                crawl_id=crawl_id or continuation.doc_id,
+                doc_id=continuation.doc_id,
+            )
+            return None, TargetOutcome(
+                STATE_FAILED,
+                f"adapter_selector_miss: {source.adapter.content_selector}",
+                crawl_id=crawl_id,
+                doc_id=continuation.doc_id,
+            )
+        return parsed, None
+
     def _restore_body_part(
         self,
         source,
@@ -1727,13 +1833,19 @@ class CrawlPipeline:
         R2 续作：``resume_parts`` 按保存顺序从原件重建已取得部分（不重复请求、不重复
         拼接），``resume_next_url``/``resume_body_api_url`` 给出未取位置；母页 304 只
         说明母响应未变，未完成正文与附件继续取，不被首响应阻断。
+
+        D：无论分页与接口正文谁先取得，合并顺序固定为“母页 → 分页各部分 → 接口正文”，
+        页码按分页顺序编号；因此“分页失败、接口可用、随后恢复”的文档与一次成功抓取
+        在正文顺序、块顺序与页码上一致，也不重复拼接已保存块。
         """
 
         first_blocks = list(parsed.blocks)
-        extra_blocks: List[ParsedBlock] = []
+        pagination_blocks: List[ParsedBlock] = []
+        pagination_refs: List[dict] = []
+        api_blocks: List[ParsedBlock] = []
+        api_ref: Optional[dict] = None
         extra_crawl_ids: List[str] = []
         extra_pages: List[Tuple[bytes, str]] = []
-        part_refs: List[dict] = []
         incomplete: Optional[str] = None
         budget_stop: Optional[BudgetStop] = None
         parts = 1
@@ -1756,15 +1868,25 @@ class CrawlPipeline:
                 next_url = part_url or None
                 break
             part_blocks, part_content, part_final_url = restored
-            index = len(part_refs) + 2
             if ref.get("method") == "pagination":
-                extra_blocks.extend(replace(block, page_no=index) for block in part_blocks)
+                parts += 1
+                pagination_blocks.extend(
+                    replace(block, page_no=parts) for block in part_blocks
+                )
+                pagination_refs.append(dict(ref))
             else:
-                extra_blocks.extend(part_blocks)
-            parts += 1
+                if pending_api:
+                    # 记录里既有接口部分又有未取接口位置：以未取位置为准，避免重复拼接。
+                    logger.warning(
+                        "续作状态同时含接口部分与未取接口位置，保留未取位置 url=%s",
+                        str(ref.get("url") or ""),
+                    )
+                    referrer = part_final_url
+                    continue
+                api_blocks = list(part_blocks)
+                api_ref = dict(ref)
             extra_crawl_ids.append(str(ref["crawl_id"]))
             extra_pages.append((part_content, part_final_url))
-            part_refs.append(dict(ref))
             referrer = part_final_url
         else:
             while next_url:
@@ -1861,12 +1983,13 @@ class CrawlPipeline:
                     incomplete = f"pagination_selector_miss:{next_url}"
                     break
                 parts += 1
-                extra_blocks.extend(replace(block, page_no=parts) for block in part_parsed.blocks)
+                pagination_blocks.extend(
+                    replace(block, page_no=parts) for block in part_parsed.blocks
+                )
                 extra_crawl_ids.append(part_crawl_id)
                 extra_pages.append((part.content, part.final_url))
-                part_refs.append(
+                pagination_refs.append(
                     {
-                        "order": len(part_refs) + 2,
                         "url": requested_url,
                         "final_url": part.final_url,
                         "crawl_id": part_crawl_id,
@@ -1899,15 +2022,21 @@ class CrawlPipeline:
                 incomplete = incomplete or f"body_api_failed:{pending_api}"
             else:
                 api_blocks, api_ref = api_result
-                extra_blocks.extend(api_blocks)
                 extra_crawl_ids.append(str(api_ref["crawl_id"]))
-                part_refs.append({**api_ref, "order": len(part_refs) + 2})
                 pending_api = None
 
-        if parts > 1:
-            blocks = [replace(block, page_no=1) for block in first_blocks] + extra_blocks
+        # D：引用与块按“分页（原顺序）→ 接口正文”重排后统一编号，与一次成功抓取一致。
+        part_refs: List[dict] = []
+        for position, ref in enumerate(pagination_refs, start=2):
+            part_refs.append({**ref, "order": position})
+        if api_ref is not None:
+            part_refs.append({**api_ref, "order": len(part_refs) + 2})
+
+        if pagination_blocks:
+            blocks = [replace(block, page_no=1) for block in first_blocks] + pagination_blocks
         else:
-            blocks = first_blocks + extra_blocks
+            blocks = first_blocks + pagination_blocks
+        blocks = list(blocks) + list(api_blocks)
         metadata_missing = list(parsed.metadata_missing)
         if incomplete:
             metadata_missing.append(incomplete)
@@ -2301,8 +2430,8 @@ class CrawlPipeline:
             crawl_id=crawl_id,
             referrer_url=referrer_url,
             scope_start_date=(
-                self._run_scope.start_date.isoformat()
-                if self._run_scope and self._run_scope.start_date
+                self._object_scope().start_date.isoformat()
+                if self._object_scope().start_date
                 else None
             ),
             doc_id=doc_id,
@@ -2458,7 +2587,8 @@ class CrawlPipeline:
     def _failure_for(self, task: RecoveryTask) -> dict:
         for row in self.failures_ledger.load():
             if (
-                row.get("url") == task.url
+                (row.get("source_id") or None) == (task.source_id or None)
+                and row.get("url") == task.url
                 and row.get("stage") == task.stage
                 and (row.get("scope_start_date") or None) == (task.scope_start_date or None)
                 and (row.get("doc_id") or None) == (task.doc_id or None)
@@ -2492,8 +2622,11 @@ class CrawlPipeline:
         - 合法跳过（robots/边界/范围外）→ 按 skip 关闭。
         """
         report = RunReport(source_id=source.source_id)
+        # C：任务指向正文部分（分页/接口）时回到同一母文档的待续载体，按母页续作；
+        # 不为片段单独产出文档，也不按 URL 关闭其它对象。
+        continuation, resume_item = self._resume_object(source.source_id, task)
         target = DiscoveredTarget(
-            url=task.url,
+            url=resume_item.url if resume_item is not None else task.url,
             discovery_method="retry",
             referrer_url=task.referrer_url,
         )
@@ -2508,7 +2641,7 @@ class CrawlPipeline:
             False,
             report,
             scope,
-            continuation=self._pending_continuation_for(source.source_id, task),
+            continuation=continuation,
         )
         attempt = {
             "crawl_id": outcome.crawl_id,
@@ -2617,17 +2750,19 @@ class CrawlPipeline:
         失败账驱动的补抓不改写已提交文档（追加写口径不变），但同一 URL 的待处理项
         必须同步关闭，否则覆盖表长期显示失败/待处理，与账本已关闭的处置互相矛盾。
 
-        R5 身份口径：来源 + URL + 原运行范围 + 必要的母文档关系。同 URL 但不同
-        scope 或不同母文档（doc_id/母页）的待处理项不互相关闭；身份无法判定时
-        宁可不动，也不按 URL 批量关闭。返回实际回写的 key 列表。
+        R5/C 身份口径：来源 + 对象 URL 或母文档待续载体 + 原运行范围 + 必要的母文档
+        关系。同 URL 但不同 scope 或不同母文档（doc_id/母页）的待处理项不互相关闭；
+        身份无法判定时宁可不动，也不按 URL 批量关闭。返回实际回写的 key 列表。
         """
         matched: List[str] = []
         for item in self.pending.all_items():
-            if item.source_id != source.source_id or item.url != task.url:
+            if item.source_id != source.source_id:
                 continue
             if (item.scope_start_date or None) != (task.scope_start_date or None):
                 continue
-            if not _same_recovery_object(item, task):
+            if not _same_recovery_object(
+                item, task, continuation=BodyContinuation.from_dict(item.continuation)
+            ):
                 logger.info(
                     "补抓身份不一致，跳过待处理项 key=%s（task doc_id=%s referrer=%s）",
                     item.key,
@@ -2661,21 +2796,33 @@ class CrawlPipeline:
             )
         return matched
 
-    def _pending_continuation_for(
+    def _resume_object(
         self, source_id: str, task: RecoveryTask
-    ) -> Optional[BodyContinuation]:
-        """补抓任务的待续状态（来源 + URL + 原范围 + 母文档身份）；无匹配返回 None。"""
+    ) -> Tuple[Optional[BodyContinuation], Optional[PendingItem]]:
+        """恢复对象解析（C）：返回 (待续状态, 待处理项)；无匹配返回 (None, None)。
+
+        - 任务 URL 与待处理项一致：按该项目的续作状态（原有补抓行为）；
+        - 任务 URL 是母文档的正文分页/接口部分（带母文档身份）：返回该母文档的续作
+          载体，按母页续作；这样片段失败不会单独产出文档，也不会丢掉母文档进度。
+        """
+        fragment: Tuple[Optional[BodyContinuation], Optional[PendingItem]] = (None, None)
         for item in self.pending.all_items():
-            if item.source_id != source_id or item.url != task.url:
+            if item.source_id != source_id:
                 continue
             if (item.scope_start_date or None) != (task.scope_start_date or None):
                 continue
-            if not _same_recovery_object(item, task):
-                continue
             continuation = BodyContinuation.from_dict(item.continuation)
-            if continuation is not None:
-                return continuation
-        return None
+            if item.url == task.url:
+                if (item.doc_id or None) != (task.doc_id or None):
+                    continue
+                if not _same_recovery_object(item, task, continuation=continuation):
+                    continue
+                return continuation, item
+            if not task.doc_id or continuation is None:
+                continue
+            if continuation.doc_id == task.doc_id and (item.doc_id or None) == task.doc_id:
+                fragment = (continuation, item)
+        return fragment
 
     def _recover_reparse(
         self,
@@ -2684,6 +2831,18 @@ class CrawlPipeline:
         moment: datetime,
         scope: Optional[RunScope] = None,
     ) -> Optional[dict]:
+        continuation, resume_item = self._resume_object(source.source_id, task)
+        if resume_item is not None and (
+            resume_item.url != task.url or continuation is not None
+        ):
+            # C：正文分页/接口片段不能独立成文；对象仍有未完成正文时回到母页续作，
+            # 这样重解析任务不会产出片段文档，也不会把母文档的待续状态当成已补齐。
+            logger.info(
+                "重解析任务指向正文片段或未完成正文，转为按母文档续作 url=%s mother=%s",
+                task.url,
+                resume_item.url,
+            )
+            return self._recover_refetch(source, task, moment, scope)
         raw_path = task.raw_path
         if not raw_path:
             return None
@@ -2805,19 +2964,33 @@ class CrawlPipeline:
         return document, blocks
 
 
-def _same_recovery_object(item: PendingItem, task: RecoveryTask) -> bool:
-    """恢复身份（R5）：任务与待处理项指向同一对象时才允许回写。
+def _same_recovery_object(
+    item: PendingItem,
+    task: RecoveryTask,
+    *,
+    continuation: Optional[BodyContinuation] = None,
+) -> bool:
+    """恢复身份（R5/C）：任务与待处理项指向同一对象时才允许回写。
 
-    - 任务带母文档 doc_id 时，待处理项必须指向同一母文档；待处理项没有母文档
-      身份说明对象类型不同（如目标是页面、任务是附件），不匹配；
-    - 任务带 referrer_url 时，待处理项的 referrer/parent 必须有一个与之一致
+    - URL 相同：任务带母文档 doc_id 时，待处理项必须指向同一母文档；待处理项没有
+      母文档身份说明对象类型不同（如目标是页面、任务是附件），不匹配；
+    - URL 不同：仅当任务带母文档身份，且待处理项正是该母文档的正文待续载体
+      （分页/接口部分失败回到母目标）时算同一对象；
+    - 任务带 referrer_url 时，同 URL 的待处理项 referrer/parent 必须有一个与之一致
       （同一附件挂在不同母页下不算同一对象）；
-    - 来源、URL、原运行范围由调用方先行匹配；任一侧缺字段时按可判定部分判断，
+    - 来源与原运行范围由调用方先行匹配；任一侧缺字段时按可判定部分判断，
       不凭缺失推断为同一对象。
     """
     if task.doc_id:
         if not item.doc_id or item.doc_id != task.doc_id:
             return False
+    if item.url != task.url:
+        return bool(
+            task.doc_id
+            and continuation is not None
+            and continuation.doc_id == task.doc_id
+            and continuation.mother_url == item.url
+        )
     if task.referrer_url:
         candidates = {value for value in (item.referrer_url, item.parent_url) if value}
         if candidates and task.referrer_url not in candidates:

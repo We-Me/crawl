@@ -112,6 +112,15 @@ class FixtureSiteHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.flush()
             self.close_connection = True
             return
+        if path.startswith("/_as_pdf/"):
+            # 成功响应但内容类型不再是 HTML：用于验证母页续作前的原件留存（阶段七 B）
+            body = b"%PDF-1.4 fixture body served for " + path.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/_attachment-cd":
             body = (SITE_DIR / "attachments" / "notice.csv").read_bytes()
             self.send_response(200)
