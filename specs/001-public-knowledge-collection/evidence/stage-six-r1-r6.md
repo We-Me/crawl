@@ -15,12 +15,12 @@
 
 | 修复 | 原缺陷 | 实现要点 | 主要位置 | 提交 |
 | --- | --- | --- | --- | --- |
-| R6 | 损坏状态被当空集，对账误报通过 | 状态文件与失败账的读取、JSON 解析、结构错误进入 `ReconcileReport.problems`；合法缺失/合法空状态仍按零记录；`crawl check` 非零退出并给出文件与原因；检查只读，不重建损坏文件 | `validate/reconcile.py`、`cli.py` | `2155422` |
-| R5 | 补抓按资源计数误判成功 | 以 `TargetOutcome` 与恢复任务阶段判定结果；失败账恢复身份为 `(url, stage, scope_start_date, doc_id)`，恢复任务携带 `doc_id`；显式分支处理 完整 / 合法 304 / partial / 续作 / 失败 / 跳过；同 URL 不同 scope 或母文档不互相关闭 | `pipeline.py`、`monitor/failures.py`、`fetch/retry.py`、`output/failures_writer.py` | `2155422` |
-| R3 | 并发归档 ID 冲突 | 归档全流程（锁内重读已落盘编号、写原件并校验、分配 ID、追加并刷盘账本）在同一跨进程 `file_lock(manifests/crawl_archive)` 内；编号不再用实例缓存；所有归档入口共用该服务 | `output/archive.py` | `aad3a63` |
-| R4 | 游标先提交、目标后入队 | 发现目标先经 `commit_targets` 幂等入队，再推进游标；游标记录 `last_commit_page`/`last_commit_digest`，崩溃重放按页摘要识别；入口级运行锁与 `entry_busy`/`commit_failed`/`cursor_save_failed` 终止原因；重放不把已处理目标整体转 refresh | `discover/discoverer.py`、`schedule/cursor.py`、`schedule/pending.py`、`output/atomic.py`、`pipeline.py` | `9d8b237` |
-| R2 | 正文分页中断后主目标完成 | `PendingItem.continuation`（`kind=body_pagination`）持久化母身份、已取得部分的 crawl_id/raw 引用与顺序、下一正文 URL 或接口、停止原因；预算停止与可重试正文失败保持待续（不写失败账、不写完成）；母页 304 不取消未完成正文；续作完成文档用 `<母doc_id>-R<n>`，旧 partial 与 raw 保留；损坏待续显式转 `continuation_state_damaged` 失败并按整取处理 | `pipeline.py`、`schedule/pending.py` | `b37fc1c` |
-| R1 | 已知 URL 页过早停止 | 删除“整页已知即完成”推断与 `target_urls` 早停；已知目标按更新策略进入 refresh（条件请求），新链接照常登记；游标新增 `pass_pages`/`coverage_rounds`/`last_round_completed_at`，终止报告带 `round_pages`/`coverage_rounds`，累计 `pages_fetched` 不再当覆盖页数；`incremental_head_checked` 仅作历史标记，下次运行在 note 前缀注明已失效并重新遍历 | `discover/discoverer.py`、`schedule/cursor.py`、`schedule/pending.py`、`pipeline.py` | `2ff6ef8` |
+| R6 | 损坏状态被当空集，对账误报通过 | 状态文件与失败账的读取、JSON 解析、结构错误进入 `ReconcileReport.problems`；合法缺失/合法空状态仍按零记录；`crawl check` 非零退出并给出文件与原因；检查只读，不重建损坏文件 | `validate/reconcile.py`、`cli.py` | `f53a899` |
+| R5 | 补抓按资源计数误判成功 | 以 `TargetOutcome` 与恢复任务阶段判定结果；失败账恢复身份为 `(url, stage, scope_start_date, doc_id)`，恢复任务携带 `doc_id`；显式分支处理 完整 / 合法 304 / partial / 续作 / 失败 / 跳过；同 URL 不同 scope 或母文档不互相关闭 | `pipeline.py`、`monitor/failures.py`、`fetch/retry.py`、`output/failures_writer.py` | `f53a899` |
+| R3 | 并发归档 ID 冲突 | 归档全流程（锁内重读已落盘编号、写原件并校验、分配 ID、追加并刷盘账本）在同一跨进程 `file_lock(manifests/crawl_archive)` 内；编号不再用实例缓存；所有归档入口共用该服务 | `output/archive.py` | `8bbbdda` |
+| R4 | 游标先提交、目标后入队 | 发现目标先经 `commit_targets` 幂等入队，再推进游标；游标记录 `last_commit_page`/`last_commit_digest`，崩溃重放按页摘要识别；入口级运行锁与 `entry_busy`/`commit_failed`/`cursor_save_failed` 终止原因；重放不把已处理目标整体转 refresh | `discover/discoverer.py`、`schedule/cursor.py`、`schedule/pending.py`、`output/atomic.py`、`pipeline.py` | `ec2edd3` |
+| R2 | 正文分页中断后主目标完成 | `PendingItem.continuation`（`kind=body_pagination`）持久化母身份、已取得部分的 crawl_id/raw 引用与顺序、下一正文 URL 或接口、停止原因；预算停止与可重试正文失败保持待续（不写失败账、不写完成）；母页 304 不取消未完成正文；续作完成文档用 `<母doc_id>-R<n>`，旧 partial 与 raw 保留；损坏待续显式转 `continuation_state_damaged` 失败并按整取处理 | `pipeline.py`、`schedule/pending.py` | `9f74bd1` |
+| R1 | 已知 URL 页过早停止 | 删除“整页已知即完成”推断与 `target_urls` 早停；已知目标按更新策略进入 refresh（条件请求），新链接照常登记；游标新增 `pass_pages`/`coverage_rounds`/`last_round_completed_at`，终止报告带 `round_pages`/`coverage_rounds`，累计 `pages_fetched` 不再当覆盖页数；`incremental_head_checked` 仅作历史标记，下次运行在 note 前缀注明已失效并重新遍历 | `discover/discoverer.py`、`schedule/cursor.py`、`schedule/pending.py`、`pipeline.py` | `b925705` |
 
 ## 逐项验收对照
 
